@@ -60,6 +60,7 @@
     onTasks = () => {},
     onPlans = () => {},
     onFiles = () => {},
+    onNotifications = undefined,
     onResultFile = () => {}
   }: {
     activity?: DesktopAgentActivityItem;
@@ -99,6 +100,7 @@
     onTasks?: () => void;
     onPlans?: (planId?: string) => void;
     onFiles?: () => void;
+    onNotifications?: () => void;
     onResultFile?: (sessionId: string, file: import("./turnFiles").TurnFileItem) => void;
   } = $props();
 
@@ -389,7 +391,7 @@
 {/snippet}
 
 {#snippet work()}
-  {#if handover && endpoint}<AgentHomeInbox {endpoint} {locale} stale={handoverStale} revision={handover.generatedAt} {formatTime} {copy} memoryReview={showMemory ? memoryReview : undefined} pending={handover.pending} busyId={handoverBusyId} onResolve={onHandoverResolve} onAnswer={onHandoverAnswer} onPlan={onHandoverPlan} onOpen={onHandoverOpen} onHistory={onHistory} {onPlans} {onTasks} {onFiles} {onResultFile} {onMemoryChanged} {onOpenMemory} />{/if}
+  {#if handover && endpoint}<AgentHomeInbox {endpoint} {locale} stale={handoverStale} revision={handover.generatedAt} {formatTime} {copy} memoryReview={showMemory ? memoryReview : undefined} pending={handover.pending} busyId={handoverBusyId} onResolve={onHandoverResolve} onAnswer={onHandoverAnswer} onPlan={onHandoverPlan} onOpen={onHandoverOpen} onHistory={onHistory} {onPlans} {onTasks} {onFiles} {onNotifications} {onResultFile} {onMemoryChanged} {onOpenMemory} />{/if}
 {/snippet}
 
 {#if loadingHandover}

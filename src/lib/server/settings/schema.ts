@@ -271,6 +271,45 @@ export function normalizeDefaultAgentSettings(agent: AgentSettings): AgentSettin
   };
 }
 
+export const DEFAULT_CHANNEL_IDLE_COMPACTION_MINUTES = 60;
+export const DEFAULT_CHANNEL_IDLE_COMPACTION_MIN_TOKENS = 4000;
+export const DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES = 1.5;
+
+export interface ChannelInstanceIdleCompactionSettings {
+  enabled?: boolean;
+  idleMinutes?: number;
+  minContextTokens?: number;
+}
+
+export function defaultChannelIdleCompactionEnabled(channel: string): boolean {
+  return channel === "feishu" || channel === "weixin";
+}
+
+export function resolveChannelIdleCompaction(
+  channel: string,
+  input?: ChannelInstanceIdleCompactionSettings | null
+): Required<ChannelInstanceIdleCompactionSettings> {
+  if (channel === "web") {
+    return {
+      enabled: false,
+      idleMinutes: DEFAULT_CHANNEL_IDLE_COMPACTION_MINUTES,
+      minContextTokens: DEFAULT_CHANNEL_IDLE_COMPACTION_MIN_TOKENS
+    };
+  }
+  const defaultEnabled = defaultChannelIdleCompactionEnabled(channel);
+  const rawMinutes = Number(input?.idleMinutes);
+  const rawTokens = Number(input?.minContextTokens);
+  return {
+    enabled: typeof input?.enabled === "boolean" ? input.enabled : defaultEnabled,
+    idleMinutes: Number.isFinite(rawMinutes)
+      ? Math.min(1440, Math.max(5, Math.round(rawMinutes)))
+      : DEFAULT_CHANNEL_IDLE_COMPACTION_MINUTES,
+    minContextTokens: Number.isFinite(rawTokens)
+      ? Math.min(200_000, Math.max(500, Math.round(rawTokens)))
+      : DEFAULT_CHANNEL_IDLE_COMPACTION_MIN_TOKENS
+  };
+}
+
 export interface ChannelInstanceDisplaySettings {
   toolProgress?: "off" | "new" | "all" | "verbose";
   showReasoning?: "off" | "on" | "stream" | "new";
@@ -288,6 +327,7 @@ export interface ChannelInstanceSettings {
   /** Undefined = inherit; never "off". Resolved by the shared override chain. */
   permissionMode?: PermissionMode;
   display?: ChannelInstanceDisplaySettings;
+  idleCompaction?: ChannelInstanceIdleCompactionSettings;
 }
 
 export interface ChannelPluginSettings {
@@ -317,6 +357,7 @@ export interface MemoryBackendSettings {
   /** Independent embedding targets; one active target is used by memory. */
   embeddingModels: EmbeddingModelConfig[];
   activeEmbeddingModelId: string;
+  idleExtractionMinutes: number;
   reflectionTime: string;
   reflectionNotifications: boolean;
   reflectionNotificationTarget: MemoryReflectionNotificationTarget | null;

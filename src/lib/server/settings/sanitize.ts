@@ -1,6 +1,7 @@
 import {
   type AgentSettings,
   DEFAULT_AGENT_ID,
+  DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
   normalizeChannelAgentId,
   defaultAgentSettings,
   normalizeDefaultAgentSettings,
@@ -15,6 +16,7 @@ import {
   type ModelRole,
   type ModelCapabilityTag,
   type ChannelSettingsMap,
+  type ChannelInstanceIdleCompactionSettings,
   type CustomProviderConfig,
   type EmbeddingModelConfig,
   type CustomProviderProtocol,
@@ -811,6 +813,16 @@ export function migrateLegacyEmbeddingModels(settings: RuntimeSettings): Runtime
   return settings;
 }
 
+export function sanitizeMemoryIdleExtractionMinutes(
+  value: unknown,
+  fallback = DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES
+): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  const clamped = Math.min(120, Math.max(0.5, n));
+  return Math.round(clamped * 10) / 10;
+}
+
 export function sanitizeMemoryPluginSettings(
   input: unknown,
   current: RuntimeSettings["plugins"]["memory"]
@@ -857,6 +869,10 @@ export function sanitizeMemoryPluginSettings(
       || defaultRuntimeSettings.plugins.memory.backend,
     embeddingModels,
     activeEmbeddingModelId,
+    idleExtractionMinutes: sanitizeMemoryIdleExtractionMinutes(
+      source.idleExtractionMinutes,
+      current.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES
+    ),
     reflectionTime: validTime(source.reflectionTime)
       ? String(source.reflectionTime)
       : (current.reflectionTime || "03:00"),
@@ -1347,7 +1363,29 @@ export function sanitizeChannelInstanceDisplaySettings(input: unknown): ChannelI
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSettings {
+export function sanitizeChannelInstanceIdleCompactionSettings(
+  input: unknown,
+  channel?: string
+): ChannelInstanceIdleCompactionSettings | undefined {
+  if (channel === "web") return undefined;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const raw = input as Record<string, unknown>;
+  const out: ChannelInstanceIdleCompactionSettings = {};
+  if (typeof raw.enabled === "boolean") {
+    out.enabled = raw.enabled;
+  }
+  const rawMinutes = Number(raw.idleMinutes);
+  if (raw.idleMinutes !== undefined && raw.idleMinutes !== null && Number.isFinite(rawMinutes)) {
+    out.idleMinutes = Math.min(1440, Math.max(5, Math.round(rawMinutes)));
+  }
+  const rawTokens = Number(raw.minContextTokens);
+  if (raw.minContextTokens !== undefined && raw.minContextTokens !== null && Number.isFinite(rawTokens)) {
+    out.minContextTokens = Math.min(200_000, Math.max(500, Math.round(rawTokens)));
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function sanitizeSingleChannelInstance(input: unknown, channel?: string): ChannelInstanceSettings {
   if (!input || typeof input !== "object") throw new Error("instance is required");
   const item = input as Record<string, unknown>;
   const id = String(item.id ?? "").trim();
@@ -1360,6 +1398,7 @@ export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSe
       .map(([credKey, credValue]) => [String(credKey).trim(), String(credValue ?? "").trim()])
       .filter(([credKey, credValue]) => Boolean(credKey) && Boolean(credValue))
   );
+  const idleCompaction = sanitizeChannelInstanceIdleCompactionSettings(item.idleCompaction, channel);
   return {
     id,
     name: String(item.name ?? "").trim() || id,
@@ -1370,7 +1409,8 @@ export function sanitizeSingleChannelInstance(input: unknown): ChannelInstanceSe
       ? item.allowedChatIds.map((v) => String(v).trim()).filter(Boolean)
       : [],
     permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
-    display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
+    display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined,
+    ...(idleCompaction ? { idleCompaction } : {})
   };
 }
 
@@ -1385,13 +1425,17 @@ function sanitizeChannels(
     Object.entries(current ?? {}).map(([key, value]) => [
       key,
       {
-        instances: (value?.instances ?? []).map((instance) => ({
-          ...instance,
-          agentId: normalizeChannelAgentId(instance.agentId),
-          credentials: { ...(instance.credentials ?? {}) },
-          allowedChatIds: [...(instance.allowedChatIds ?? [])],
-          display: instance.display ? sanitizeChannelInstanceDisplaySettings(instance.display) : undefined
-        }))
+        instances: (value?.instances ?? []).map((instance) => {
+          const idleCompaction = sanitizeChannelInstanceIdleCompactionSettings(instance.idleCompaction, key);
+          return {
+            ...instance,
+            agentId: normalizeChannelAgentId(instance.agentId),
+            credentials: { ...(instance.credentials ?? {}) },
+            allowedChatIds: [...(instance.allowedChatIds ?? [])],
+            display: instance.display ? sanitizeChannelInstanceDisplaySettings(instance.display) : undefined,
+            ...(idleCompaction ? { idleCompaction } : {})
+          };
+        })
       }
     ])
   );
@@ -1405,7 +1449,7 @@ function sanitizeChannels(
     const instances = rawInstances
       .map((row) => {
         try {
-          return sanitizeSingleChannelInstance(row);
+          return sanitizeSingleChannelInstance(row, key);
         } catch {
           return null;
         }

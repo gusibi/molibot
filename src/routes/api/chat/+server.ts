@@ -3,6 +3,7 @@ import { getRoomStore } from "$lib/server/rooms/runtime.js";
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { recordSessionCompletedHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
 import { appendTaskConversationMessage, kanbanConversationSendAction, sendToKanbanTask } from "$lib/server/app/kanbanConversation.js";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
@@ -856,6 +857,21 @@ export const POST: RequestHandler = async ({ request }) => {
       sourceEntryId: result.assistantSourceEntryId,
       retention: turnRetention
     });
+    if (result.stopReason !== "aborted" && runtime.homeNotifications) {
+      const latestConversation = project
+        ? runtime.sessions.getProjectConversation(project.id, conversation.id)
+        : runtime.sessions.getConversationById(conversation.id, "web", externalUserId);
+      const sessionTitle = (latestConversation?.title || conversation.title || inboundText).replace(/\s+/g, " ").trim().slice(0, 100);
+      recordSessionCompletedHomeNotification(runtime.homeNotifications, {
+        sessionId: conversation.id,
+        title: sessionTitle,
+        preview: assistantText,
+        agentId: conversation.agentId ?? "default",
+        botId: parsed.profileId,
+        projectId: project?.id,
+        channel: "web"
+      });
+    }
   }
 
   return json({

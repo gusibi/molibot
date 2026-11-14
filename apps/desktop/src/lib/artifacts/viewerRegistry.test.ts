@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   matchViewer,
   isInlineViewer,
+  isRenderableArtifact,
   needsTextContent,
   hasSourceToggle,
   isTemplateDocument,
@@ -176,4 +177,20 @@ test("template directives mark an HTML document as source, not a page", () => {
   assert.equal(isTemplateDocument(`${pad}{{ next }}`), false);
   assert.equal(isTemplateDocument("<!doctype html><html><head></head><body><p>hi</p></body></html>"), false);
   assert.equal(isTemplateDocument(""), false);
+});
+
+test("isRenderableArtifact identifies rich preview artifacts for auto-preview", () => {
+  assert.equal(isRenderableArtifact("index.html"), true);
+  assert.equal(isRenderableArtifact("report.md"), true);
+  assert.equal(isRenderableArtifact("chart.png"), true);
+  assert.equal(isRenderableArtifact("vector.svg"), true);
+  assert.equal(isRenderableArtifact("data.csv"), true);
+  assert.equal(isRenderableArtifact("table.xlsx"), true);
+  assert.equal(isRenderableArtifact("document.docx"), true);
+  assert.equal(isRenderableArtifact("slides.pptx"), true);
+  assert.equal(isRenderableArtifact("doc.pdf"), true);
+  assert.equal(isRenderableArtifact("summary.json"), true);
+  assert.equal(isRenderableArtifact("main.ts"), false);
+  assert.equal(isRenderableArtifact("Cargo.toml"), false);
+  assert.equal(isRenderableArtifact("random.bin"), false);
 });

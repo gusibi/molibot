@@ -5,7 +5,7 @@ import type { SettingsAccessor } from "./locale.js";
 
 export type ChannelInstancesInput = ChannelInstanceSettings[] | { instances: unknown } | unknown;
 
-function normalizeInstances(raw: unknown): ChannelInstanceSettings[] {
+function normalizeInstances(raw: unknown, channel?: string): ChannelInstanceSettings[] {
   const list = Array.isArray(raw) ? raw : (raw && typeof raw === "object" && Array.isArray((raw as { instances?: unknown }).instances))
     ? ((raw as { instances: unknown[] }).instances ?? [])
     : [];
@@ -14,7 +14,7 @@ function normalizeInstances(raw: unknown): ChannelInstanceSettings[] {
   for (const row of list) {
     let inst: ChannelInstanceSettings;
     try {
-      inst = sanitizeSingleChannelInstance(row);
+      inst = sanitizeSingleChannelInstance(row, channel);
     } catch {
       continue;
     }
@@ -42,7 +42,7 @@ export function replaceChannelInstances(
 ): ChannelInstanceSettings[] {
   const ch = String(channel ?? "").trim();
   if (!ch) throw new Error("channel is required");
-  const instances = normalizeInstances(raw);
+  const instances = normalizeInstances(raw, ch);
   const current = runtime.getSettings();
   const nextChannels: ChannelSettingsMap = {
     ...(current.channels ?? {}),
@@ -62,7 +62,7 @@ export function upsertChannelInstance(
 ): ChannelInstanceSettings {
   const ch = String(channel ?? "").trim();
   if (!ch) throw new Error("channel is required");
-  const inst = sanitizeSingleChannelInstance(raw);
+  const inst = sanitizeSingleChannelInstance(raw, ch);
   const previousId = previousIdRaw === undefined ? inst.id : String(previousIdRaw ?? "").trim();
   const current = runtime.getSettings();
   const toRemove = new Set<string>();

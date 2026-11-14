@@ -7,7 +7,10 @@ import { isDirectEventDelivery } from "$lib/server/agent/events.js";
 import { HomeNotificationStore } from "$lib/server/app/homeNotifications.js";
 import { recordReflectionHomeNotification, recordMaterialsHomeNotification, recordTaskHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
 import { desktopHomeMemoryNamespaces } from "$lib/server/app/desktopMemory.js";
-import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES
+} from "$lib/server/settings/schema.js";
 import { RunnerPool } from "$lib/server/agent/core/runnerPool.js";
 import { MomRuntimeStore } from "$lib/server/agent/session/store.js";
 import { SqliteImageTaskStore } from "$lib/server/agent/imageGenerate/imageTaskStore.js";
@@ -33,12 +36,12 @@ import { initDb, storagePaths } from "$lib/server/infra/db/storage.js";
 import { recordRuntimeInitFailure, recordRuntimeReady } from "$lib/server/app/runtimeHealth.js";
 import { MemoryGateway } from "$lib/server/memory/gateway.js";
 import { MemoryWriter } from "$lib/server/memory/memoryWriter.js";
-import { MemoryExtractionService, matchesExtractionTarget, type MemoryExtractionExtractor, type MemoryExtractionOutput } from "$lib/server/memory/memoryExtraction.js";
+import { MemoryExtractionService, matchesExtractionTarget, type ExtractionModelMeta, type MemoryExtractionExtractor, type MemoryExtractionOutput, type MemoryExtractionTraceEvent } from "$lib/server/memory/memoryExtraction.js";
 import { memoryExtractionSources } from "$lib/server/memory/extractionSources.js";
 import { MemoryExtractionStateStore } from "$lib/server/memory/memoryExtractionStore.js";
 import { EmbeddingModelResolver } from "$lib/server/memory/embeddingResolver.js";
 import type { PluginCatalog, ProviderPlugin } from "$lib/server/plugins/types.js";
-import { AssistantService } from "$lib/server/providers/assistantService.js";
+import { AssistantService, type AssistantReplyResult } from "$lib/server/providers/assistantService.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import { getSessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
 import { SessionLifecycleService } from "$lib/server/sessions/sessionLifecycleService.js";
@@ -65,7 +68,7 @@ import { getHostBashStore, type HostBashStore } from "$lib/server/hostBash/index
 import { getWorkspaceStore } from "$lib/server/workspaces/store.js";
 import { getTurnOrchestrator, SqliteTurnCleanupStore } from "$lib/server/agent/core/turnOrchestrator.js";
 import { createDefaultHookManager, type HookManager } from "$lib/server/agent/hooks/index.js";
-import { resolveTraceApprovalFact } from "$lib/server/agent/hooks/traceStore.js";
+import { recordMemoryExtractionTraceFact, resolveTraceApprovalFact } from "$lib/server/agent/hooks/traceStore.js";
 import { onApprovalResolved } from "$lib/server/approval/resolutionEvents.js";
 import { ensureGlobalProfileDefaults } from "$lib/server/agent/prompts/profiles.js";
 import { runMemoryReflection, pendingMemoryReviewCandidates, MemoryReflectionError, reflectionTargetId, ReflectionStateStore, SessionReflectionSourceReader, previousReflectionLocalDate, reflectionLocalDate, type ReflectionTarget } from "$lib/server/memory/reflection.js";
@@ -390,6 +393,48 @@ function initializeRuntime(): RuntimeState {
       `${config.dataDir}/memory-governance/rejections.jsonl`
     );
     const assistant = new AssistantService(() => currentSettings.value, usageTracker, modelErrorTracker);
+    const extractionMetaFromReply = (reply: AssistantReplyResult): ExtractionModelMeta | undefined => {
+      if (!reply.provider && !reply.model && !reply.api && !reply.usage) return undefined;
+      return {
+        ...(reply.provider ? { provider: reply.provider } : {}),
+        ...(reply.model ? { model: reply.model } : {}),
+        ...(reply.api ? { api: reply.api } : {}),
+        ...(reply.usage ? {
+          inputTokens: reply.usage.inputTokens,
+          outputTokens: reply.usage.outputTokens,
+          cacheReadTokens: reply.usage.cacheReadTokens,
+          cacheWriteTokens: reply.usage.cacheWriteTokens,
+          totalTokens: reply.usage.totalTokens
+        } : {})
+      };
+    };
+    const recordExtractionTraceEvent = (event: MemoryExtractionTraceEvent): void => {
+      recordMemoryExtractionTraceFact({
+        trigger: event.trigger,
+        status: event.status,
+        conversationId: event.conversationId,
+        channel: event.channel,
+        botId: event.botId,
+        agentId: event.agentId ?? undefined,
+        projectId: event.projectId,
+        startedAt: event.startedAt,
+        finishedAt: event.finishedAt,
+        durationMs: event.durationMs,
+        scannedMessages: event.scannedMessages,
+        committedMemories: event.committedMemories,
+        createdCandidates: event.createdCandidates,
+        skippedMemories: event.skippedMemories,
+        provider: event.provider,
+        model: event.model,
+        api: event.api,
+        inputTokens: event.inputTokens,
+        outputTokens: event.outputTokens,
+        cacheReadTokens: event.cacheReadTokens,
+        cacheWriteTokens: event.cacheWriteTokens,
+        totalTokens: event.totalTokens,
+        error: event.error
+      });
+    };
     // T9 managed extraction: same assistant-reply + JSON pattern as the
     // reflection extractor. The model proposes memories/artifact links; the
     // T8 service validates, routes namespaces and records durable receipts.
@@ -407,7 +452,7 @@ function initializeRuntime(): RuntimeState {
         `Session: ${input.sessionId} (channel ${input.channel}${input.projectId ? `, project ${input.projectId}` : ""})`,
         transcript || "(no eligible messages)"
       ].join("\n\n");
-      const response = await assistant.reply(
+      const reply = await assistant.replyWithMeta(
         [
           {
             id: `session-extract:${input.conversationId}`,
@@ -421,10 +466,12 @@ function initializeRuntime(): RuntimeState {
         "",
         { sessionId: input.conversationId }
       );
-      const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+      const raw = reply.text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? reply.text;
       // A throw here is intentional: malformed model output must surface as
       // a failed extraction, never as proof of nothing-to-save.
-      return JSON.parse(raw) as ExtractionOutput;
+      const parsed = JSON.parse(raw) as ExtractionOutput;
+      const meta = extractionMetaFromReply(reply);
+      return parsed && typeof parsed === "object" && meta ? { ...parsed, meta } : parsed;
     };
     const sessionExtraction = new SessionExtractionService({
       sessions,
@@ -439,7 +486,8 @@ function initializeRuntime(): RuntimeState {
       },
       extractor: sessionExtractor,
       ownerId: "owner",
-      botId: "web"
+      botId: "web",
+      onTrace: recordExtractionTraceEvent
     });
     const memoryExtractor: MemoryExtractionExtractor = async (input) => {
       const transcript = input.messages
@@ -461,7 +509,7 @@ function initializeRuntime(): RuntimeState {
         `Session: ${input.conversationId} (channel ${input.channel}${input.projectId ? `, project ${input.projectId}` : ""})`,
         transcript || "(no eligible messages)"
       ].join("\n\n");
-      const response = await assistant.reply(
+      const reply = await assistant.replyWithMeta(
         [
           {
             id: `memory-extract:${input.conversationId}`,
@@ -475,10 +523,12 @@ function initializeRuntime(): RuntimeState {
         "",
         { modelKey: currentSettings.value.modelRouting.compactionModelKey || undefined, sessionId: input.conversationId }
       );
-      const raw = response.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? response;
+      const raw = reply.text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1] ?? reply.text;
       // A throw is intentional: malformed model output must surface as a
       // failed extraction, never as proof that nothing was worth keeping.
-      return JSON.parse(raw) as MemoryExtractionOutput;
+      const parsed = JSON.parse(raw) as MemoryExtractionOutput;
+      const meta = extractionMetaFromReply(reply);
+      return parsed && typeof parsed === "object" && meta ? { ...parsed, meta } : parsed;
     };
     const reflectionState = new ReflectionStateStore(storagePaths.moryDbFile);
     const memoryExtraction = new MemoryExtractionService({
@@ -486,6 +536,11 @@ function initializeRuntime(): RuntimeState {
         (filters) => sessionLifecycle.queryManaged(filters), sessions, config.dataDir,
         (agentId) => currentSettings.value.agents.find((agent) => agent.id === agentId)?.shareOwnerMemory !== false
       ),
+      minIdleMs: () =>
+        Math.round(
+          (currentSettings.value.plugins.memory.idleExtractionMinutes ??
+            DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES) * 60_000
+        ),
       eligible: (session) => {
         const agent = currentSettings.value.agents.find((agent) => agent.id === session.agentId);
         if (agent?.enabled === false) return false;
@@ -532,7 +587,8 @@ function initializeRuntime(): RuntimeState {
       enabled: () => currentSettings.value.plugins.memory.enabled,
       ownerId: "owner",
       botId: "web",
-      log: (line) => console.log(`${memoryLabel("memory")} ${line}`)
+      log: (line) => console.log(`${memoryLabel("memory")} ${line}`),
+      onTrace: recordExtractionTraceEvent
     });
     memory.setProfileSummarizer(async (profile) => {
       const lines = [...profile.stablePreferences, ...profile.profileFacts, ...profile.currentFocus]
@@ -668,6 +724,40 @@ function initializeRuntime(): RuntimeState {
         const target = event.internal.target as ReflectionTarget | undefined;
         const targets = target ? [target] : collectMemoryReflectionInternals(currentSettings.value)
           .map((internal) => internal.target as ReflectionTarget);
+        const reflectionStartedAt = new Date().toISOString();
+        const recordReflectionTrace = (input: {
+          status: "success" | "error";
+          scannedMessages: number;
+          committedMemories: number;
+          createdCandidates: number;
+          scannedConversations: number;
+          idleExtractedConversations?: number;
+          fallbackExtractedConversations?: number;
+          error?: string;
+        }) => {
+          try {
+            recordMemoryExtractionTraceFact({
+              trigger: "daily_reflection",
+              status: input.status,
+              conversationId: filename,
+              channel: target?.sourceScopes[0]?.channel ?? "internal",
+              botId: target?.botId ?? "system",
+              chatId: event.chatId || "internal-memory-reflection",
+              agentId: target?.agentId,
+              startedAt: reflectionStartedAt,
+              finishedAt: new Date().toISOString(),
+              scannedMessages: input.scannedMessages,
+              committedMemories: input.committedMemories,
+              createdCandidates: input.createdCandidates,
+              scannedConversations: input.scannedConversations,
+              idleExtractedConversations: input.idleExtractedConversations,
+              fallbackExtractedConversations: input.fallbackExtractedConversations,
+              error: input.error
+            });
+          } catch {
+            // Trace recording is best-effort and must not interfere with reflection delivery.
+          }
+        };
         let extracted;
         try {
           extracted = await runMemoryReflection(memoryExtraction, {
@@ -688,6 +778,16 @@ function initializeRuntime(): RuntimeState {
               ? error.result.pendingReviewCandidateIds.length
               : 0
           });
+          recordReflectionTrace({
+            status: "error",
+            scannedMessages: error instanceof MemoryReflectionError ? error.result.scannedMessages : 0,
+            committedMemories: error instanceof MemoryReflectionError ? error.result.committedMemories : 0,
+            createdCandidates: error instanceof MemoryReflectionError ? error.result.createdCandidates : 0,
+            scannedConversations: error instanceof MemoryReflectionError ? error.result.scannedConversations : 0,
+            idleExtractedConversations: error instanceof MemoryReflectionError ? error.result.idleExtractedConversations : undefined,
+            fallbackExtractedConversations: error instanceof MemoryReflectionError ? error.result.fallbackExtractedConversations : undefined,
+            error: error instanceof Error ? error.message : String(error)
+          });
           throw error;
         }
         for (const maintenanceTarget of targets) {
@@ -704,6 +804,15 @@ function initializeRuntime(): RuntimeState {
           skillDraftCount: pending.filter(candidate => candidate!.skillDraftSuggestion).length
         };
         console.log(`${memoryLabel("reflection")} completed file=${filename} candidates=${result.createdCandidates} messages=${result.scannedMessages}`);
+        recordReflectionTrace({
+          status: "success",
+          scannedMessages: result.scannedMessages,
+          committedMemories: result.committedMemories ?? 0,
+          createdCandidates: result.createdCandidates,
+          scannedConversations: result.scannedConversations,
+          idleExtractedConversations: result.idleExtractedConversations,
+          fallbackExtractedConversations: result.fallbackExtractedConversations
+        });
         recordReflectionHomeNotification(homeNotifications, {
           localDate: result.localDate || previousReflectionLocalDate(new Date(), currentSettings.value.timezone),
           completedTargets: result.completedTargets,
@@ -716,8 +825,18 @@ function initializeRuntime(): RuntimeState {
         if (currentSettings.value.plugins.memory.reflectionNotifications) await deliverReflectionReview({ ...result, ...review }, filename);
         return {
           kind: "memory-reflection", completedTargets: result.completedTargets,
-          scannedConversations: result.scannedConversations, scannedMessages: result.scannedMessages,
-          createdCandidates: result.createdCandidates, committedMemories: result.committedMemories, ...review
+          ...(result.totalConversations !== undefined ? { totalConversations: result.totalConversations } : {}),
+          scannedConversations: result.scannedConversations,
+          ...(result.idleExtractedConversations !== undefined ? { idleExtractedConversations: result.idleExtractedConversations } : {}),
+          ...(result.fallbackExtractedConversations !== undefined ? { fallbackExtractedConversations: result.fallbackExtractedConversations } : {}),
+          scannedMessages: result.scannedMessages,
+          ...(result.idleScannedMessages !== undefined ? { idleScannedMessages: result.idleScannedMessages } : {}),
+          ...(result.fallbackScannedMessages !== undefined ? { fallbackScannedMessages: result.fallbackScannedMessages } : {}),
+          createdCandidates: result.createdCandidates,
+          committedMemories: result.committedMemories,
+          ...(result.idleCommittedMemories !== undefined ? { idleCommittedMemories: result.idleCommittedMemories } : {}),
+          ...(result.fallbackCommittedMemories !== undefined ? { fallbackCommittedMemories: result.fallbackCommittedMemories } : {}),
+          ...review
         };
       }
       if (event.internal?.kind === "memory-maintenance") {
@@ -913,7 +1032,7 @@ function initializeRuntime(): RuntimeState {
       },
       onAttemptProgress: (execution, activities, round, sessionId) => updateDurableConversationProgress(state.sessions, execution, activities, round, sessionId),
       onAttemptOutput: (execution, runId, field, delta, round, sessionId) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round, sessionId),
-      onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input)
+      onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input, state.homeNotifications)
     });
     if (!liveServicesDisabled()) {
       const durableStartup = durableExecutionRuntime.start();
@@ -1050,10 +1169,22 @@ function initializeRuntime(): RuntimeState {
           .catch((error) => {
             console.error(`${memoryLabel("memory")} ${color("periodic_sync_failed", `${ANSI_BOLD}${ANSI_RED}`)}`, error);
           });
-        void state.memoryExtraction.runSweep()
-          .catch((error) => {
+        void (async () => {
+          try {
+            await state.memoryExtraction.runSweep();
+          } catch (error) {
             console.error(`${memoryLabel("memory")} extraction_sweep_failed`, error);
-          });
+          }
+          for (const group of state.channelManagers.values()) {
+            for (const manager of group.values()) {
+              try {
+                await manager.runIdleCompactionSweep?.();
+              } catch (error) {
+                console.error("[channels] idle_compaction_sweep_failed", error);
+              }
+            }
+          }
+        })();
       }, 60_000);
       // Startup catch-up: a Session that went idle before a restart is picked
       // up once, without waiting for the first interval tick.
@@ -1123,18 +1254,20 @@ function initializeRuntime(): RuntimeState {
         if (approved) await resumePiRecoveryOwner(approved, state);
       })().catch(error => console.error("[runtime] Recovery review resolution failed:", error));
     });
-    if (!liveServicesDisabled()) setTimeout(() => { void (async () => {
-      const inspected = await inspectPiRecovery(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
-      for (const inspection of inspected) {
-        const owner = inspection.record;
-        if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") continue;
-        if (inspection.disposition !== "resume") {
-          await failPiRecoveryReview(inspection, state.channelManagers);
-          continue;
+    if (!liveServicesDisabled()) setTimeout(() => {
+      void (async () => {
+        const inspected = await inspectPiRecovery(config.dataDir, id => getTurnOrchestrator().getRunStatus(id));
+        for (const inspection of inspected) {
+          const owner = inspection.record;
+          if (getTurnOrchestrator().getRunStatus(owner.runId) !== "running") continue;
+          if (inspection.disposition !== "resume") {
+            await failPiRecoveryReview(inspection, state.channelManagers);
+            continue;
+          }
+          await resumePiRecoveryOwner(owner, state);
         }
-        await resumePiRecoveryOwner(owner, state);
-      }
-    })().catch(error => console.error("[runtime] Native recovery inspection failed:", error)); }, 0);
+      })().catch(error => console.error("[runtime] Native recovery inspection failed:", error));
+    }, 0);
 
     sessions.setMessageProjector((conversationId) => loadStoredConversationMessages(conversationId));
   }

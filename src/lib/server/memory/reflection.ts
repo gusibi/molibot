@@ -216,10 +216,17 @@ export interface ReflectionRunResult {
   targetId: string;
   runKey: string;
   localDate: string;
+  totalConversations?: number;
   scannedConversations: number;
+  idleExtractedConversations?: number;
+  fallbackExtractedConversations?: number;
   scannedMessages: number;
+  idleScannedMessages?: number;
+  fallbackScannedMessages?: number;
   createdCandidates: number;
   committedMemories: number;
+  idleCommittedMemories?: number;
+  fallbackCommittedMemories?: number;
   pendingReviewCandidateIds: string[];
 }
 
@@ -231,12 +238,21 @@ export async function runMemoryReflection(
   const localDate = reflectionLocalDate(options.now ?? new Date(), options.timezone);
   const targetId = options.target ? reflectionTargetId(options.target) : "owner";
   const result = await extraction.runSweep({ mode: "daily", target: options.target, signal: options.signal });
-  const outcome = {
-    targetId, runKey: `${targetId}:${localDate}`, localDate,
-    scannedConversations: result.scanned,
-    scannedMessages: result.scannedMessages,
-    createdCandidates: result.proposals,
-    committedMemories: result.committed,
+  const outcome: ReflectionRunResult = {
+    targetId,
+    runKey: `${targetId}:${localDate}`,
+    localDate,
+    totalConversations: result.scanned,
+    scannedConversations: result.dailyConversations,
+    idleExtractedConversations: result.idleConversations,
+    fallbackExtractedConversations: result.processedConversations,
+    scannedMessages: result.idleScannedMessages + result.scannedMessages,
+    idleScannedMessages: result.idleScannedMessages,
+    fallbackScannedMessages: result.scannedMessages,
+    createdCandidates: result.idleProposals + result.proposals,
+    committedMemories: result.idleCommitted + result.committed,
+    idleCommittedMemories: result.idleCommitted,
+    fallbackCommittedMemories: result.committed,
     pendingReviewCandidateIds: result.pendingReviewCandidateIds
   };
   if (result.failed > 0) throw new MemoryReflectionError(result.failed, outcome);

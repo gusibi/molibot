@@ -157,6 +157,19 @@ export function isInlineViewer(viewer: ArtifactViewerId): boolean {
 }
 
 /**
+ * True when an artifact is a rich renderable product (HTML, image, video, audio,
+ * markdown, diagram, spreadsheet, document, etc.) suitable for auto-preview,
+ * rather than raw source code or unknown binary.
+ */
+export function isRenderableArtifact(metaOrName: ArtifactMeta | string): boolean {
+  const meta: ArtifactMeta = typeof metaOrName === "string"
+    ? { name: metaOrName, scope: "project" }
+    : metaOrName;
+  const viewer = matchViewer(meta);
+  return viewer !== "code" && viewer !== "system";
+}
+
+/**
  * Viewers that render decoded text and therefore need the tab's text content
  * loaded. `media` and `html` stream bytes through a URL instead, and `system`
  * renders no content at all.

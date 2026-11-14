@@ -123,7 +123,9 @@ const factTypes = new Set<FactTypeFilter>([
   "subagent_task",
   "runtime_notice",
   "approval",
-  "input_enrichment"
+  "input_enrichment",
+  "memory_extraction",
+  "compaction"
 ]);
 
 function localDateKey(value: string | Date, timeZone: string): string {

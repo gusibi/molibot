@@ -31,7 +31,8 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
   import { formatTimestamp } from "../presentation";
-  import { session, SETTINGS_CHANGED_EVENT, navigateSettings } from "../stores/session.svelte";
+  import { saveDesktopCorePluginSettings } from "../api";
+  import { session, SETTINGS_CHANGED_EVENT, navigateSettings, notifySettingsChanged } from "../stores/session.svelte";
   import {
     memoryStore,
     beginCandidateEdit,
@@ -58,6 +59,61 @@
   let agentCandidatesOpen = $state(false);
   let advancedOpen = $state(false);
   let profileExpanded = $state(false);
+
+  const MEMORY_EXTRACTION_MINUTE_PRESETS = [1, 1.5, 2, 3, 5] as const;
+
+  let idleExtractionInput = $state("1.5");
+  let idleExtractionSaving = $state(false);
+  let idleExtractionMessage = $state("");
+  let idleExtractionError = $state("");
+  let syncedIdleExtractionMinutes = $state<number | null>(null);
+
+  $effect(() => {
+    const serverMinutes = memoryStore.memory?.idleExtractionMinutes;
+    if (typeof serverMinutes === "number" && Number.isFinite(serverMinutes) && serverMinutes !== syncedIdleExtractionMinutes) {
+      syncedIdleExtractionMinutes = serverMinutes;
+      idleExtractionInput = String(serverMinutes);
+    }
+  });
+
+  function sanitizeIdleExtractionInput(raw: string): number | null {
+    const parsed = Number(raw.trim());
+    if (!Number.isFinite(parsed) || parsed < 0.5 || parsed > 120) return null;
+    return Math.round(parsed * 10) / 10;
+  }
+
+  const parsedIdleExtractionDraft = $derived(sanitizeIdleExtractionInput(idleExtractionInput));
+  const idleExtractionDirty = $derived(
+    parsedIdleExtractionDraft !== null &&
+      parsedIdleExtractionDraft !== (memoryStore.memory?.idleExtractionMinutes ?? 1.5)
+  );
+
+  async function saveIdleExtractionDelay(): Promise<void> {
+    if (!session.endpoint || idleExtractionSaving) return;
+    const minutes = sanitizeIdleExtractionInput(idleExtractionInput);
+    if (minutes === null) {
+      idleExtractionError = session.text.memoryIdleExtractionInvalid;
+      idleExtractionMessage = "";
+      return;
+    }
+    idleExtractionSaving = true;
+    idleExtractionError = "";
+    idleExtractionMessage = "";
+    try {
+      await saveDesktopCorePluginSettings(session.endpoint, "memory", {
+        idleExtractionMinutes: minutes
+      });
+      syncedIdleExtractionMinutes = minutes;
+      idleExtractionInput = String(minutes);
+      idleExtractionMessage = session.text.memoryIdleExtractionSaved.replace("{minutes}", String(minutes));
+      notifySettingsChanged();
+      await loadMemory(session.endpoint);
+    } catch (error) {
+      idleExtractionError = error instanceof Error ? error.message : String(error);
+    } finally {
+      idleExtractionSaving = false;
+    }
+  }
 
   const center = $derived(projectMemoryCenter(memoryStore.items, memoryStore.candidates, memoryStore.profile));
   const selectedTopicData = $derived(center.topics.find((topic) => topic.id === selectedTopic) ?? center.topics[0]);
@@ -171,7 +227,7 @@
         <Box size={13} aria-hidden="true" />{session.text.embeddingModels}
       </button>
       <button class="text-button memory-advanced-button" type="button" onclick={() => advancedOpen = true}>
-        <Tuning size={13} aria-hidden="true" />{session.text.memoryAdvanced}
+        <Tuning size={13} aria-hidden="true" />{session.text.memoryAdvanced}<span class="memory-toolbar-pill">{session.text.memoryIdleExtractionCurrent.replace("{minutes}", String(memoryStore.memory?.idleExtractionMinutes ?? 1.5))}</span>
       </button>
     </div>
 
@@ -506,6 +562,63 @@
                 >{session.text.memoryConfigure}</button>
               </div>
             </div>
+          </section>
+          <section class="settings-card memory-extraction-card" aria-label={session.text.memoryIdleExtractionTitle}>
+            <div class="memory-extraction-head">
+              <div>
+                <strong>{session.text.memoryIdleExtractionTitle}</strong>
+                <p>{session.text.memoryIdleExtractionHint}</p>
+              </div>
+              <span class="memory-extraction-badge">
+                {memoryStore.memory?.idleExtractionMinutes ?? 1.5} {session.text.memoryIdleExtractionUnit}
+              </span>
+            </div>
+            <div class="memory-extraction-controls">
+              <div class="bento-preset-row" role="group" aria-label={session.text.memoryIdleExtractionTitle}>
+                {#each MEMORY_EXTRACTION_MINUTE_PRESETS as preset (preset)}
+                  <button
+                    type="button"
+                    class="bento-preset-chip"
+                    class:active={parsedIdleExtractionDraft === preset}
+                    aria-pressed={parsedIdleExtractionDraft === preset}
+                    onclick={() => {
+                      idleExtractionInput = String(preset);
+                      idleExtractionError = "";
+                      idleExtractionMessage = "";
+                    }}
+                  >{preset} {session.text.memoryIdleExtractionUnit}</button>
+                {/each}
+              </div>
+              <div class="memory-extraction-action">
+                <div class="bento-unit-input bento-unit-input--compact">
+                  <input
+                    id="memory-idle-extraction-minutes"
+                    type="number"
+                    min="0.5"
+                    max="120"
+                    step="0.5"
+                    bind:value={idleExtractionInput}
+                    aria-label={session.text.memoryIdleExtractionTitle}
+                    oninput={() => {
+                      idleExtractionError = "";
+                      idleExtractionMessage = "";
+                    }}
+                  />
+                  <span>{session.text.memoryIdleExtractionUnit}</span>
+                </div>
+                <button
+                  class="primary-button"
+                  type="button"
+                  disabled={idleExtractionSaving || parsedIdleExtractionDraft === null || !idleExtractionDirty}
+                  onclick={() => void saveIdleExtractionDelay()}
+                >{idleExtractionSaving ? session.text.memoryIdleExtractionSaving : session.text.memoryIdleExtractionSave}</button>
+              </div>
+            </div>
+            {#if idleExtractionError}
+              <p class="memory-extraction-feedback error-text" role="alert">{idleExtractionError}</p>
+            {:else if idleExtractionMessage}
+              <p class="memory-extraction-feedback" aria-live="polite">{idleExtractionMessage}</p>
+            {/if}
           </section>
           <section class="settings-card">
             <div class="settings-row"><strong>{session.text.memoryCapHybrid}</strong><span>{memoryStore.memory.capabilities.hybridSearch ? session.text.yes : session.text.no}</span></div>

@@ -5,6 +5,7 @@ import type { SessionExtractionStore, ExtractionDocRef } from "$lib/server/sessi
 import { retentionCapabilities } from "$lib/server/sessions/retentionPolicy.js";
 import { MemoryCandidateValidationError } from "$lib/server/memory/gateway.js";
 import { agentNamespace, contentNamespace, ownerNamespace, projectNamespace } from "$lib/server/memory/namespaces.js";
+import type { ExtractionModelMeta, MemoryExtractionTraceEvent } from "$lib/server/memory/memoryExtraction.js";
 import type {
   MemoryCandidate,
   MemoryCandidateCreateInput,
@@ -46,6 +47,7 @@ export interface ExtractionOutput {
   memories?: ExtractionMemoryProposal[];
   artifactLinks?: ExtractionArtifactLink[];
   artifactSaves?: ExtractionArtifactSave[];
+  meta?: ExtractionModelMeta;
 }
 
 export interface ExtractionSourceMessage {
@@ -105,6 +107,7 @@ export interface SessionExtractionServiceDeps {
   documentSaver?: SessionExtractionDocumentSaver;
   ownerId?: string;
   botId?: string;
+  onTrace?: (event: MemoryExtractionTraceEvent) => void;
 }
 
 export interface SessionExtractionResult {
@@ -179,6 +182,7 @@ export class SessionExtractionService {
   private readonly documentSaver?: SessionExtractionDocumentSaver;
   private readonly ownerId: string;
   private readonly botId: string;
+  private readonly onTrace?: (event: MemoryExtractionTraceEvent) => void;
 
   constructor(deps: SessionExtractionServiceDeps) {
     this.sessions = deps.sessions;
@@ -190,6 +194,7 @@ export class SessionExtractionService {
     this.documentSaver = deps.documentSaver;
     this.ownerId = deps.ownerId ?? "owner";
     this.botId = deps.botId ?? "web";
+    this.onTrace = deps.onTrace;
   }
 
   getStatus(input: { conversationId: string; requesterExternalUserId?: string }): {
@@ -297,6 +302,7 @@ export class SessionExtractionService {
     const lastEligible = eligible.at(-1);
     const runKey = `extract:${id}:${startRevision}`;
     const sessionBotId = sessionBotIdOf(located, this.botId);
+    const startedAtMs = Date.now();
 
     let output: ExtractionOutput | null | undefined;
     try {
@@ -321,9 +327,24 @@ export class SessionExtractionService {
         processedThroughAt: lastEligible?.createdAt ?? null,
         status: "failed",
         runKey,
-        failureReasons: [`Extractor failed: ${error instanceof Error ? error.message : String(error)}`]
+        failureReasons: [`Extractor failed: ${error instanceof Error ? error.message : String(error)}`],
+        trace: {
+          agentId: located.agentId,
+          startedAtMs,
+          scannedMessages: eligibleMessages.length,
+          committedMemories: 0,
+          createdCandidates: 0,
+          skippedMemories: 0
+        }
       });
     }
+
+    const baseTrace = {
+      agentId: located.agentId,
+      startedAtMs,
+      scannedMessages: eligibleMessages.length,
+      meta: isRecord(output) && isRecord(output.meta) ? (output.meta as ExtractionModelMeta) : undefined
+    };
 
     // An empty or malformed model response is never proof of
     // nothing-to-save; only an explicit no-useful-information claim qualifies.
@@ -339,7 +360,8 @@ export class SessionExtractionService {
         processedThroughAt: lastEligible?.createdAt ?? null,
         status: "failed",
         runKey,
-        failureReasons: ["Extractor returned no usable output."]
+        failureReasons: ["Extractor returned no usable output."],
+        trace: { ...baseTrace, committedMemories: 0, createdCandidates: 0, skippedMemories: 0 }
       });
     }
     const memories = Array.isArray(output.memories) ? output.memories : [];
@@ -356,7 +378,8 @@ export class SessionExtractionService {
         processedThroughId: lastEligible?.id ?? null,
         processedThroughAt: lastEligible?.createdAt ?? null,
         status: "no-useful-information",
-        runKey
+        runKey,
+        trace: { ...baseTrace, committedMemories: 0, createdCandidates: 0, skippedMemories: 0 }
       });
     }
 
@@ -489,7 +512,8 @@ export class SessionExtractionService {
         runKey,
         savedMemoryIds,
         savedDocRefs,
-        failureReasons: ["Extractor returned no usable output."]
+        failureReasons: ["Extractor returned no usable output."],
+        trace: { ...baseTrace, committedMemories: 0, createdCandidates: 0, skippedMemories: 0 }
       });
     }
     return this.persist({
@@ -507,7 +531,13 @@ export class SessionExtractionService {
       savedDocRefs,
       pendingCandidateIds,
       failureReasons,
-      suppressedCount
+      suppressedCount,
+      trace: {
+        ...baseTrace,
+        committedMemories: savedMemoryIds.length,
+        createdCandidates: savedMemoryIds.length + pendingCandidateIds.length,
+        skippedMemories: suppressedCount
+      }
     });
   }
 
@@ -636,6 +666,15 @@ export class SessionExtractionService {
     pendingCandidateIds?: string[];
     failureReasons?: string[];
     suppressedCount?: number;
+    trace?: {
+      agentId?: string;
+      startedAtMs: number;
+      scannedMessages: number;
+      committedMemories: number;
+      createdCandidates: number;
+      skippedMemories: number;
+      meta?: ExtractionModelMeta;
+    };
   }): SessionExtractionResult {
     // A retry must never erase previously saved references: union them with
     // this run's, since the gateway's duplicate suppression returns null for
@@ -675,6 +714,32 @@ export class SessionExtractionService {
       suppressedCount: Math.max(previous?.suppressedCount ?? 0, input.suppressedCount ?? 0),
       runKey: input.runKey
     });
+    if (this.onTrace && input.trace) {
+      const finishedAtMs = Date.now();
+      try {
+        this.onTrace({
+          trigger: "manual",
+          conversationId: input.conversationId,
+          channel: input.channel,
+          botId: input.botId,
+          projectId: input.projectId,
+          agentId: input.trace.agentId ?? null,
+          ownerExternalUserId: input.ownerExternalUserId,
+          status: input.status === "failed" ? "error" : "success",
+          startedAt: new Date(input.trace.startedAtMs).toISOString(),
+          finishedAt: new Date(finishedAtMs).toISOString(),
+          durationMs: Math.max(0, finishedAtMs - input.trace.startedAtMs),
+          scannedMessages: input.trace.scannedMessages,
+          committedMemories: input.trace.committedMemories,
+          createdCandidates: input.trace.createdCandidates,
+          skippedMemories: input.trace.skippedMemories,
+          ...input.trace.meta,
+          ...(input.status === "failed" && input.failureReasons?.length ? { error: input.failureReasons.join("；") } : {})
+        });
+      } catch {
+        // Trace recording is best-effort and must not fail extraction.
+      }
+    }
     return this.toResult(receipt);
   }
 

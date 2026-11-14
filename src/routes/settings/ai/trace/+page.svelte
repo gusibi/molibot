@@ -34,7 +34,8 @@
         | "subagent_task"
         | "runtime_notice"
         | "approval"
-        | "input_enrichment";
+        | "input_enrichment"
+        | "memory_extraction";
 
     interface TraceTotals {
         facts: number;
@@ -214,6 +215,8 @@
                 runtime_notice: "运行提示",
                 approval: "审批",
                 input_enrichment: "输入增强",
+                memory_extraction: "记忆抽取",
+                compaction: "会话压缩",
             },
             statuses: {
                 started: "进行中",
@@ -376,6 +379,8 @@
                 runtime_notice: "Runtime Notice",
                 approval: "Approval",
                 input_enrichment: "Input Enrichment",
+                memory_extraction: "Memory Extraction",
+                compaction: "Context Compaction",
             },
             statuses: {
                 started: "Running",
@@ -669,7 +674,32 @@
         }).format(new Date(value));
     }
 
+    const MEMORY_TRIGGER_LABELS: Record<string, { zh: string; en: string }> = {
+        idle: { zh: "白天空闲抽取", en: "Daytime idle extraction" },
+        long_session: { zh: "长会话定频抽取", en: "Long-session extraction" },
+        daily: { zh: "每日反思兜底", en: "Daily fallback extraction" },
+        daily_reflection: { zh: "每日记忆反思汇总", en: "Daily reflection summary" },
+        manual: { zh: "手动会话提取", en: "Manual session extraction" },
+    };
+
+    const COMPACTION_TRIGGER_LABELS: Record<string, { zh: string; en: string }> = {
+        threshold: { zh: "超阈值自动压缩", en: "Threshold compaction" },
+        manual: { zh: "手动压缩", en: "Manual compaction" },
+        overflow: { zh: "上下文溢出重试压缩", en: "Overflow retry compaction" },
+        preflight: { zh: "上下文预检超限压缩", en: "Preflight overflow compaction" },
+    };
+
     function displayFactName(fact: TraceFact): string {
+        if (fact.factType === "compaction") {
+            const entry = fact.name ? COMPACTION_TRIGGER_LABELS[fact.name] : undefined;
+            if (entry) return $locale === "zh-CN" ? entry.zh : entry.en;
+            return fact.name || factTypeLabel(fact.factType);
+        }
+        if (fact.factType === "memory_extraction") {
+            const entry = fact.name ? MEMORY_TRIGGER_LABELS[fact.name] : undefined;
+            if (entry) return $locale === "zh-CN" ? entry.zh : entry.en;
+            return fact.name || factTypeLabel(fact.factType);
+        }
         if (fact.factType === "tool_call") return fact.name || "unknown";
         if (fact.factType === "model_call") return fact.model || fact.provider || "unknown";
         return fact.name || fact.factId || "unknown";
@@ -819,6 +849,8 @@
                         <NativeSelectOption value="runtime_notice">{copy.factTypes.runtime_notice}</NativeSelectOption>
                         <NativeSelectOption value="approval">{copy.factTypes.approval}</NativeSelectOption>
                         <NativeSelectOption value="input_enrichment">{copy.factTypes.input_enrichment}</NativeSelectOption>
+                        <NativeSelectOption value="memory_extraction">{copy.factTypes.memory_extraction}</NativeSelectOption>
+                        <NativeSelectOption value="compaction">{copy.factTypes.compaction}</NativeSelectOption>
                     </NativeSelect>
                 </div>
                 <div class="usage-filter-group">

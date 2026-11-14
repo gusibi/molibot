@@ -5,7 +5,8 @@ import type {
   DesktopPluginStatus,
   DesktopPluginsSummary
 } from "$lib/shared/desktop";
-import type { RuntimeSettings } from "$lib/server/settings/schema";
+import { DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES, type RuntimeSettings } from "$lib/server/settings/schema";
+import { sanitizeMemoryIdleExtractionMinutes } from "$lib/server/settings/sanitize";
 import type { PluginCatalog, PluginSettingField } from "$lib/server/plugins/types";
 import { getProjectStore } from "$lib/server/projects/store";
 import { buildModelOptions } from "$lib/server/settings/modelSwitch";
@@ -118,6 +119,7 @@ export function buildDesktopPluginsSummary(catalog: SharedPluginCatalog, setting
           ? { providerId: target.id, providerName: target.name || target.id, model: target.model }
           : null;
       })(),
+      idleExtractionMinutes: settings?.plugins.memory.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
       reflectionTime: settings?.plugins.memory.reflectionTime ?? "03:00",
       reflectionNotifications: settings?.plugins.memory.reflectionNotifications ?? true,
       reflectionNotificationTarget: reflectionNotificationTarget ? memoryReflectionNotificationTargetValue(reflectionNotificationTarget) : "",
@@ -178,6 +180,10 @@ export function buildDesktopPluginsSettings(settings: RuntimeSettings, catalog: 
   next.memory = {
     enabled: input.memoryEnabled,
     backend: input.memoryBackend,
+    idleExtractionMinutes: sanitizeMemoryIdleExtractionMinutes(
+      input.memoryIdleExtractionMinutes,
+      settings.plugins.memory.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES
+    ),
     reflectionTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(input.memoryReflectionTime) ? input.memoryReflectionTime : "03:00",
     reflectionNotifications: Boolean(input.memoryReflectionNotifications),
     reflectionNotificationTarget: reflectionNotificationTarget ?? null,

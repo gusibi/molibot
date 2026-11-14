@@ -1,7 +1,7 @@
 import { decodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
 import { resolveAgentFileReference } from "$lib/server/sessions/agentFileReferences.js";
 import { listAgentSessions } from "$lib/server/sessions/agentStorage.js";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { parseSessionEntries } from "$lib/server/agent/session/session.js";
@@ -534,6 +534,24 @@ export function claimExternalSessionAgent(dataRoot: string, id: string, agentId:
     writeSessionOriginMetadata(location.contextsDir, ref.sessionId, { agentId: target });
   }
   return { ...transcript.conversation, agentId: target };
+}
+
+/**
+ * Owner-initiated deletion of an external Session's Agent Context projection
+ * (`.jsonl`/`.json` transcript plus the `.meta.json` sidecar). Missing files
+ * count as success so purge retries stay idempotent. Session workspaces,
+ * generated artifacts and saved memories are never reachable from here.
+ */
+export function deleteExternalContextFromContexts(dataRoot: string, id: string): void {
+  const ref = decodeExternalSessionId(id);
+  if (!ref) return;
+  const location = listAgentSessions(dataRoot, { channel: ref.channel, botId: ref.botId, chatId: ref.chatId })
+    .find(item => item.sessionId === ref.sessionId)
+    ?? findContextSession(dataRoot, ref);
+  if (!location) return;
+  for (const suffix of ["jsonl", "json", "meta.json"]) {
+    rmSync(join(location.contextsDir, `${ref.sessionId}.${suffix}`), { force: true });
+  }
 }
 
 /**

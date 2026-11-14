@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { defaultRuntimeSettings } from "$lib/server/settings/defaults.js";
+import { resolveChannelIdleCompaction } from "$lib/server/settings/schema.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { SettingsStore } from "$lib/server/settings/store.js";
 
@@ -936,4 +937,144 @@ test("Agent settings preserve the entire object through save and a new store loa
     Object.assign(storagePaths, originals);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("idle compaction and memory idle extraction settings persist across save, saveChannels, and a new SettingsStore load", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-idle-compaction-settings-"));
+  const originals = { ...storagePaths };
+  storagePaths.settingsFile = path.join(root, "settings.json");
+  storagePaths.settingsDbFile = path.join(root, "settings.sqlite");
+
+  try {
+    const store = new SettingsStore();
+    const initial = store.load();
+    assert.equal(initial.plugins.memory.idleExtractionMinutes, 1.5);
+
+    const saved = {
+      ...initial,
+      plugins: {
+        ...initial.plugins,
+        memory: {
+          ...initial.plugins.memory,
+          idleExtractionMinutes: 2.5
+        }
+      },
+      channels: {
+        ...initial.channels,
+        feishu: {
+          instances: [
+            {
+              id: "fs-1",
+              name: "Feishu Main",
+              enabled: true,
+              agentId: "default",
+              credentials: { appId: "cli_1" },
+              allowedChatIds: [],
+              idleCompaction: { enabled: true, idleMinutes: 90, minContextTokens: 8000 }
+            }
+          ]
+        },
+        telegram: {
+          instances: [
+            {
+              id: "tg-1",
+              name: "Telegram Main",
+              enabled: true,
+              agentId: "default",
+              credentials: { token: "tok_1" },
+              allowedChatIds: [],
+              idleCompaction: { enabled: true, idleMinutes: 45, minContextTokens: 6000 }
+            }
+          ]
+        },
+        web: {
+          instances: [
+            {
+              id: "web-1",
+              name: "Desktop Web",
+              enabled: true,
+              agentId: "default",
+              credentials: {},
+              allowedChatIds: [],
+              idleCompaction: { enabled: true, idleMinutes: 15, minContextTokens: 500 }
+            }
+          ]
+        }
+      }
+    };
+
+    store.save(saved);
+
+    const restarted = new SettingsStore().load();
+    assert.equal(restarted.plugins.memory.idleExtractionMinutes, 2.5);
+    assert.deepEqual(restarted.channels.feishu?.instances[0]?.idleCompaction, {
+      enabled: true,
+      idleMinutes: 90,
+      minContextTokens: 8000
+    });
+    assert.deepEqual(restarted.channels.telegram?.instances[0]?.idleCompaction, {
+      enabled: true,
+      idleMinutes: 45,
+      minContextTokens: 6000
+    });
+    assert.equal(restarted.channels.web?.instances[0]?.idleCompaction, undefined);
+
+    const db = new DatabaseSync(storagePaths.settingsDbFile, { readOnly: true });
+    try {
+      const row = db
+        .prepare("SELECT idle_compaction_json FROM settings_channel_instances WHERE channel_key = ? AND id = ?")
+        .get("feishu", "fs-1") as { idle_compaction_json?: string | null } | undefined;
+      assert.deepEqual(JSON.parse(String(row?.idle_compaction_json ?? "{}")), {
+        enabled: true,
+        idleMinutes: 90,
+        minContextTokens: 8000
+      });
+    } finally {
+      db.close();
+    }
+
+    restarted.channels.feishu.instances[0] = {
+      ...restarted.channels.feishu.instances[0],
+      idleCompaction: { enabled: false, idleMinutes: 120, minContextTokens: 12000 }
+    };
+    store.saveChannels(restarted);
+
+    const afterChannelsSave = new SettingsStore().load();
+    assert.equal(afterChannelsSave.plugins.memory.idleExtractionMinutes, 2.5);
+    assert.deepEqual(afterChannelsSave.channels.feishu?.instances[0]?.idleCompaction, {
+      enabled: false,
+      idleMinutes: 120,
+      minContextTokens: 12000
+    });
+  } finally {
+    Object.assign(storagePaths, originals);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveChannelIdleCompaction applies channel defaults and forces web disabled", () => {
+  assert.deepEqual(resolveChannelIdleCompaction("feishu"), {
+    enabled: true,
+    idleMinutes: 60,
+    minContextTokens: 4000
+  });
+  assert.deepEqual(resolveChannelIdleCompaction("weixin"), {
+    enabled: true,
+    idleMinutes: 60,
+    minContextTokens: 4000
+  });
+  assert.deepEqual(resolveChannelIdleCompaction("telegram"), {
+    enabled: false,
+    idleMinutes: 60,
+    minContextTokens: 4000
+  });
+  assert.deepEqual(resolveChannelIdleCompaction("qq"), {
+    enabled: false,
+    idleMinutes: 60,
+    minContextTokens: 4000
+  });
+  assert.deepEqual(
+    resolveChannelIdleCompaction("web", { enabled: true, idleMinutes: 10, minContextTokens: 500 }),
+    { enabled: false, idleMinutes: 60, minContextTokens: 4000 }
+  );
 });

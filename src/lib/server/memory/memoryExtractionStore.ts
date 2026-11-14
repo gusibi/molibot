@@ -1,6 +1,14 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+export interface MemoryExtractionActivity {
+  at: string;
+  mode: "idle" | "daily";
+  scannedMessages: number;
+  committed: number;
+  proposals: number;
+}
+
 export interface MemoryExtractionState {
   processedThroughId: string;
   revision: string;
@@ -8,6 +16,7 @@ export interface MemoryExtractionState {
   attempts: number;
   lastError?: string;
   retryAfter?: string;
+  recentExtractions?: MemoryExtractionActivity[];
 }
 
 export interface MemoryExtractionStatePort {

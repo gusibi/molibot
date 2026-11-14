@@ -173,7 +173,7 @@ test("message links open externally and session model hydration blocks mismatche
   assert.match(markdownInteractions, /invoke\("open_external_url", \{ url \}\)/);
   assert.ok(
     markdownInteractions.indexOf("externalHttpUrlFromClick(event)") <
-      markdownInteractions.indexOf("await copyCodeFromClick(event, copy)")
+    markdownInteractions.indexOf("await copyCodeFromClick(event, copy)")
   );
   assert.match(markdownLinks, /url\.protocol === "http:" \|\| url\.protocol === "https:"/);
   assert.match(view, /modelReady = summarizeDesktopReadiness/);
@@ -4389,7 +4389,7 @@ test("project file panel follows file changes live and stays resizable", () => {
   // Dragging the panel touches ONLY the panel: its manipulation updates
   // `filesWidth` (and the resizing flag), never the nav.
   assert.match(view, /const filesManipulation = new DirectManipulation\(\{[\s\S]*?onUpdate\(snapshot\) \{\s*filesWidth = clampFilesWidth\(snapshot\.position\);\s*resizingFiles = [^}]*\}/s);
-  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, reservedSidebarWidth\) : Number\.POSITIVE_INFINITY/);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible\s*\?\s*filesCap\(viewportWidth, reservedSidebarWidth\)\s*:\s*Number\.POSITIVE_INFINITY/);
   assert.match(view, /\$: effectiveFilesWidth = Math\.min\(filesWidth, filesMaxWidth\)/);
   // With the Inspector open the panel absorbs a window resize: the sidebar and
   // transcript keep their width, so widening the window widens the panel.
@@ -5181,7 +5181,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   // ONE inspector host, every surface. Durable Execution and the Session Plan
   // are modes in the same right-hand host, so neither can introduce another
   // width budget or replace the conversation.
-  assert.match(view, /\$: inspectorVisible = artifactPanelVisible \|\| durablePanelVisible \|\| inspector\?\.kind === "session-plan";/);
+  assert.match(view, /\$: inspectorVisible =\s*artifactPanelVisible\s*\|\|\s*durablePanelVisible\s*\|\|\s*inspector\?\.kind === "session-plan";/);
   assert.match(view, /kind: "durable-execution"/);
   assert.match(view, /kind: "session-plan"/);
   assert.doesNotMatch(view, /sessionFilesAsideVisible/);
@@ -5189,15 +5189,15 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   // Conversation identity comes from the live pane, and so does the scope: the
   // panel never re-scopes per selected artifact (that used to swap the Project
   // tree for a two-tab session view with no way back).
-  assert.match(view, /\$: artifactPanelVisible = filePanelOpen && serviceState === "ready" && \(projectPaneActive \|\| onboardingAgents\.length > 0\)/);
-  assert.match(view, /sessionId=\{projectPaneActive \? \(projectsStore\.selectedSessionId \?\? ""\) : inspectorSessionId\}/);
+  assert.match(view, /\$: artifactPanelVisible =\s*filePanelOpen &&\s*serviceState === "ready" &&\s*\(projectPaneActive \|\| onboardingAgents\.length > 0\)/);
+  assert.match(view, /sessionId=\{projectPaneActive\s*\?\s*\(projectsStore\.selectedSessionId \?\? ""\)\s*:\s*inspectorSessionId\}/);
   assert.match(view, /profileId=\{projectPaneActive \? "personal" : inspectorProfileId\}/);
   // One grid class, one resizer, one max-width computation for both adapters —
   // a second panel must never introduce a fourth column.
   assert.match(view, /class:with-files=\{inspectorVisible\}/);
   assert.match(view, /\$: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH/);
-  assert.match(view, /\$: filesMaxWidth = inspectorVisible \? filesCap\(viewportWidth, reservedSidebarWidth\) : Number\.POSITIVE_INFINITY/);
-  assert.match(view, /\{#if inspectorVisible\}[\s\S]{0,400}class="files-resizer"/);
+  assert.match(view, /\$: filesMaxWidth = inspectorVisible\s*\?\s*filesCap\(viewportWidth, reservedSidebarWidth\)\s*:\s*Number\.POSITIVE_INFINITY/);
+  assert.match(view, /\{#if inspectorVisible(?: && !inspectorMaximized)?\}[\s\S]{0,400}class="files-resizer"/);
   // ChatView mounts exactly one Artifact Panel plus the Durable Execution adapter;
   // both render inside the shared inspector host. MiniAppPanel and ProjectFilePanel
   // no longer appear as direct mounts (PRD test seam #4).
@@ -5207,7 +5207,7 @@ test("Chat mounts one shared inspector host for artifact, durable, and session P
   assert.doesNotMatch(view, /<MiniAppPanel\b/);
   assert.doesNotMatch(view, /<ProjectFilePanel\b/);
   // Opening a Mini App keeps any open files alive rather than replacing them.
-  assert.match(view, /inspector = \{\s*kind: "artifact",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath\s*\}/);
+  assert.match(view, /inspector = \{\s*kind: "artifact",\s*miniApp: appId,\s*miniAppNonce: \+\+miniAppSeq,\s*miniAppDeepLinkPath: deepLinkPath,?\s*\}/);
   assert.match(view, /function toggleFilesInspector\(\): void \{[\s\S]{0,200}inspector\?\.kind === "artifact"[\s\S]{0,80}closeInspector\(\);[\s\S]{0,80}inspector = \{ kind: "artifact" \};/);
 });
 
@@ -5297,7 +5297,7 @@ test("a Project conversation keeps its panel scope, and session tabs carry their
   // scope follows the conversation pane, the session identity rides along for
   // Session-tab fetches, and each tab renders through its own scope.
   assert.match(view, /let artifactScope: ArtifactScope = "project";\s*\$: artifactScope = projectPaneActive \? "project" : "session";/);
-  const artifactMount = view.match(/<ArtifactPanel[\s\S]*?\n    \/>/)?.[0] ?? "";
+  const artifactMount = view.match(/<ArtifactPanel[\s\S]*?\n\s*\/>/)?.[0] ?? "";
   assert.match(artifactMount, /scope=\{artifactScope\}/);
   assert.match(artifactMount, /profileId=\{projectPaneActive \? "personal" : inspectorProfileId\}/);
   // The turn-files card must not pick the panel's scope from the clicked row.
@@ -5316,8 +5316,8 @@ test("the artifact inspector is transplanted on a conversation switch, not carri
   const transplant = view.match(/let inspectorContextKey[\s\S]*?\n  \}/)?.[0] ?? "";
   assert.ok(transplant.length > 0, "the context-key guard must exist");
   assert.match(transplant, /key !== inspectorContextKey/);
-  assert.match(transplant, /turnFiles: \[\], turnFilesNonce: 0, turnFileKey: ""/);
-  assert.match(transplant, /openPath: "", openPathNonce: 0, openPathAsDiff: false/);
+  assert.match(transplant, /turnFiles:\s*\[\],\s*turnFilesNonce:\s*0,\s*turnFileKey:\s*""/);
+  assert.match(transplant, /openPath:\s*"",\s*openPathNonce:\s*0,\s*openPathAsDiff:\s*false/);
   // A Mini App is a workspace of its own: the transplant keeps its fields.
   assert.doesNotMatch(transplant, /miniApp: undefined/);
   // The Project half of the identity must read the projected store - a legacy
@@ -5337,6 +5337,36 @@ test("a protected Project root offers same-directory reauthorization", () => {
   assert.match(projectFilePanel, /sameProjectDirectory\(selected, projectRootPath\)/);
   assert.match(projectFilePanel, /copy\.projectReauthorizeDirectory/);
   assert.match(projectFilePanel, /copy\.projectDirectoryAccessDenied/);
+});
+
+test("artifact panel supports focused full-container preview, maximize fullscreen, and auto-preview on turn completion", () => {
+  // Focused preview mode when opened from AI replies / chat links
+  assert.match(projectFilePanel, /let focusedMode = \$state\(false\);/);
+  assert.match(projectFilePanel, /openPathNonce[\s\S]*?focusedMode = true;/);
+  assert.match(projectFilePanel, /turnFilesNonce[\s\S]*?if \(selected\) \{[\s\S]*?focusedMode = true;/);
+  assert.match(projectFilePanel, /class:focused-mode=\{focusedMode && fileTabs\.length > 0\}/);
+  assert.match(projectFilePanel, /\{#if !miniAppActive && !projectSearchActive && \(!focusedMode \|\| fileTabs\.length === 0\)\}/);
+
+  // Exiting focused mode to show file list
+  assert.match(projectFilePanel, /\{#if focusedMode && fileTabs\.length > 0\}[\s\S]*?copy\.projectShowFileList[\s\S]*?focusedMode = false;\s*browserCollapsed = false;/);
+
+  // Fullscreen / maximize toggle in panel head and ChatView
+  assert.match(projectFilePanel, /class="file-panel-close file-panel-maximize"/);
+  assert.match(projectFilePanel, /copy\.projectFullscreen/);
+  assert.match(projectFilePanel, /copy\.projectExitFullscreen/);
+  assert.match(projectFilePanel, /<ExitFullscreen size=\{14\}/);
+  assert.match(view, /let inspectorMaximized = false;/);
+  assert.match(view, /class="workspace-inspector" class:is-maximized=\{inspectorMaximized\}/);
+  assert.match(view, /isMaximized=\{inspectorMaximized\}/);
+  assert.match(styles, /\.workspace-inspector\.is-maximized\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0;[^}]*z-index:\s*60;/);
+  assert.match(styles, /\.project-panel-body\.focused-mode \.artifact-file-surface>\.project-browser/);
+  assert.match(styles, /\.project-panel-body\.focused-mode \.artifact-file-surface>\.project-viewer/);
+
+  // Auto-preview on assistant turn completion
+  assert.match(view, /function observeAutoPreview\(/);
+  assert.match(view, /const turnFiles = collectTurnFiles\(lastMsg, filesMap\);/);
+  assert.match(view, /const renderable = turnFiles\.filter\(\(file\) => isRenderableArtifact\(file\.name\)\);/);
+  assert.match(view, /openTurnFiles\(turnFiles, targetFile\.key\);/);
 });
 
 test("files and Mini Apps are separate surfaces, never one mixed tab strip", () => {
@@ -6031,7 +6061,7 @@ test("a new draft conversation reaches the sidebar before its first turn settles
   );
   assert.ok(
     draftBranch.indexOf("deps.onSessionCreated?.(profileId, created.id, created.agentId)") <
-      draftBranch.indexOf("await entry.controller.send({ message: content, files })"),
+    draftBranch.indexOf("await entry.controller.send({ message: content, files })"),
     "the new session must be announced before the first turn is awaited"
   );
 });
@@ -6322,7 +6352,7 @@ test("desktop motion completion covers list mutation, controls, disclosures, and
   assert.doesNotMatch(completion, /(?:^|[,\s])(?:canvas|\.agent-scene|\.three-scene)(?:[\s,{:#.]|$)/im);
 });
 
- test("Room messages reuse the complete ordinary composer and submission controls", () => {
+test("Room messages reuse the complete ordinary composer and submission controls", () => {
   const room = read("./lib/chat/RoomWorkspace.svelte");
   assert.match(room, /<ChatInputArea /);
   assert.doesNotMatch(room, /<ChatComposerShell|添加附件|Attach files|<textarea/);
@@ -6348,23 +6378,23 @@ test("Room conversations use the shared Chat chrome, transcript and mention menu
 });
 
 test("Room event streams reconnect after missed heartbeats and initial request failures", () => {
- const api = read("./lib/api.ts");
- const stream = api.slice(api.indexOf("export async function streamDesktopRoom"), api.indexOf("export async function uploadDesktopRoomFiles"));
- assert.match(stream, /AbortSignal.any\(\[signal, heartbeatAbort.signal\]\)/);
- assert.match(stream, /heartbeatAbort.abort\(\), 5000/);
- assert.match(stream, /if \(done\) break;\s*resetHeartbeat\(\)/);
- assert.match(stream, /finally \{ clearTimeout\(heartbeatTimer\)/);
- const room = read("./lib/chat/RoomWorkspace.svelte");
- assert.match(room, /currentEndpoint === endpoint\) void initialize\(\)/);
- assert.match(room, /reconnecting = true;\s*retryTimer = setTimeout/);
+  const api = read("./lib/api.ts");
+  const stream = api.slice(api.indexOf("export async function streamDesktopRoom"), api.indexOf("export async function uploadDesktopRoomFiles"));
+  assert.match(stream, /AbortSignal.any\(\[signal, heartbeatAbort.signal\]\)/);
+  assert.match(stream, /heartbeatAbort.abort\(\), 5000/);
+  assert.match(stream, /if \(done\) break;\s*resetHeartbeat\(\)/);
+  assert.match(stream, /finally \{ clearTimeout\(heartbeatTimer\)/);
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(room, /currentEndpoint === endpoint\) void initialize\(\)/);
+  assert.match(room, /reconnecting = true;\s*retryTimer = setTimeout/);
 });
 
 test("Room sends the recipients shown for text mentions and restores through the same session entry", () => {
- const room = read("./lib/chat/RoomWorkspace.svelte");
- assert.match(room, /targets: \[\.\.\.explicitRecipients\]/);
- const restore = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
- assert.match(restore, /openSession\(target\)/);
- assert.doesNotMatch(restore, /chatStore.selectSession/);
+  const room = read("./lib/chat/RoomWorkspace.svelte");
+  assert.match(room, /targets: \[\.\.\.explicitRecipients\]/);
+  const restore = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
+  assert.match(restore, /openSession\(target\)/);
+  assert.doesNotMatch(restore, /chatStore.selectSession/);
 });
 
 test("Room model preview and persisted failures use runtime metadata", () => {
@@ -6574,11 +6604,11 @@ test("startup header shows service state and waits for initial navigation", () =
 test("initial navigation falls back to Momo and can restore an external session", async () => {
   const source = view.slice(view.indexOf("async function selectDefaultSession"), view.indexOf("async function loadChannel"));
   const body = source.slice(source.indexOf("{") + 1, source.lastIndexOf("}")).replace(/ as Exclude<ChatWorkspacePaneName, "chat">/g, "");
-  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
   const run = new AsyncFunction("generation", "connectionGeneration", "restoreSidebarTree", "refreshAgentSessions", "agentNavigation", "ordinarySessions", "listDesktopConversations", "connectedEndpoint", "openRoom", "selectProject", "selectProjectSession", "openWorkspacePane", "openSession", "openAgentChat", "onboardingAgents", "defaultAgentId", "coldStartHandover", body);
   async function restore(saved, items, agents = [{ id: "other", enabled: false }], coldStartHandover = false) {
     const opened = [];
-    const noop = async () => {};
+    const noop = async () => { };
     await run(1, 1, noop, noop, saved, [], async (_endpoint, query) => {
       if (query.sessionId) assert.equal(query.allAgents, true);
       return { items };
@@ -6648,7 +6678,7 @@ test("Agent sidebar opens home without loading or rendering conversations", () =
   assert.doesNotMatch(navigation, /ConversationRow|listDesktopConversations|expanded|loadMore/);
 });
 
- test("Room entry shares the Agent homepage and creates sessions only on send", () => {
+test("Room entry shares the Agent homepage and creates sessions only on send", () => {
   const room = read("./lib/chat/RoomWorkspace.svelte");
   assert.match(room, /<AgentHome /);
   assert.match(room, /homeSessions.slice\(0, 4\)/);
@@ -6682,7 +6712,7 @@ test("Room homepage send keeps its draft on creation failure and ignores a switc
       error: "", locale: "en", endpoint: "test", selected: "room-a", destroyed: false,
       selectedSession: "old", draftStore: { update() { throw new Error("Must preserve draft"); } },
       async actOnDesktopRoom() {
-        if (switched) { state.generation++; state.selected = "room-b"; return {session: {id: "new"}}; }
+        if (switched) { state.generation++; state.selected = "room-b"; return { session: { id: "new" } }; }
         throw new Error("offline");
       },
     };
@@ -6696,7 +6726,7 @@ test("Room homepage send keeps its draft on creation failure and ignores a switc
   }
 });
 
- test("Room management stays in sidebar while conversation header uses icons", () => {
+test("Room management stays in sidebar while conversation header uses icons", () => {
   const room = read("./lib/chat/RoomWorkspace.svelte");
   const header = room.slice(room.indexOf("{#if selected && !editing}"), room.indexOf("  {:else}", room.indexOf("{#if selected && !editing}")));
   assert.doesNotMatch(header, /OverflowMenu|words.edit|words.remove|words.back/);
@@ -6894,4 +6924,42 @@ test("the running turn keeps a pinned status readout in the composer card", () =
   assert.match(baseStyles, /data-performance="low"\] \.run-status-caret/);
   const reducedMotion = baseStyles.slice(baseStyles.indexOf("prefers-reduced-motion: reduce"));
   assert.match(reducedMotion, /\.timeline-wave-bar, \.run-status-caret,/);
+});
+
+test("agent home exposes notification history secondary page with filters and event navigation", () => {
+  const chatView = read("./ChatView.svelte");
+  const inbox = read("./lib/chat/AgentHomeInbox.svelte");
+  const home = read("./lib/chat/AgentHome.svelte");
+  const page = read("./lib/chat/AgentNotificationsPage.svelte");
+  const styles = read("./styles.css");
+  assert.match(inbox, /from ['"]\.\/homeNotificationView['"]/);
+  assert.match(inbox, /item\.type !== ['"]session-completed['"]/);
+  assert.match(inbox, /<Bell size=\{15\}/);
+  assert.match(inbox, /onclick=\{onNotifications\}/);
+  assert.match(inbox, /live \|\| actionOpens\(item\)/);
+  assert.doesNotMatch(inbox, /通知记录/);
+  assert.match(home, /onNotifications = undefined/);
+  assert.match(home, /\{onNotifications\}/);
+  assert.match(chatView, /import AgentNotificationsPage from "\.\/lib\/chat\/AgentNotificationsPage\.svelte"/);
+  assert.match(chatView, /import Bell from "\.\/lib\/icons\/duotone\/components\/Bell\.svelte"/);
+  assert.match(chatView, /<div class="titlebar-cluster"[\s\S]*onclick=\{toggleAgentNotifications\}[\s\S]*<Bell size=\{16\}[\s\S]*data-testid="notification-bell-dot"[\s\S]*<\/div>/);
+  assert.match(chatView, /function closeAgentNotifications\(/);
+  assert.match(chatView, /markSessionNotificationRead\(/);
+  assert.match(chatView, /\{:else if agentNotificationsActive\}/);
+  assert.match(chatView, /<AgentNotificationsPage[\s\S]*onClose=\{closeAgentNotifications\}[\s\S]*onCountChange=/);
+  assert.match(chatView, /onNotifications=\{\(\) => openAgentNotifications\(selectedAgentId\)\}/);
+  assert.match(page, /loadDesktopNotifications\(target, QUERY_OPTIONS\)/);
+  assert.match(page, /QUERY_OPTIONS = \{ status: "all", limit: 200 \}/);
+  assert.match(page, /markDesktopNotificationsRead/);
+  assert.match(page, /<HomeTaskResult/);
+  assert.match(page, /resolveSessionCompletedTarget/);
+  assert.match(page, /resolveActionOpenTarget/);
+  assert.match(page, /matchesNotificationCategory/);
+  assert.match(page, /notification-card/);
+  assert.match(page, /notification-icon-tile/);
+  assert.match(page, /<ArrowLeft/);
+  assert.match(page, /<ArrowUpRight/);
+  assert.match(page, /<Check/);
+  assert.match(styles, /\.sidebar-titlebar-dot/);
+  assert.match(styles, /\.notification-icon-tile\[data-type="session-completed"\]/);
 });

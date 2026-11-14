@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import type { HookStage } from "$lib/server/agent/hooks/types.js";
@@ -10,7 +11,81 @@ export type TraceFactType =
   | "subagent_task"
   | "runtime_notice"
   | "approval"
-  | "input_enrichment";
+  | "input_enrichment"
+  | "memory_extraction"
+  | "compaction";
+
+export type CompactionTrigger =
+  | "threshold"
+  | "manual"
+  | "overflow"
+  | "preflight";
+
+export interface CompactionTraceInput {
+  trigger: CompactionTrigger | string;
+  status: "success" | "error";
+  conversationId: string;
+  channel: string;
+  botId?: string;
+  chatId?: string;
+  runId?: string;
+  agentId?: string;
+  startedAt: string;
+  finishedAt: string;
+  durationMs?: number;
+  beforeTokens?: number;
+  afterTokens?: number;
+  summarizedMessages?: number;
+  keptMessages?: number;
+  provider?: string;
+  model?: string;
+  api?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  error?: string;
+}
+
+export type MemoryExtractionTrigger =
+  | "idle"
+  | "long_session"
+  | "daily"
+  | "daily_reflection"
+  | "manual";
+
+export interface MemoryExtractionTraceInput {
+  trigger: MemoryExtractionTrigger;
+  status: "success" | "error";
+  conversationId: string;
+  channel: string;
+  botId?: string;
+  chatId?: string;
+  agentId?: string;
+  projectId?: string | null;
+  startedAt: string;
+  finishedAt: string;
+  durationMs?: number;
+  scannedMessages?: number;
+  committedMemories?: number;
+  createdCandidates?: number;
+  skippedMemories?: number;
+  scannedConversations?: number;
+  idleExtractedConversations?: number;
+  fallbackExtractedConversations?: number;
+  provider?: string;
+  model?: string;
+  api?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  error?: string;
+  runId?: string;
+  factId?: string;
+}
 
 export interface TraceEventRecord {
   id: string;
@@ -378,6 +453,18 @@ export class SqliteTraceStore {
         json_object('estimatedCostUsd', json_extract(f.payload_json, '$.estimatedCostUsd'),
           'level', json_extract(f.payload_json, '$.level'),
           'scope', json_extract(f.payload_json, '$.scope'),
+          'memoryTrigger', json_extract(f.payload_json, '$.memoryTrigger'),
+          'scannedMessages', json_extract(f.payload_json, '$.scannedMessages'),
+          'committedMemories', json_extract(f.payload_json, '$.committedMemories'),
+          'createdCandidates', json_extract(f.payload_json, '$.createdCandidates'),
+          'scannedConversations', json_extract(f.payload_json, '$.scannedConversations'),
+          'idleExtractedConversations', json_extract(f.payload_json, '$.idleExtractedConversations'),
+          'fallbackExtractedConversations', json_extract(f.payload_json, '$.fallbackExtractedConversations'),
+          'compactionTrigger', json_extract(f.payload_json, '$.compactionTrigger'),
+          'beforeTokens', json_extract(f.payload_json, '$.beforeTokens'),
+          'afterTokens', json_extract(f.payload_json, '$.afterTokens'),
+          'summarizedMessages', json_extract(f.payload_json, '$.summarizedMessages'),
+          'keptMessages', json_extract(f.payload_json, '$.keptMessages'),
           'agentId', COALESCE(NULLIF(json_extract(f.payload_json, '$.agentId'), ''),
             (SELECT json_extract(r.payload_json, '$.agentId') FROM agent_trace_facts r
              WHERE r.run_id = f.run_id AND r.fact_type = 'run' LIMIT 1))) AS payload_json
@@ -554,5 +641,146 @@ export function resolveTraceApprovalFact(
     return store.resolveApprovalFact(approvalId, status, resolvedAt);
   } finally {
     store.close();
+  }
+}
+
+/** Record a memory extraction or daily reflection fact into the shared trace store. */
+export function recordMemoryExtractionTraceFact(
+  input: MemoryExtractionTraceInput,
+  store?: SqliteTraceStore
+): void {
+  const startedMs = Date.parse(input.startedAt);
+  const finishedMs = Date.parse(input.finishedAt);
+  const durationMs = typeof input.durationMs === "number" && Number.isFinite(input.durationMs)
+    ? Math.max(0, Math.round(input.durationMs))
+    : Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+      ? Math.max(0, finishedMs - startedMs)
+      : undefined;
+  const runId = input.runId?.trim() || `mem_${input.trigger}_${randomUUID()}`;
+  const factId = input.factId?.trim() || `${input.trigger}:${input.conversationId}`;
+  const payload: Record<string, unknown> = {
+    memoryTrigger: input.trigger,
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    ...(input.scannedMessages !== undefined ? { scannedMessages: input.scannedMessages } : {}),
+    ...(input.committedMemories !== undefined ? { committedMemories: input.committedMemories } : {}),
+    ...(input.createdCandidates !== undefined ? { createdCandidates: input.createdCandidates } : {}),
+    ...(input.skippedMemories !== undefined ? { skippedMemories: input.skippedMemories } : {}),
+    ...(input.scannedConversations !== undefined ? { scannedConversations: input.scannedConversations } : {}),
+    ...(input.idleExtractedConversations !== undefined ? { idleExtractedConversations: input.idleExtractedConversations } : {}),
+    ...(input.fallbackExtractedConversations !== undefined ? { fallbackExtractedConversations: input.fallbackExtractedConversations } : {})
+  };
+  const resultParts = [
+    `trigger=${input.trigger}`,
+    input.scannedConversations !== undefined ? `conversations=${input.scannedConversations}` : null,
+    input.scannedMessages !== undefined ? `messages=${input.scannedMessages}` : null,
+    input.committedMemories !== undefined ? `committed=${input.committedMemories}` : null,
+    input.createdCandidates !== undefined ? `candidates=${input.createdCandidates}` : null
+  ].filter(Boolean);
+  const record: TraceFactRecord = {
+    id: randomUUID(),
+    factType: "memory_extraction",
+    runId,
+    factId,
+    channel: input.channel || "web",
+    botId: input.botId?.trim() || undefined,
+    chatId: input.chatId?.trim() || input.conversationId,
+    sessionId: input.conversationId,
+    name: input.trigger,
+    provider: input.provider?.trim() || undefined,
+    model: input.model?.trim() || undefined,
+    api: input.api?.trim() || undefined,
+    status: input.status,
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    durationMs,
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    cacheReadTokens: input.cacheReadTokens,
+    cacheWriteTokens: input.cacheWriteTokens,
+    totalTokens: input.totalTokens,
+    errorPreview: input.status === "error" && input.error ? input.error.slice(0, 500) : undefined,
+    resultPreview: resultParts.join(" "),
+    payload,
+    createdAt: input.startedAt,
+    updatedAt: input.finishedAt
+  };
+  if (store) {
+    store.upsertFact(record);
+    return;
+  }
+  const ownStore = new SqliteTraceStore();
+  try {
+    ownStore.upsertFact(record);
+  } finally {
+    ownStore.close();
+  }
+}
+
+export function recordCompactionTraceFact(
+  input: CompactionTraceInput,
+  store?: SqliteTraceStore
+): void {
+  const startedMs = Date.parse(input.startedAt);
+  const finishedMs = Date.parse(input.finishedAt);
+  const durationMs = typeof input.durationMs === "number" && Number.isFinite(input.durationMs)
+    ? Math.max(0, Math.round(input.durationMs))
+    : Number.isFinite(startedMs) && Number.isFinite(finishedMs)
+      ? Math.max(0, finishedMs - startedMs)
+      : undefined;
+  const runId = input.runId?.trim() || `comp_${input.trigger}_${randomUUID()}`;
+  const factId = `${input.trigger}:${input.conversationId}:${randomUUID().slice(0, 8)}`;
+  const payload: Record<string, unknown> = {
+    compactionTrigger: input.trigger,
+    ...(input.agentId ? { agentId: input.agentId } : {}),
+    ...(input.beforeTokens !== undefined ? { beforeTokens: input.beforeTokens } : {}),
+    ...(input.afterTokens !== undefined ? { afterTokens: input.afterTokens } : {}),
+    ...(input.summarizedMessages !== undefined ? { summarizedMessages: input.summarizedMessages } : {}),
+    ...(input.keptMessages !== undefined ? { keptMessages: input.keptMessages } : {})
+  };
+  const resultParts = [
+    `trigger=${input.trigger}`,
+    input.beforeTokens !== undefined ? `before=${input.beforeTokens}` : null,
+    input.afterTokens !== undefined ? `after=${input.afterTokens}` : null,
+    input.summarizedMessages !== undefined ? `summarized=${input.summarizedMessages}` : null,
+    input.keptMessages !== undefined ? `kept=${input.keptMessages}` : null
+  ].filter(Boolean);
+  const record: TraceFactRecord = {
+    id: randomUUID(),
+    factType: "compaction",
+    runId,
+    factId,
+    channel: input.channel || "web",
+    botId: input.botId?.trim() || undefined,
+    chatId: input.chatId?.trim() || input.conversationId,
+    sessionId: input.conversationId,
+    name: input.trigger,
+    provider: input.provider?.trim() || undefined,
+    model: input.model?.trim() || undefined,
+    api: input.api?.trim() || "compaction",
+    status: input.status,
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    durationMs,
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    cacheReadTokens: input.cacheReadTokens,
+    cacheWriteTokens: input.cacheWriteTokens,
+    totalTokens: input.totalTokens,
+    errorPreview: input.status === "error" && input.error ? input.error.slice(0, 500) : undefined,
+    resultPreview: resultParts.join(" "),
+    payload,
+    createdAt: input.startedAt,
+    updatedAt: input.finishedAt
+  };
+  if (store) {
+    store.upsertFact(record);
+    return;
+  }
+  const ownStore = new SqliteTraceStore();
+  try {
+    ownStore.upsertFact(record);
+  } finally {
+    ownStore.close();
   }
 }

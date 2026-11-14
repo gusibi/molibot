@@ -313,6 +313,23 @@ export function overrideSettingsForModelKey(settings: RuntimeSettings, modelKey?
   return settings;
 }
 
+export interface AssistantReplyMeta {
+  provider: string;
+  model: string;
+  api: string;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    totalTokens: number;
+  };
+}
+
+export interface AssistantReplyResult extends AssistantReplyMeta {
+  text: string;
+}
+
 export class AssistantService {
   constructor(
     private readonly getSettings: () => RuntimeSettings,
@@ -320,7 +337,34 @@ export class AssistantService {
     private readonly modelErrorTracker?: ModelErrorTracker
   ) {}
 
-  async reply(history: ConversationMessage[], input: string, memoryContext = "", options: { modelKey?: string; sessionId?: string } = {}): Promise<string> {
+  async replyWithMeta(
+    history: ConversationMessage[],
+    input: string,
+    memoryContext = "",
+    options: { modelKey?: string; sessionId?: string } = {}
+  ): Promise<AssistantReplyResult> {
+    let capturedMeta: AssistantReplyMeta | undefined;
+    const text = await this.reply(history, input, memoryContext, {
+      ...options,
+      onReplyMeta: (meta) => {
+        capturedMeta = meta;
+      }
+    });
+    return {
+      text,
+      provider: capturedMeta?.provider ?? "",
+      model: capturedMeta?.model ?? "",
+      api: capturedMeta?.api ?? "",
+      ...(capturedMeta?.usage ? { usage: capturedMeta.usage } : {})
+    };
+  }
+
+  async reply(
+    history: ConversationMessage[],
+    input: string,
+    memoryContext = "",
+    options: { modelKey?: string; sessionId?: string; onReplyMeta?: (meta: AssistantReplyMeta) => void } = {}
+  ): Promise<string> {
     const settings = overrideSettingsForModelKey(this.getSettings(), options.modelKey);
     let reply: ProviderReply;
     try {
@@ -363,6 +407,20 @@ export class AssistantService {
         totalTokens: reply.usage.totalTokens
       });
     }
+
+    const inputTokens = reply.usage?.input ?? 0;
+    const outputTokens = reply.usage?.output ?? 0;
+    const cacheReadTokens = reply.usage?.cacheRead ?? 0;
+    const cacheWriteTokens = reply.usage?.cacheWrite ?? 0;
+    const totalTokens = reply.usage?.totalTokens ?? (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens);
+    options.onReplyMeta?.({
+      provider: reply.provider,
+      model: reply.model,
+      api: reply.api,
+      ...(reply.usage ? {
+        usage: { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens }
+      } : {})
+    });
 
     return reply.text;
   }

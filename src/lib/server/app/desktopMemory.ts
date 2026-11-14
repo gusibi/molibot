@@ -1,6 +1,10 @@
 import { agentNamespace, ownerNamespace, projectNamespacePrefix } from "$lib/server/memory/namespaces";
 import type { MemoryRecord } from "$lib/server/memory/types";
-import { DEFAULT_AGENT_ID, type RuntimeSettings } from "$lib/server/settings/schema";
+import {
+  DEFAULT_AGENT_ID,
+  DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
+  type RuntimeSettings
+} from "$lib/server/settings/schema";
 import type { MemoryGateway } from "$lib/server/memory/gateway";
 import type { DesktopHomeMemoryReview } from "$lib/shared/desktop";
 import type { MemoryBackendCapabilities } from "$lib/server/memory/types";
@@ -22,12 +26,13 @@ export function buildDesktopMemorySummary(
   settings: RuntimeSettings,
   runtime: DesktopMemoryRuntimeState
 ): DesktopMemorySummary {
-  const config = settings.plugins?.memory ?? { enabled: false, backend: "" };
+  const config = settings.plugins?.memory;
   const caps = runtime.capabilities;
   return {
     enabled: runtime.enabled === true,
-    configEnabled: config.enabled === true,
-    backend: config.backend ?? "",
+    configEnabled: config?.enabled === true,
+    backend: config?.backend ?? "",
+    idleExtractionMinutes: config?.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
     embedding: runtime.embedding ?? null,
     capabilities: {
       hybridSearch: caps?.supportsHybridSearch === true,

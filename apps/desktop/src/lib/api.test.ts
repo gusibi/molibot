@@ -65,6 +65,8 @@ import {
   submitDesktopMemoryTraceFeedback,
   loadDesktopTasks,
   loadDesktopTaskUnreadCount,
+  loadDesktopNotifications,
+  markDesktopNotificationsRead,
   loadDesktopProjects,
   loadDesktopComposerSuggestions,
   createDesktopProject,
@@ -2421,4 +2423,27 @@ test("shared Agent rules read the global scope and save only AGENTS.md", async (
     assert.equal(requests[1].url, "http://localhost:3040/api/desktop/profile-files");
     assert.deepEqual(requests[1].body, { scope: "global", files: { "AGENTS.md": "new rules" } });
   } finally { globalThis.fetch = original; }
+});
+
+test("desktop notifications API preserves default unread endpoint and forwards history filters", async () => {
+  const original = globalThis.fetch;
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    requests.push({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+    return new Response(JSON.stringify({ ok: true, notifications: [] }), { status: 200 });
+  }) as typeof globalThis.fetch;
+  try {
+    await loadDesktopNotifications("http://localhost:3040");
+    await loadDesktopNotifications("http://localhost:3040", { status: "all", type: "plan-completed", limit: 150 });
+    await markDesktopNotificationsRead("http://localhost:3040", ["n1"]);
+    await markDesktopNotificationsRead("http://localhost:3040", undefined, { status: "all", limit: 200 });
+    assert.deepEqual(requests, [
+      { url: "http://localhost:3040/api/desktop/notifications", method: "GET", body: null },
+      { url: "http://localhost:3040/api/desktop/notifications?status=all&type=plan-completed&limit=150", method: "GET", body: null },
+      { url: "http://localhost:3040/api/desktop/notifications", method: "POST", body: { action: "mark_read", ids: ["n1"] } },
+      { url: "http://localhost:3040/api/desktop/notifications", method: "POST", body: { action: "mark_all_read", status: "all", limit: 200 } }
+    ]);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

@@ -11,6 +11,7 @@
   import Copy from "reicon-svelte/icons/Copy";
   import Crosshairs from "reicon-svelte/icons/Crosshairs";
   import Download from "reicon-svelte/icons/Download";
+  import ExitFullscreen from "reicon-svelte/icons/ExitFullscreen";
   import Expand from "reicon-svelte/icons/Expand";
   import Eye from "reicon-svelte/icons/Eye";
   import Folder from "reicon-svelte/icons/Folder";
@@ -114,7 +115,9 @@
     copy,
     onClose,
     motionClosing = false,
-    onMotionEnd = () => {}
+    onMotionEnd = () => {},
+    isMaximized = false,
+    onToggleMaximize
   }: {
     endpoint: string;
     projectId: string;
@@ -154,9 +157,13 @@
     onClose: () => void;
     motionClosing?: boolean;
     onMotionEnd?: (event: AnimationEvent) => void;
+    isMaximized?: boolean;
+    onToggleMaximize?: () => void;
   } = $props();
 
   const store = new ArtifactTabsStore();
+
+  let focusedMode = $state(false);
 
   let tab = $state<"files" | "turn" | "changes" | "attachments">("files");
   let attachments = $state<DesktopSessionFile[]>([]);
@@ -385,8 +392,14 @@
   }
 
   function toggleBrowser(): void {
-    browserCollapsed = !browserCollapsed;
-    localStorage.setItem(COLLAPSE_KEY, browserCollapsed ? "1" : "0");
+    if (focusedMode) {
+      focusedMode = false;
+      browserCollapsed = false;
+      localStorage.setItem(COLLAPSE_KEY, "0");
+    } else {
+      browserCollapsed = !browserCollapsed;
+      localStorage.setItem(COLLAPSE_KEY, browserCollapsed ? "1" : "0");
+    }
   }
 
   function toggleFollow(): void {
@@ -724,6 +737,11 @@
   }
 
   function onPanelKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && isMaximized) {
+      event.preventDefault();
+      onToggleMaximize?.();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
       event.preventDefault();
       store.searchOpen = true;
@@ -786,6 +804,7 @@
     untrack(() => {
       nonce;
       store.setMode("files");
+      focusedMode = true;
       void (asDiff ? store.openDiff(path) : store.openFile(path));
       void store.revealPath(path);
       store.cursorPath = path;
@@ -799,6 +818,7 @@
     if (!file) return;
     untrack(() => {
       nonce;
+      focusedMode = true;
       void store.openSessionFile(file);
     });
   });
@@ -829,8 +849,22 @@
       appliedTurnFilesNonce = nonce;
       store.setMode("files");
       tab = "turn";
-      if (selected) void openTurnFile(selected);
+      if (selected) {
+        focusedMode = true;
+        void openTurnFile(selected);
+      } else if (turnFiles.length === 1) {
+        focusedMode = true;
+        void openTurnFile(turnFiles[0]);
+      } else {
+        focusedMode = false;
+      }
     });
+  });
+
+  $effect(() => {
+    if (fileTabs.length === 0 && focusedMode) {
+      focusedMode = false;
+    }
   });
 
   // A context transplant (the host resetting file requests on a conversation
@@ -952,46 +986,71 @@
         >
           <Magnifier size={16} aria-hidden="true" />
         </button>
+      {/if}
+      <button
+        type="button"
+        class="project-panel-refresh"
+        class:active={followAgentWrites}
+        aria-pressed={followAgentWrites}
+        aria-label={copy.projectFollowAgent}
+        title={followAgentWrites ? copy.projectFollowAgentOn : copy.projectFollowAgent}
+        onclick={toggleFollow}
+      >
+        <Crosshairs size={16} aria-hidden="true" />
+      </button>
+      {#if focusedMode && fileTabs.length > 0}
         <button
           type="button"
           class="project-panel-refresh"
-          class:active={followAgentWrites}
-          aria-pressed={followAgentWrites}
-          aria-label={copy.projectFollowAgent}
-          title={followAgentWrites ? copy.projectFollowAgentOn : copy.projectFollowAgent}
-          onclick={toggleFollow}
+          aria-label={copy.projectShowFileList}
+          title={copy.projectShowFileList}
+          onclick={() => { focusedMode = false; browserCollapsed = false; }}
         >
-          <Crosshairs size={16} aria-hidden="true" />
+          <Folder size={16} aria-hidden="true" />
         </button>
       {/if}
     {/if}
+    <button
+      type="button"
+      class="file-panel-close file-panel-maximize"
+      class:active={isMaximized}
+      aria-label={isMaximized ? (copy.projectExitFullscreen ?? "退出全屏") : (copy.projectFullscreen ?? "全屏")}
+      title={isMaximized ? (copy.projectExitFullscreen ?? "退出全屏") : (copy.projectFullscreen ?? "全屏")}
+      onclick={() => onToggleMaximize?.()}
+    >
+      {#if isMaximized}
+        <ExitFullscreen size={14} aria-hidden="true" />
+      {:else}
+        <Expand size={14} aria-hidden="true" />
+      {/if}
+    </button>
     <button type="button" class="file-panel-close" aria-label={copy.closePanel} title={copy.closePanel} onclick={onClose}>
       <X size={14} aria-hidden="true" />
     </button>
   </div>
 
-    {#if !miniAppActive && !projectSearchActive}
-      <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel} use:tablist>
-        {#if scope === "project"}
-          <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.projectFilesTab}</button>
-          {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
-          <button type="button" role="tab" id="project-file-tab-changes" aria-selected={tab === "changes"} aria-controls="project-file-panel" class:active={tab === "changes"} onclick={() => (tab = "changes")}>
-            {copy.projectChangesTab}
-            {#if sessionEntries.length}
-              <span class="project-tab-badge is-session">{sessionEntries.length}</span>
-            {:else if dirtyPaths.size}
-              <span class="project-tab-badge">{dirtyPaths.size}</span>
-            {/if}
-          </button>
-          <button type="button" role="tab" id="project-file-tab-attachments" aria-selected={tab === "attachments"} aria-controls="project-file-panel" class:active={tab === "attachments"} onclick={() => (tab = "attachments")}>{copy.projectAttachmentsTab}</button>
-        {:else}
-          {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => (tab = "turn")}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
-          <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => (tab = "files")}>{copy.files}</button>
-        {/if}
-      </div>
-    {/if}
+  {#if !miniAppActive && !projectSearchActive && (!focusedMode || fileTabs.length === 0)}
+    <div class="project-file-tabs" role="tablist" aria-label={copy.projectFilesPanel} use:tablist>
+      {#if scope === "project"}
+        <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => { tab = "files"; focusedMode = false; }}>{copy.projectFilesTab}</button>
+        {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => { tab = "turn"; focusedMode = false; }}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+        <button type="button" role="tab" id="project-file-tab-changes" aria-selected={tab === "changes"} aria-controls="project-file-panel" class:active={tab === "changes"} onclick={() => { tab = "changes"; focusedMode = false; }}>
+          {copy.projectChangesTab}
+          {#if sessionEntries.length}
+            <span class="project-tab-badge is-session">{sessionEntries.length}</span>
+          {:else if dirtyPaths.size}
+            <span class="project-tab-badge">{dirtyPaths.size}</span>
+          {/if}
+        </button>
+        <button type="button" role="tab" id="project-file-tab-attachments" aria-selected={tab === "attachments"} aria-controls="project-file-panel" class:active={tab === "attachments"} onclick={() => { tab = "attachments"; focusedMode = false; }}>{copy.projectAttachmentsTab}</button>
+      {:else}
+        {#if turnFiles.length}<button type="button" role="tab" id="project-file-tab-turn" aria-selected={tab === "turn"} aria-controls="project-file-panel" class:active={tab === "turn"} onclick={() => { tab = "turn"; focusedMode = false; }}>{copy.turnFilesTitle}<span class="project-tab-badge is-session">{turnFiles.length}</span></button>{/if}
+        <button type="button" role="tab" id="project-file-tab-files" aria-selected={tab === "files"} aria-controls="project-file-panel" class:active={tab === "files"} onclick={() => { tab = "files"; focusedMode = false; }}>{copy.files}</button>
+      {/if}
+    </div>
+  {/if}
 
-    <div id="project-file-panel" class="project-panel-body" role="tabpanel" aria-label={projectSearchActive ? copy.projectSearch : undefined} aria-labelledby={projectSearchActive ? undefined : `project-file-tab-${tab}`} class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive}>
+  <div id="project-file-panel" class="project-panel-body" role="tabpanel" aria-label={projectSearchActive ? copy.projectSearch : undefined} aria-labelledby={projectSearchActive ? undefined : `project-file-tab-${tab}`} class:browser-collapsed={(browserCollapsed && fileTabs.length) || miniAppActive} class:focused-mode={focusedMode && fileTabs.length > 0}>
       {#if actionError}
         <div class="project-panel-error" role="alert">{actionError}</div>
       {/if}
@@ -1319,11 +1378,11 @@
               <button
                 type="button"
                 class="project-viewer-tab-clear"
-                aria-label={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
-                title={browserCollapsed ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
+                aria-label={(browserCollapsed || focusedMode) ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
+                title={(browserCollapsed || focusedMode) ? copy.projectExpandBrowser : copy.projectCollapseBrowser}
                 onclick={toggleBrowser}
               >
-                {#if browserCollapsed}<Expand size={16} aria-hidden="true" />{:else}<Compress size={16} aria-hidden="true" />{/if}
+                {#if browserCollapsed || focusedMode}<Expand size={16} aria-hidden="true" />{:else}<Compress size={16} aria-hidden="true" />{/if}
               </button>
               <button type="button" class="project-viewer-tab-clear" aria-label={copy.closeAllTabs} title={copy.closeAllTabs} onclick={() => store.closeAllTabs()}>
                 <XCircle size={16} aria-hidden="true" />
@@ -1346,7 +1405,7 @@
                       class="project-breadcrumb-crumb"
                       title={copy.projectBreadcrumbRoot}
                       aria-label={copy.projectBreadcrumbRoot}
-                      onclick={() => { tab = "files"; browserCollapsed = false; store.collapseAllDirs(); }}
+                      onclick={() => { tab = "files"; focusedMode = false; browserCollapsed = false; store.collapseAllDirs(); }}
                     >
                       <Home size={16} aria-hidden="true" />
                     </button>
@@ -1359,6 +1418,7 @@
                         title={crumb.path}
                         onclick={async () => {
                           tab = "files";
+                          focusedMode = false;
                           browserCollapsed = false;
                           if (!crumb.isLast) await store.expandDir(crumb.path);
                           focusTreeRow(crumb.path);

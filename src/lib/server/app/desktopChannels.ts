@@ -1,5 +1,5 @@
-import type { ChannelInstanceSettings, RuntimeSettings } from "$lib/server/settings/schema";
-import { sanitizeChannelInstanceDisplaySettings } from "$lib/server/settings/sanitize";
+import { resolveChannelIdleCompaction, type ChannelInstanceSettings, type RuntimeSettings } from "$lib/server/settings/schema";
+import { sanitizeChannelInstanceDisplaySettings, sanitizeChannelInstanceIdleCompactionSettings } from "$lib/server/settings/sanitize";
 import type {
   DesktopChannelDisplaySettings,
   DesktopChannelGroup,
@@ -46,7 +46,8 @@ export function buildDesktopChannelInstance(
     permissionMode: instance.permissionMode ?? null,
     fields: Object.fromEntries(policy.visible.map((key) => [key, String(credentials[key] ?? "")])) ,
     configuredSecrets: policy.secret.filter((key) => String(credentials[key] ?? "").trim().length > 0),
-    display: instance.display ?? null
+    display: instance.display ?? null,
+    idleCompaction: resolveChannelIdleCompaction(channel, instance.idleCompaction)
   };
 }
 
@@ -91,6 +92,14 @@ export function saveDesktopChannelInstance(settings: RuntimeSettings, request: D
     const replacement = String(request.secretValues?.[key] ?? "").trim();
     if (replacement) credentials[key] = replacement;
   }
+  const resolvedIdleCompaction = channel === "web"
+    ? undefined
+    : request.idleCompaction !== undefined
+      ? resolveChannelIdleCompaction(
+          channel,
+          request.idleCompaction ? sanitizeChannelInstanceIdleCompactionSettings(request.idleCompaction, channel) : undefined
+        )
+      : current?.idleCompaction;
   const next: ChannelInstanceSettings = {
     ...(current ?? {}),
     id,
@@ -100,8 +109,12 @@ export function saveDesktopChannelInstance(settings: RuntimeSettings, request: D
     permissionMode: request.permissionMode === null ? undefined : request.permissionMode,
     credentials,
     allowedChatIds: Array.from(new Set((request.allowedChatIds ?? []).map((value) => String(value).trim()).filter(Boolean))),
-    display: sanitizeChannelInstanceDisplaySettings(request.display)
+    display: sanitizeChannelInstanceDisplaySettings(request.display),
+    ...(resolvedIdleCompaction ? { idleCompaction: resolvedIdleCompaction } : {})
   };
+  if (channel === "web") {
+    delete next.idleCompaction;
+  }
   return [...instances.filter((instance) => instance.id !== id && instance.id !== previousId), next];
 }
 

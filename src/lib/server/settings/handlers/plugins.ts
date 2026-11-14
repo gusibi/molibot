@@ -2,6 +2,7 @@ import {
   RESERVED_PLUGIN_KEYS,
   sanitizeCloudflareHtmlPluginSettings,
   sanitizeHookPluginEntries,
+  sanitizeMemoryIdleExtractionMinutes,
   sanitizePiExtensionSettings
 } from "../sanitize.js";
 import { defaultRuntimeSettings } from "../defaults.js";
@@ -27,6 +28,7 @@ export function updatePluginsConfig(
       enabled?: unknown;
       backend?: unknown;
       core?: unknown;
+      idleExtractionMinutes?: unknown;
       dailyMaterials?: unknown;
     };
     const currentMem = current.plugins.memory;
@@ -38,9 +40,22 @@ export function updatePluginsConfig(
       backend: String(mem.backend ?? mem.core ?? currentMem.backend ?? "").trim()
         || currentMem.backend
         || defaultRuntimeSettings.plugins.memory.backend,
+      idleExtractionMinutes: sanitizeMemoryIdleExtractionMinutes(
+        mem.idleExtractionMinutes,
+        currentMem.idleExtractionMinutes
+      ),
       dailyMaterials: mem.dailyMaterials && typeof mem.dailyMaterials === "object"
         ? { ...currentMem.dailyMaterials, ...mem.dailyMaterials as Record<string, unknown> }
         : currentMem.dailyMaterials
+    };
+  } else if (pluginsPatch.memoryIdleExtractionMinutes !== undefined) {
+    const currentMem = current.plugins.memory;
+    merged.memory = {
+      ...currentMem,
+      idleExtractionMinutes: sanitizeMemoryIdleExtractionMinutes(
+        pluginsPatch.memoryIdleExtractionMinutes,
+        currentMem.idleExtractionMinutes
+      )
     };
   }
 

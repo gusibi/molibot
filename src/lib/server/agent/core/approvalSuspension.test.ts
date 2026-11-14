@@ -59,7 +59,7 @@ function createTestSettings(): RuntimeSettings {
 
 function createTestMemory() {
   return {
-    syncExternalMemories: async () => {},
+    syncExternalMemories: async () => { },
     createProfileTurnSnapshot: async () => ({ fingerprint: "profile", items: [] }),
     createPromptSnapshot: async () => ({
       createdAt: new Date().toISOString(),
@@ -94,7 +94,7 @@ function createScriptedStreamFn(responses: ScriptedResponse[]) {
       timestamp: Date.now()
     };
     return {
-      async *[Symbol.asyncIterator]() {},
+      async *[Symbol.asyncIterator]() { },
       result: async () => message
     };
   };
@@ -128,8 +128,8 @@ async function createHarness(options: { chatId: string; sessionId: string; respo
     store,
     () => settings,
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
+    { record: () => { } } as any,
+    { record: () => { } } as any,
     createTestMemory() as any,
     NOOP_HOOK_MANAGER
   );
@@ -171,13 +171,13 @@ function createRunContext(options: {
       imageContents: [],
       sessionId: options.sessionId
     },
-    respond: async () => {},
-    replaceMessage: async () => {},
-    respondInThread: async () => {},
-    setTyping: async () => {},
-    setWorking: async () => {},
-    deleteMessage: async () => {},
-    uploadFile: async () => {},
+    respond: async () => { },
+    replaceMessage: async () => { },
+    respondInThread: async () => { },
+    setTyping: async () => { },
+    setWorking: async () => { },
+    deleteMessage: async () => { },
+    uploadFile: async () => { },
     ...(options.onApprovalRequest ? { onApprovalRequest: options.onApprovalRequest } : {})
   } as any;
 }
@@ -234,8 +234,8 @@ test("a deferred approval suspends the run exactly once and an approval resumes 
     store,
     () => settings,
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
+    { record: () => { } } as any,
+    { record: () => { } } as any,
     createTestMemory() as any,
     NOOP_HOOK_MANAGER
   );
@@ -506,8 +506,8 @@ test("a messaging channel honors Manual instead of silently widening it", async 
     store,
     () => createTestSettings(),
     (patch: Partial<RuntimeSettings>) => ({ ...createTestSettings(), ...patch }),
-    { record: () => {} } as any,
-    { record: () => {} } as any,
+    { record: () => { } } as any,
+    { record: () => { } } as any,
     createTestMemory() as any,
     NOOP_HOOK_MANAGER
   );
@@ -601,12 +601,14 @@ test("changing the mode never retrospectively approves a pending request", async
 test("a new Runner for the same admitted step retains its tool budget", async () => {
   const chatId = "persistent-budget-chat";
   const sessionId = "persistent-budget-session";
-  const harness = await createHarness({ chatId, sessionId, responses: [
-    { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "first read" } }] },
-    { text: "Read completed." },
-    { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "second read" } }] },
-    { text: "The budget was reached." }
-  ] });
+  const harness = await createHarness({
+    chatId, sessionId, responses: [
+      { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "first read" } }] },
+      { text: "Read completed." },
+      { toolCalls: [{ id: "read-one", name: "read", arguments: { path: "budget-source.txt", label: "second read" } }] },
+      { text: "The budget was reached." }
+    ]
+  });
   try {
     harness.settings.budget = { maxToolCalls: 1, maxToolFailures: 6, maxModelAttempts: 10 };
     writeFileSync(join(harness.store.getScratchDir(chatId), "budget-source.txt"), "source text");
@@ -638,12 +640,14 @@ test("a new Runner for the same admitted step retains its tool budget", async ()
 test("unknown and invalid calls reusing a successful call ID charge their own failure receipts", async () => {
   const chatId = "budget-validation-chat";
   const sessionId = "budget-validation-session";
-  const harness = await createHarness({ chatId, sessionId, responses: [
-    { toolCalls: [{ id: "call_0", name: "read", arguments: { path: "budget-source.txt", label: "read" } }] },
-    { toolCalls: [{ id: "call_0", name: "missing_tool", arguments: {} }] },
-    { toolCalls: [{ id: "call_0", name: "read", arguments: {} }] },
-    { text: "Validation failures were reported." }
-  ] });
+  const harness = await createHarness({
+    chatId, sessionId, responses: [
+      { toolCalls: [{ id: "call_0", name: "read", arguments: { path: "budget-source.txt", label: "read" } }] },
+      { toolCalls: [{ id: "call_0", name: "missing_tool", arguments: {} }] },
+      { toolCalls: [{ id: "call_0", name: "read", arguments: {} }] },
+      { text: "Validation failures were reported." }
+    ]
+  });
   try {
     harness.settings.budget = { maxToolCalls: 10, maxToolFailures: 6, maxModelAttempts: 10 };
     writeFileSync(join(harness.store.getScratchDir(chatId), "budget-source.txt"), "source text");

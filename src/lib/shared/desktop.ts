@@ -177,7 +177,8 @@ export interface DesktopRunHistoryResponse {
 }
 
 export type DesktopTraceRange = "today" | "yesterday" | "last7Days" | "last30Days";
-export type DesktopTraceFactType = "all" | "run" | "model_call" | "tool_call" | "skill_usage" | "subagent_task" | "runtime_notice" | "approval" | "input_enrichment";
+export type DesktopTraceFactType = "all" | "run" | "model_call" | "tool_call" | "skill_usage" | "subagent_task" | "runtime_notice" | "approval" | "input_enrichment" | "memory_extraction" | "compaction";
+export type DesktopMemoryExtractionTrigger = "idle" | "long_session" | "daily" | "daily_reflection" | "manual";
 export type DesktopTraceStatus = "started" | "success" | "error" | "blocked" | "waiting" | "aborted" | "info" | "warning";
 
 export interface DesktopModelOutcomes {
@@ -294,6 +295,18 @@ export interface DesktopTraceFact {
   cacheWriteTokens: number;
   totalTokens: number;
   updatedAt: string;
+  memoryTrigger?: DesktopMemoryExtractionTrigger;
+  scannedMessages?: number;
+  committedMemories?: number;
+  createdCandidates?: number;
+  scannedConversations?: number;
+  idleExtractedConversations?: number;
+  fallbackExtractedConversations?: number;
+  compactionTrigger?: string;
+  beforeTokens?: number;
+  afterTokens?: number;
+  summarizedMessages?: number;
+  keptMessages?: number;
 }
 
 export interface DesktopTraceSummary {
@@ -326,6 +339,8 @@ export interface DesktopTraceSummary {
     runs: DesktopTraceEntityRow[];
   };
   facts: { items: DesktopTraceFact[]; total: number; page: number; pageSize: number };
+  memoryExtractions?: DesktopTraceFact[];
+  compactions?: DesktopTraceFact[];
 }
 
 export interface DesktopTraceResponse {
@@ -601,6 +616,7 @@ export interface DesktopHandoverSnapshot {
  * detail from the owning system. Read state is server-side and owner-level.
  */
 export type DesktopHomeNotificationType =
+  | "session-completed"
   | "memory-review"
   | "materials"
   | "task-result"
@@ -884,7 +900,23 @@ export interface DesktopTaskSessionMessage {
 }
 
 export type DesktopSystemTaskExecutionResult =
-  | { kind: "memory-reflection"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdCandidates: number; committedMemories?: number; pendingReviewCount?: number; skillDraftCount?: number }
+  | {
+    kind: "memory-reflection";
+    completedTargets: number;
+    totalConversations?: number;
+    scannedConversations: number;
+    idleExtractedConversations?: number;
+    fallbackExtractedConversations?: number;
+    scannedMessages: number;
+    idleScannedMessages?: number;
+    fallbackScannedMessages?: number;
+    createdCandidates: number;
+    committedMemories?: number;
+    idleCommittedMemories?: number;
+    fallbackCommittedMemories?: number;
+    pendingReviewCount?: number;
+    skillDraftCount?: number;
+  }
   | { kind: "daily-materials"; completedTargets: number; scannedConversations: number; scannedMessages: number; createdFiles: string[] };
 
 export interface DesktopSystemTaskExecution {
@@ -3093,6 +3125,7 @@ export interface DesktopMemorySummary {
   enabled: boolean;
   configEnabled: boolean;
   backend: string;
+  idleExtractionMinutes: number;
   /** Resolved embedding target; null means lexical retrieval. */
   embedding: { providerId: string; providerName: string; model: string } | null;
   capabilities: DesktopMemoryCapabilities;
@@ -3204,6 +3237,13 @@ export interface DesktopChannelDisplaySettings {
   runLogNotice?: boolean;
 }
 
+/** Per-instance idle session auto-compaction settings. */
+export interface DesktopChannelIdleCompactionSettings {
+  enabled: boolean;
+  idleMinutes: number;
+  minContextTokens: number;
+}
+
 export interface DesktopChannelInstance {
   id: string;
   name: string;
@@ -3217,6 +3257,7 @@ export interface DesktopChannelInstance {
   configuredSecrets: string[];
   /** null = every display field follows the global settings. */
   display: DesktopChannelDisplaySettings | null;
+  idleCompaction?: DesktopChannelIdleCompactionSettings;
 }
 
 /** Web is a channel too — the app's own, with a reduced settings form. */
@@ -3237,6 +3278,7 @@ export interface DesktopChannelSaveRequest {
   clearSecrets?: string[];
   /** null/absent clears per-bot display overrides so every field follows global. */
   display?: DesktopChannelDisplaySettings | null;
+  idleCompaction?: Partial<DesktopChannelIdleCompactionSettings> | null;
 }
 
 export interface DesktopChannelTestRequest {
@@ -3305,13 +3347,14 @@ export interface DesktopPluginSettingField {
 export interface DesktopPluginsSummary {
   items: DesktopPluginItem[];
   counts: { total: number; active: number; external: number };
-  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embedding: { providerId: string; providerName: string; model: string } | null; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
+  memory: { enabled: boolean; backend: string; backends: Array<{ value: string; label: string }>; embedding: { providerId: string; providerName: string; model: string } | null; idleExtractionMinutes: number; reflectionTime: string; reflectionNotifications: boolean; reflectionNotificationTarget: string; reflectionNotificationTargets: Array<{ value: string; label: string }>; dailyMaterials: { enabled: boolean; time: string; projectId: string; dir: string; promptPath: string; notifications: boolean; scanTokenBudget: number; scanModelKey: string }; projects: Array<{ value: string; label: string }>; scanModels: Array<{ value: string; label: string }> };
   featureSettings: Array<{ pluginKey: string; name: string; description: string; fields: DesktopPluginSettingField[] }>;
 }
 
 export interface DesktopPluginsUpdateRequest {
   memoryEnabled: boolean;
   memoryBackend: string;
+  memoryIdleExtractionMinutes?: number;
   memoryReflectionTime: string;
   memoryReflectionNotifications: boolean;
   memoryReflectionNotificationTarget: string;

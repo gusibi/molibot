@@ -90,6 +90,9 @@
     embeddingAuto: "使用独立的 Embedding lane；未配置或不可用时使用词法检索。在 Desktop 的“助手 → 向量模型”或 Web 的“记忆 → 向量模型”页管理。",
     embeddingLexical: "词法检索（未检测到 Embedding 模型）",
     embeddingCurrent: "{provider} / {model}",
+    idleExtractionMinutes: "静默提取延迟",
+    idleExtractionHint: "会话暂停多少分钟后后台提取记忆（默认 1.5 分钟，且早于渠道自动压缩）",
+    idleExtractionUnit: "分钟",
     reflectionTime: "每日反思时间",
     reflectionNotifications: "反思完成后通知",
     dailyTime: "每日执行时间",
@@ -143,6 +146,9 @@
     embeddingAuto: "Uses independent embedding lanes; falls back to lexical retrieval when none is available. Manage lanes in Desktop Settings → Assistant → Embedding Models, or Web Settings → Memory → Embedding Models.",
     embeddingLexical: "Lexical retrieval (no embedding model detected)",
     embeddingCurrent: "{provider} / {model}",
+    idleExtractionMinutes: "Idle extraction delay",
+    idleExtractionHint: "Minutes of inactivity before background memory extraction runs (default 1.5 min, ahead of channel auto-compaction)",
+    idleExtractionUnit: "min",
     reflectionTime: "Daily reflection time",
     reflectionNotifications: "Notify after reflection",
     dailyTime: "Daily run time",
@@ -466,6 +472,48 @@
             <span>{coreDetail.embedding
               ? copy.embeddingCurrent.replace("{provider}", coreDetail.embedding.providerName).replace("{model}", coreDetail.embedding.model)
               : copy.embeddingLexical}</span>
+          </SettingRow>
+          <SettingRow title={copy.idleExtractionMinutes} description={copy.idleExtractionHint} stacked>
+            <div class="idle-delay-inline">
+              <div class="bento-preset-row" role="group" aria-label={copy.idleExtractionMinutes}>
+                {#each [1, 1.5, 2, 3, 5] as preset (preset)}
+                  <button
+                    type="button"
+                    class="bento-preset-chip"
+                    class:active={coreDraft.idleExtractionMinutes === preset}
+                    aria-pressed={coreDraft.idleExtractionMinutes === preset}
+                    onclick={() => { if (coreDraft && "backend" in coreDraft) coreDraft = { ...coreDraft, idleExtractionMinutes: preset }; }}
+                  >{preset} {copy.idleExtractionUnit}</button>
+                {/each}
+              </div>
+              <div class="bento-unit-input bento-unit-input--compact">
+                <input
+                  type="number"
+                  min="0.5"
+                  max="120"
+                  step="0.5"
+                  value={coreDraft.idleExtractionMinutes}
+                  aria-label={copy.idleExtractionMinutes}
+                  oninput={(event) => {
+                    const parsed = Number((event.currentTarget as HTMLInputElement).value);
+                    if (!Number.isFinite(parsed) || parsed < 0.5) return;
+                    if (coreDraft && "backend" in coreDraft) {
+                      coreDraft = { ...coreDraft, idleExtractionMinutes: Math.min(120, Math.round(parsed * 10) / 10) };
+                    }
+                  }}
+                  onblur={(event) => {
+                    if (!coreDraft || !("backend" in coreDraft)) return;
+                    const parsed = Number((event.currentTarget as HTMLInputElement).value);
+                    const normalized = Number.isFinite(parsed)
+                      ? Math.min(120, Math.max(0.5, Math.round(parsed * 10) / 10))
+                      : 1.5;
+                    coreDraft = { ...coreDraft, idleExtractionMinutes: normalized };
+                    (event.currentTarget as HTMLInputElement).value = String(normalized);
+                  }}
+                />
+                <span>{copy.idleExtractionUnit}</span>
+              </div>
+            </div>
           </SettingRow>
           <SettingRow title={copy.reflectionTime}><NativeTimeInput bind:value={coreDraft.reflectionTime} ariaLabel={copy.reflectionTime} /></SettingRow>
           <SettingRow title={copy.reflectionNotifications}><IosSwitch checked={coreDraft.reflectionNotifications} ariaLabel={copy.reflectionNotifications} onCheckedChange={(reflectionNotifications) => coreDraft = { ...coreDraft!, reflectionNotifications }} /></SettingRow>

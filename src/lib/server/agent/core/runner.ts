@@ -43,7 +43,7 @@ import { effectiveMcpServers, hasConfiguredMcpServers } from "$lib/server/settin
 import { resolveEffectiveExecutionPolicy, type ExecutionTarget } from "$lib/server/agent/permissions/resolvePermissionMode.js";
 import { findExplicitlyInvokedSkills, loadSkillsFromWorkspace, type LoadedSkill } from "$lib/server/agent/skills/skills.js";
 import { pathCompareKey, resolveToolPath } from "$lib/server/agent/tools/path.js";
-import { countTextTokens, estimateContextTokens, shouldCompactContext } from "$lib/server/agent/session/compaction.js";
+import { countTextTokens, estimateContextTokens, shouldCompactContext, type CompactionUsageReceipt } from "$lib/server/agent/session/compaction.js";
 import {
   assertModelContextFits,
   assessModelContextPreflight,
@@ -126,6 +126,7 @@ import {
   resolveCustomProviderProtocol
 } from "$lib/server/providers/customProtocol.js";
 import { stripImagePartsForTextOnlyModel, supportsVisionNatively } from "$lib/server/agent/routing/mediaFallback.js";
+import { recordCompactionTraceFact } from "$lib/server/agent/hooks/traceStore.js";
 import { getMemoryTraceStore, type MemoryReferencedItem, type MemoryWriteReceipt } from "$lib/server/memory/traceStore.js";
 import { createMemoryCitationStreamFilter, stripMemoryCitations } from "$lib/server/memory/citation.js";
 import { buildReferencedItems, memoryToolHitsFromToolCall } from "$lib/server/memory/referenced.js";
@@ -862,6 +863,7 @@ export class MomRunner implements RunnerLike {
 
   async compact(options?: {
     reason?: "threshold" | "manual";
+    trigger?: string;
     customInstructions?: string;
     notify?: (text: string) => Promise<void>;
     signal?: AbortSignal;
@@ -881,6 +883,10 @@ export class MomRunner implements RunnerLike {
       }
     }
 
+    const trigger = options?.trigger ?? options?.reason ?? "manual";
+    const startedAt = new Date().toISOString();
+    let usageReceipt: CompactionUsageReceipt | undefined;
+
     const settings = this.getSettings();
     const compactSettings = options?.keepRecentTokens === undefined
       ? settings
@@ -891,49 +897,104 @@ export class MomRunner implements RunnerLike {
             keepRecentTokens: Math.max(1, Math.floor(options.keepRecentTokens))
           }
         };
-    const result = await this.turnOrchestratorFactory().compactSessionContext({
-      channel: this.channel,
-      chatId: this.chatId,
-      sessionId: this.sessionId,
-      currentMessages: [...(this.agent.state.messages as AgentMessage[])],
-      store: this.store,
-      settings: compactSettings,
-      options: {
-        ...options,
-        onUsage: (receipt) => {
-          this.usageTracker.record({
-            requestId: `pi:${this.sessionId}:compaction:${Date.now()}`,
+
+    try {
+      const result = await this.turnOrchestratorFactory().compactSessionContext({
+        channel: this.channel,
+        chatId: this.chatId,
+        sessionId: this.sessionId,
+        currentMessages: [...(this.agent.state.messages as AgentMessage[])],
+        store: this.store,
+        settings: compactSettings,
+        options: {
+          ...options,
+          onUsage: (receipt) => {
+            usageReceipt = receipt;
+            this.usageTracker.record({
+              requestId: `pi:${this.sessionId}:compaction:${Date.now()}`,
+              channel: this.channel,
+              botId: this.store.getBotId(),
+              agentId: this.usageAgentId,
+              roomId: this.runtimeIdentity?.roomId,
+              sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
+              provider: receipt.provider,
+              model: receipt.model,
+              api: "compaction",
+              inputTokens: receipt.input,
+              outputTokens: receipt.output,
+              cacheReadTokens: receipt.cacheRead,
+              cacheWriteTokens: receipt.cacheWrite,
+              totalTokens: receipt.totalTokens,
+              estimatedCostUsd: receipt.cost?.total
+            });
+          }
+        }
+      });
+
+      if (result.changed) {
+        await this.agent.replaceContext(result.messages);
+      }
+
+      // Record trace fact when compaction actually ran (changed or had measured tokens/usage)
+      if (result.changed || result.beforeTokens > 0 || usageReceipt !== undefined) {
+        try {
+          recordCompactionTraceFact({
+            trigger,
+            status: "success",
+            conversationId: this.sessionId,
             channel: this.channel,
             botId: this.store.getBotId(),
+            chatId: this.chatId,
+            runId: this.activeHookContext?.runId,
             agentId: this.usageAgentId,
-            roomId: this.runtimeIdentity?.roomId,
-            sessionId: this.runtimeIdentity?.roomId ?? this.sessionId,
-            provider: receipt.provider,
-            model: receipt.model,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            beforeTokens: result.beforeTokens,
+            afterTokens: result.afterTokens,
+            summarizedMessages: result.summarizedMessages,
+            keptMessages: result.keptMessages,
+            provider: usageReceipt?.provider,
+            model: usageReceipt?.model,
             api: "compaction",
-            inputTokens: receipt.input,
-            outputTokens: receipt.output,
-            cacheReadTokens: receipt.cacheRead,
-            cacheWriteTokens: receipt.cacheWrite,
-            totalTokens: receipt.totalTokens,
-            estimatedCostUsd: receipt.cost?.total
+            inputTokens: usageReceipt?.input,
+            outputTokens: usageReceipt?.output,
+            cacheReadTokens: usageReceipt?.cacheRead,
+            cacheWriteTokens: usageReceipt?.cacheWrite,
+            totalTokens: usageReceipt?.totalTokens
           });
+        } catch {
+          // Best-effort trace recording
         }
       }
-    });
 
-    if (result.changed) {
-      await this.agent.replaceContext(result.messages);
+      return {
+        changed: result.changed,
+        summary: result.summary,
+        beforeTokens: result.beforeTokens,
+        afterTokens: result.afterTokens,
+        summarizedMessages: result.summarizedMessages,
+        keptMessages: result.keptMessages
+      };
+    } catch (error) {
+      try {
+        recordCompactionTraceFact({
+          trigger,
+          status: "error",
+          conversationId: this.sessionId,
+          channel: this.channel,
+          botId: this.store.getBotId(),
+          chatId: this.chatId,
+          runId: this.activeHookContext?.runId,
+          agentId: this.usageAgentId,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : String(error)
+        });
+      } catch {
+        // Best-effort
+      }
+      throw error;
     }
-
-    return {
-      changed: result.changed,
-      summary: result.summary,
-      beforeTokens: result.beforeTokens,
-      afterTokens: result.afterTokens,
-      summarizedMessages: result.summarizedMessages,
-      keptMessages: result.keptMessages
-    };
   }
 
   get sessionAgentId(): string | undefined { return this.runtimeIdentity?.agentId; }
@@ -2747,6 +2808,7 @@ export class MomRunner implements RunnerLike {
           try {
             await this.compact({
               reason: "threshold",
+              trigger: "threshold",
               notify: async (text) => {
                 await respondInThread(text);
               }
@@ -2834,6 +2896,7 @@ export class MomRunner implements RunnerLike {
           try {
             const compacted = await this.compact({
               reason,
+              trigger: "overflow",
               notify: async (text) => {
                 await respondInThread(text);
               }
@@ -2905,6 +2968,7 @@ export class MomRunner implements RunnerLike {
               );
               const compacted = await this.compact({
                 reason: "manual",
+                trigger: "preflight",
                 keepRecentTokens: historyBudget
               });
               const history = this.agent.state.messages as AgentMessage[];

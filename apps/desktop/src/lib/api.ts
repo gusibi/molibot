@@ -158,6 +158,7 @@ import type {
   DesktopTaskActionRequest,
   DesktopTaskActionResponse,
   DesktopHomeNotification,
+  DesktopHomeNotificationType,
   DesktopHomeNotificationsResponse,
   DesktopDurableExecutionActionRequest,
   DesktopDurableExecutionActionResponse,
@@ -805,6 +806,7 @@ export interface DesktopMemoryPluginDetail {
   values: {
     enabled: boolean;
     backend: string;
+    idleExtractionMinutes: number;
     reflectionTime: string;
     reflectionNotifications: boolean;
   };
@@ -1457,13 +1459,36 @@ export async function runDesktopTaskAction(endpoint: string, input: DesktopTaskA
   return requestJson<DesktopTaskActionResponse>(endpoint, "/api/desktop/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
 }
 
-export async function loadDesktopNotifications(endpoint: string): Promise<DesktopHomeNotification[]> {
-  const payload = await requestJson<DesktopHomeNotificationsResponse>(endpoint, "/api/desktop/notifications");
+export interface DesktopNotificationsQuery {
+  status?: "all" | "unread" | "read";
+  type?: DesktopHomeNotificationType;
+  limit?: number;
+}
+
+export async function loadDesktopNotifications(
+  endpoint: string,
+  options?: DesktopNotificationsQuery
+): Promise<DesktopHomeNotification[]> {
+  const query = new URLSearchParams();
+  if (options?.status) query.set("status", options.status);
+  if (options?.type) query.set("type", options.type);
+  if (options?.limit) query.set("limit", String(options.limit));
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  const payload = await requestJson<DesktopHomeNotificationsResponse>(endpoint, `/api/desktop/notifications${suffix}`);
   return payload.notifications ?? [];
 }
 
-export async function markDesktopNotificationsRead(endpoint: string, ids?: string[]): Promise<DesktopHomeNotification[]> {
-  const body = ids ? { action: "mark_read", ids } : { action: "mark_all_read" };
+export async function markDesktopNotificationsRead(
+  endpoint: string,
+  ids?: string[],
+  options?: DesktopNotificationsQuery
+): Promise<DesktopHomeNotification[]> {
+  const body = {
+    ...(ids ? { action: "mark_read", ids } : { action: "mark_all_read" }),
+    ...(options?.status ? { status: options.status } : {}),
+    ...(options?.type ? { type: options.type } : {}),
+    ...(options?.limit ? { limit: options.limit } : {})
+  };
   const payload = await requestJson<DesktopHomeNotificationsResponse>(endpoint, "/api/desktop/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return payload.notifications ?? [];
 }

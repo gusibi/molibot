@@ -215,12 +215,19 @@ function projectSystemTaskResult(value: unknown): DesktopSystemTaskExecutionResu
     return {
       kind: "memory-reflection",
       completedTargets: executionCount(result.completedTargets),
+      ...(typeof result.totalConversations === "number" ? { totalConversations: executionCount(result.totalConversations) } : {}),
       scannedConversations: executionCount(result.scannedConversations),
+      ...(typeof result.idleExtractedConversations === "number" ? { idleExtractedConversations: executionCount(result.idleExtractedConversations) } : {}),
+      ...(typeof result.fallbackExtractedConversations === "number" ? { fallbackExtractedConversations: executionCount(result.fallbackExtractedConversations) } : {}),
       scannedMessages: executionCount(result.scannedMessages),
+      ...(typeof result.idleScannedMessages === "number" ? { idleScannedMessages: executionCount(result.idleScannedMessages) } : {}),
+      ...(typeof result.fallbackScannedMessages === "number" ? { fallbackScannedMessages: executionCount(result.fallbackScannedMessages) } : {}),
       createdCandidates: executionCount(result.createdCandidates),
       ...(typeof result.pendingReviewCount === "number" ? { pendingReviewCount: executionCount(result.pendingReviewCount) } : {}),
       ...(typeof result.skillDraftCount === "number" ? { skillDraftCount: executionCount(result.skillDraftCount) } : {}),
-      ...(typeof result.committedMemories === "number" ? { committedMemories: executionCount(result.committedMemories) } : {})
+      ...(typeof result.committedMemories === "number" ? { committedMemories: executionCount(result.committedMemories) } : {}),
+      ...(typeof result.idleCommittedMemories === "number" ? { idleCommittedMemories: executionCount(result.idleCommittedMemories) } : {}),
+      ...(typeof result.fallbackCommittedMemories === "number" ? { fallbackCommittedMemories: executionCount(result.fallbackCommittedMemories) } : {})
     };
   }
   if (result.kind === "daily-materials") {

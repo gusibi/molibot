@@ -8,6 +8,7 @@ import {
   recordReflectionHomeNotification,
   recordMaterialsHomeNotification,
   recordTaskHomeNotification,
+  recordSessionCompletedHomeNotification,
   reconcileCrossChannelNotification,
   reconcileMemoryReviewNotification,
   reconcilePendingNotifications,
@@ -290,4 +291,78 @@ test("reopenByDedupe re-opens only a read or resolved row and refreshes payload 
   assert.equal(revived?.payload.pendingReviewCount, 6);
 
   assert.equal(store.reopenByDedupe("missing:key", {}), null);
+}));
+
+test("list supports all, read (including resolved), unread and type filters in newest-first order", () => withStore((store) => {
+  const unreadPlan = store.record({ type: "plan-completed", dedupeKey: "plan-completed:p1", refId: "p1", payload: { planId: "p1", title: "Plan 1" } });
+  const readTask = store.record({ type: "task-result", dedupeKey: "task:t1:e1", refId: "e1", payload: { taskId: "t1", executionId: "e1", text: "Task 1" } });
+  const resolvedAction = store.record({ type: "action-required", dedupeKey: "pending:approval:1", refId: "approval:1", payload: { kind: "approval", title: "Approve 1" } });
+  const unreadMemory = store.record({ type: "memory-review", dedupeKey: "memory-review:owner:2026-11-10", payload: { pendingReviewCount: 3 } });
+
+  store.markRead(readTask.id);
+  store.resolveByDedupe(resolvedAction.dedupeKey);
+
+  assert.deepEqual(
+    store.list({ status: "all" }).map((item) => item.id),
+    [unreadMemory.id, resolvedAction.id, readTask.id, unreadPlan.id]
+  );
+  assert.deepEqual(
+    store.list({ status: "unread" }).map((item) => item.id),
+    [unreadMemory.id, unreadPlan.id]
+  );
+  assert.deepEqual(
+    store.list({ status: "read" }).map((item) => item.id),
+    [resolvedAction.id, readTask.id]
+  );
+  assert.deepEqual(
+    store.list({ status: "all", type: "plan-completed" }).map((item) => item.id),
+    [unreadPlan.id]
+  );
+  assert.deepEqual(
+    store.list({ status: "read", type: "task-result" }).map((item) => item.id),
+    [readTask.id]
+  );
+  assert.deepEqual(
+    store.list({ status: "all", limit: 2 }).map((item) => item.id),
+    [unreadMemory.id, resolvedAction.id]
+  );
+}));
+
+test("session-completed records unread completion and reopens cleanly on a newer turn", () => withStore((store) => {
+  recordSessionCompletedHomeNotification(store, {
+    sessionId: "sess-alpha",
+    title: "分析财报数据",
+    preview: "第一轮结果已完成整理。",
+    agentId: "analyst",
+    botId: "personal",
+    projectId: "proj-1",
+    channel: "web",
+    completedAt: "2026-11-14T04:00:00.000Z"
+  });
+  const first = store.getByDedupe("session-completed:sess-alpha");
+  assert.ok(first);
+  assert.equal(first.type, "session-completed");
+  assert.equal(first.status, "unread");
+  assert.equal(first.refId, "sess-alpha");
+  assert.equal(first.projectId, "proj-1");
+  assert.equal(first.payload.title, "分析财报数据");
+  assert.equal(first.payload.preview, "第一轮结果已完成整理。");
+
+  store.markRead(first.id);
+  assert.equal(store.get(first.id)?.status, "read");
+
+  recordSessionCompletedHomeNotification(store, {
+    sessionId: "sess-alpha",
+    title: "分析财报数据",
+    preview: "第二轮补充了估值对比。",
+    agentId: "analyst",
+    botId: "personal",
+    projectId: "proj-1",
+    channel: "web",
+    completedAt: "2026-11-14T05:00:00.000Z"
+  });
+  const reopened = store.get(first.id);
+  assert.equal(reopened?.status, "unread");
+  assert.equal(reopened?.readAt, undefined);
+  assert.equal(reopened?.payload.preview, "第二轮补充了估值对比。");
 }));

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { config } from "$lib/server/app/env.js";
 import {
   decodeExternalSessionId,
+  deleteExternalContextFromContexts,
   listExternalSessionMetaFromContexts
 } from "$lib/server/app/externalSessionsFromContexts.js";
 import { snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
@@ -122,9 +123,10 @@ export function buildProductionSessionLifecycle(input: {
 
 /**
  * Real cross-store purge ports. Every step only touches Session-owned data:
- * the UI conversation file, the linked Agent Context files and the
- * conversation search projection. Saved memories, independent documents,
- * Project root files and shared artifacts are never reachable from here.
+ * the UI conversation file, the linked Agent Context files, external
+ * transcript projections and the conversation search projection. Saved
+ * memories, independent documents, Project root files and shared artifacts
+ * are never reachable from here.
  */
 export function buildSessionTrashPorts(
   sessions: SessionStore,
@@ -133,6 +135,8 @@ export function buildSessionTrashPorts(
   return {
     lifecycle,
     deleteNativeContext: (conversationId: string) => piExtensionTerminalHost.purgeSession(conversationId),
+    deleteExternalProjection: (conversationId: string) =>
+      deleteExternalContextFromContexts(resolve(config.dataDir), conversationId),
     deleteUiConversation: (conversationId: string) => {
       const owner = sessions.getWebConversationOwner(conversationId);
       if (owner) {

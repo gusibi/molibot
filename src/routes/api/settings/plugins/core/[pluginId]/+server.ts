@@ -6,6 +6,8 @@ import { getProjectStore } from "$lib/server/projects/store.js";
 import { isCoreSettingsPluginId } from "$lib/server/plugins/coreSettings.js";
 import { updatePluginsConfig } from "$lib/server/settings/handlers/plugins.js";
 import { buildModelOptions } from "$lib/server/settings/modelSwitch.js";
+import { DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES } from "$lib/server/settings/schema.js";
+import { sanitizeMemoryIdleExtractionMinutes } from "$lib/server/settings/sanitize.js";
 
 function relativePath(value: unknown, fallback: string): string {
   const normalized = String(value ?? "").trim() || fallback;
@@ -27,6 +29,7 @@ export const GET: RequestHandler = ({ params }) => {
       values: {
         enabled: settings.plugins.memory.enabled,
         backend: settings.plugins.memory.backend,
+        idleExtractionMinutes: settings.plugins.memory.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
         reflectionTime: settings.plugins.memory.reflectionTime,
         reflectionNotifications: settings.plugins.memory.reflectionNotifications
       },
@@ -65,10 +68,19 @@ export const PUT: RequestHandler = async ({ params, request }) => {
       }
       const reflectionTime = String(body.reflectionTime ?? settings.plugins.memory.reflectionTime);
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(reflectionTime)) throw new Error("Invalid reflection time");
+      let idleExtractionMinutes = settings.plugins.memory.idleExtractionMinutes ?? DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES;
+      if (body.idleExtractionMinutes !== undefined) {
+        const parsed = Number(body.idleExtractionMinutes);
+        if (!Number.isFinite(parsed) || parsed < 0.5 || parsed > 120) {
+          throw new Error("Idle extraction delay must be between 0.5 and 120 minutes");
+        }
+        idleExtractionMinutes = sanitizeMemoryIdleExtractionMinutes(parsed, DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES);
+      }
       const plugins = updatePluginsConfig(runtime, {
         memory: {
           enabled: body.enabled === undefined ? settings.plugins.memory.enabled : Boolean(body.enabled),
           backend,
+          idleExtractionMinutes,
           reflectionTime,
           reflectionNotifications: body.reflectionNotifications === undefined
             ? settings.plugins.memory.reflectionNotifications

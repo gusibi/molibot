@@ -61,7 +61,16 @@ test("idle then daily reflection reopens the same durable checkpoint without ano
   await h.makeService().runSweep({ conversationId: "s" });
   const result = await runMemoryReflection(h.makeService(), { timezone: "Asia/Shanghai", now: new Date("2026-11-01T00:00:00Z") });
   assert.equal(result.localDate, "2026-11-01");
-  assert.equal(result.scannedMessages, 0);
+  assert.equal(result.totalConversations, 1);
+  assert.equal(result.scannedConversations, 1);
+  assert.equal(result.idleExtractedConversations, 1);
+  assert.equal(result.fallbackExtractedConversations, 0);
+  assert.equal(result.scannedMessages, 2);
+  assert.equal(result.idleScannedMessages, 2);
+  assert.equal(result.fallbackScannedMessages, 0);
+  assert.equal(result.committedMemories, 1);
+  assert.equal(result.idleCommittedMemories, 1);
+  assert.equal(result.fallbackCommittedMemories, 0);
   assert.equal(result.createdCandidates, 0);
   assert.equal(h.calls(), 1);
 });

@@ -1,11 +1,12 @@
-import { agentWorkspaceDir } from "$lib/server/sessions/agentStorage.js";
+import { agentWorkspaceDir, listAgentSessions, readActiveRoute, type AgentSessionLocation } from "$lib/server/sessions/agentStorage.js";
 import { admitStoredAgentSession } from "$lib/server/sessions/sessionAgentService.js";
 import { botAgentId, requireBotAgentId } from "$lib/server/sessions/executionIdentity.js";
-import { DEFAULT_AGENT_ID } from "$lib/server/settings/schema.js";
+import { isTaskSessionId } from "$lib/server/agent/session/ids.js";
+import { DEFAULT_AGENT_ID, resolveChannelIdleCompaction } from "$lib/server/settings/schema.js";
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { config } from "$lib/server/app/env.js";
+import { storagePaths } from "$lib/server/infra/db/storage.js";
 import { buildPromptChannelSections } from "$lib/server/agent/prompts/prompt-channel.js";
 import { resumeSuspendedBrokerApproval } from "$lib/server/channels/shared/brokerApprovalResume.js";
 import { buildSystemPromptPreview, getSystemPromptSources } from "$lib/server/agent/prompts/prompt.js";
@@ -98,6 +99,7 @@ export abstract class BaseChannelRuntime {
   protected readonly running = new Set<string>();
   protected readonly inboundDedupe = new Map<string, number>();
   private readonly projectTaskRuns = new Map<string, { pool: RunnerPool; chatId: string; sessionId: string }>();
+  private idleCompactionSweepRunning = false;
 
   protected constructor(init: BaseChannelRuntimeInit) {
     const runtimeOptions = init.options;
@@ -105,9 +107,9 @@ export abstract class BaseChannelRuntime {
     this.workspaceId = getWorkspaceStore().ensureDefaultWorkspace().id;
     this.getSettings = init.getSettings;
     this.updateSettings = init.updateSettings;
-    this.workspaceDir = runtimeOptions?.workspaceDir ?? resolve(config.dataDir, init.defaultWorkspaceName);
+    this.workspaceDir = runtimeOptions?.workspaceDir ?? resolve(storagePaths.dataDir, init.defaultWorkspaceName);
     this.instanceId = runtimeOptions?.instanceId ?? "default";
-    this.store = new MomRuntimeStore(agentWorkspaceDir(config.dataDir, this.boundAgentId()), {
+    this.store = new MomRuntimeStore(agentWorkspaceDir(storagePaths.dataDir, this.boundAgentId()), {
       source: { channel: this.channelName, botId: this.instanceId },
       getAgentId: () => this.boundAgentId()
     });
@@ -940,5 +942,119 @@ export abstract class BaseChannelRuntime {
 
   public readDurableRunDetail(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[] {
     return this.runners.readRunDetail(input.chatId, input.sessionId, input.projectId, input.runId);
+  }
+
+  public async runIdleCompactionSweep(nowMs = Date.now()): Promise<{ scanned: number; compacted: number }> {
+    if (this.idleCompactionSweepRunning || this.channelName === "web") {
+      return { scanned: 0, compacted: 0 };
+    }
+    const settings = this.getSettings();
+    if (settings.compaction?.enabled === false) {
+      return { scanned: 0, compacted: 0 };
+    }
+    const instance = settings.channels?.[this.channelName]?.instances?.find(
+      (item) => item.id === this.instanceId
+    );
+    if (instance?.enabled === false) {
+      return { scanned: 0, compacted: 0 };
+    }
+    const policy = resolveChannelIdleCompaction(this.channelName, instance?.idleCompaction);
+    if (!policy.enabled) {
+      return { scanned: 0, compacted: 0 };
+    }
+
+    this.idleCompactionSweepRunning = true;
+    let scanned = 0;
+    let compactedCount = 0;
+
+    try {
+      const dataRoot = this.store.getDataRoot();
+      const sessions = listAgentSessions(dataRoot, {
+        channel: this.channelName,
+        botId: this.instanceId
+      });
+      const sessionsByChat = new Map<string, AgentSessionLocation[]>();
+      for (const item of sessions) {
+        const chatId = String(item.source?.chatId ?? "").trim();
+        if (!chatId) continue;
+        const list = sessionsByChat.get(chatId) ?? [];
+        list.push(item);
+        sessionsByChat.set(chatId, list);
+      }
+
+      const minIdleMs = policy.idleMinutes * 60_000;
+      for (const [chatId, chatSessions] of sessionsByChat.entries()) {
+        if (this.running.has(chatId) || (this.chatQueues.get(chatId)?.size() ?? 0) > 0) {
+          continue;
+        }
+
+        const route = readActiveRoute(dataRoot, {
+          channel: this.channelName,
+          botId: this.instanceId,
+          chatId
+        });
+        let sessionId = route?.sessionId ? String(route.sessionId).trim() : "";
+        if (!sessionId || !chatSessions.some((item) => item.sessionId === sessionId)) {
+          const visible = chatSessions.filter((item) => !isTaskSessionId(item.sessionId));
+          visible.sort((a, b) => {
+            const fileA = join(a.contextsDir, `${a.sessionId}.jsonl`);
+            const fileB = join(b.contextsDir, `${b.sessionId}.jsonl`);
+            const mtimeA = existsSync(fileA) ? statSync(fileA).mtimeMs : 0;
+            const mtimeB = existsSync(fileB) ? statSync(fileB).mtimeMs : 0;
+            return mtimeB - mtimeA;
+          });
+          sessionId = visible[0]?.sessionId ?? "";
+        }
+
+        if (!sessionId || isTaskSessionId(sessionId)) continue;
+        if (this.isScopeBusy(chatId)) continue;
+
+        const boundProject = getProjectStore().getChannelBinding(this.channelName, this.instanceId, chatId);
+        if (boundProject && !getProjectStore().getChannelConversation(this.channelName, this.instanceId, chatId)) {
+          continue;
+        }
+
+        const target = this.runners.resolveTarget(chatId, sessionId);
+        if (target.store.readSessionOrigin(target.chatId, target.sessionId)?.origin === "automation") {
+          continue;
+        }
+        if (target.pool.get(target.chatId, target.sessionId).isRunning()) {
+          continue;
+        }
+
+        const candidate = target.store.inspectIdleCompactionCandidate(target.chatId, target.sessionId);
+        scanned += 1;
+        if (!candidate.exists || candidate.messagesSinceCompaction < 2) continue;
+        if (candidate.lastActivityMs <= 0 || nowMs - candidate.lastActivityMs < minIdleMs) continue;
+        if (candidate.estimatedContextTokens < policy.minContextTokens) continue;
+        if (this.isScopeBusy(chatId) || (this.chatQueues.get(chatId)?.size() ?? 0) > 0) continue;
+
+        try {
+          const compacted = await this.runners.compact(chatId, sessionId, { reason: "manual" });
+          if (compacted.changed) {
+            compactedCount += 1;
+            momLog(this.channelName, "idle_session_auto_compacted", {
+              botId: this.instanceId,
+              chatId,
+              sessionId,
+              beforeTokens: compacted.beforeTokens,
+              afterTokens: compacted.afterTokens,
+              summarizedMessages: compacted.summarizedMessages,
+              keptMessages: compacted.keptMessages
+            });
+          }
+        } catch (error) {
+          momWarn(this.channelName, "idle_session_auto_compaction_failed", {
+            botId: this.instanceId,
+            chatId,
+            sessionId,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+      return { scanned, compacted: compactedCount };
+    } finally {
+      this.idleCompactionSweepRunning = false;
+    }
   }
 }

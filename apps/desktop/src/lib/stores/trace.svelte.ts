@@ -3,7 +3,7 @@ import type { DesktopTraceFactType, DesktopTraceRange, DesktopTraceSummary } fro
 import { session } from "./session.svelte";
 
 export const TRACE_RANGES: DesktopTraceRange[] = ["today", "yesterday", "last7Days", "last30Days"];
-export const TRACE_FACT_TYPES: DesktopTraceFactType[] = ["all", "run", "tool_call", "model_call", "skill_usage", "subagent_task", "runtime_notice", "approval", "input_enrichment"];
+export const TRACE_FACT_TYPES: DesktopTraceFactType[] = ["all", "run", "tool_call", "model_call", "skill_usage", "subagent_task", "runtime_notice", "approval", "input_enrichment", "memory_extraction", "compaction"];
 
 export const traceStore = $state({
   trace: null as DesktopTraceSummary | null,

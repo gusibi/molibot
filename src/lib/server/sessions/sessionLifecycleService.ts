@@ -59,9 +59,9 @@ export interface SessionLifecycleServiceDeps {
   listExternal?: () => ExternalManagedCandidate[];
   /**
    * True for opaque external-channel session ids. External sessions are a
-   * read-only projection of the Agent `contexts/` store: they appear in the
-   * managed query and transcript preview, but every lifecycle mutation skips
-   * them as `not_applicable` instead of misleading `not_found`.
+   * read-only projection of the Agent `contexts/` store: the transcript never
+   * gains writes, but their Session-owned lifecycle row is mutable so
+   * archive/trash/restore manage list visibility like any other session.
    */
   isExternalSession?: (conversationId: string) => boolean;
   /** Phase-two extraction receipts for managed-list status display and filtering. */
@@ -159,10 +159,17 @@ export class SessionLifecycleService {
     const located = this.locate(conversationId);
     if (!located) {
       const id = String(conversationId ?? "").trim();
-      // Read-only external projection: mutations skip as not_applicable so
-      // callers see "exists but read-only" instead of a misleading not_found.
+      // External projection: the transcript store stays read-only, but the
+      // lifecycle row is Session-owned — archive/trash/restore manage list
+      // visibility without touching the projection itself.
       if (id && this.isExternalSession(id)) {
-        return this.skipped(id, "not_applicable", "external sessions are read-only");
+        const external = this.listExternal?.().find(entry => entry.conversation.id === id);
+        if (!external) return this.skipped(id, "not_found");
+        const row = this.lifecycle.ensureRow(id, {
+          createdAt: external.conversation.createdAt,
+          lastActivityAt: external.conversation.updatedAt
+        });
+        return { located: { conversation: external.conversation, ownerExternalUserId: null }, row };
       }
       return this.skipped(conversationId, "not_found");
     }
@@ -358,18 +365,13 @@ export class SessionLifecycleService {
     ].filter(conversation => conversation.agentId === agentId && !conversation.projectId && conversation.origin !== "agent-room");
   }
 
-  /** Agent deletion archives external projections without enabling mirror mutations. */
+  /**
+   * Agent deletion archives the agent's history, external projections
+   * included: only lifecycle rows move, the transcript projections stay
+   * untouched.
+   */
   archiveAgentHistory(agentId: string): LifecycleItemOutcome[] {
-    return this.listAgentHistory(agentId).map(conversation => {
-      if (!this.isExternalSession(conversation.id)) return this.archive({ conversationId: conversation.id });
-      const row = this.lifecycle.ensureRow(conversation.id, { createdAt: conversation.createdAt });
-      if (row.state === "archived" || row.state === "trashed") return { status: "succeeded", conversationId: row.conversationId, state: row.state, version: row.version };
-      if (this.isBusy(conversation.id)) return this.skipped(conversation.id, "busy");
-      try {
-        const next = this.mutate(row.conversationId, row, { state: "archived", archivedAt: this.nowIso() });
-        return { status: "succeeded", conversationId: next.conversationId, state: next.state, version: next.version };
-      } catch (cause) { return { status: "failed", conversationId: conversation.id, reason: String(cause) }; }
-    });
+    return this.listAgentHistory(agentId).map(conversation => this.archive({ conversationId: conversation.id }));
   }
 
   archive(input: { conversationId: string; requesterExternalUserId?: string; expectedVersion?: number }): LifecycleItemOutcome {
@@ -426,7 +428,10 @@ export class SessionLifecycleService {
       );
       // Recoverable delete: the transcript and Agent Context stay in place for
       // full restore; only the search projection is removed immediately.
-      this.sessions.removeConversationSearchProjection(located.conversation);
+      // External projections hold no search index entry — nothing to remove.
+      if (!this.isExternalSession(row.conversationId)) {
+        this.sessions.removeConversationSearchProjection(located.conversation);
+      }
       return { status: "succeeded", conversationId: next.conversationId, state: next.state, version: next.version };
     } catch (error) {
       if (error instanceof SessionLifecycleVersionConflictError) return this.skipped(row.conversationId, "stale_version");
@@ -483,7 +488,9 @@ export class SessionLifecycleService {
         { state: restoreTo, trashedAt: null, preTrashState: null },
         input.expectedVersion
       );
-      this.sessions.restoreConversationSearchProjection(located.conversation);
+      if (!this.isExternalSession(row.conversationId)) {
+        this.sessions.restoreConversationSearchProjection(located.conversation);
+      }
       return { status: "succeeded", conversationId: next.conversationId, state: next.state, version: next.version };
     } catch (error) {
       if (error instanceof SessionLifecycleVersionConflictError) return this.skipped(row.conversationId, "stale_version");

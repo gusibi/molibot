@@ -10,6 +10,7 @@ import { isExternalSessionId } from "$lib/server/app/sessionMaintenance.js";
 import { SessionStore } from "$lib/server/sessions/store.js";
 import { ConversationSearchIndex } from "$lib/server/sessions/conversationSearch.js";
 import { SessionLifecycleStore } from "$lib/server/sessions/sessionLifecycleStore.js";
+import { SessionTrashCleanupService } from "$lib/server/sessions/sessionTrashCleanup.js";
 import { assembleSessionLifecycle } from "$lib/server/sessions/sessionServiceAssembly.js";
 import type { ExternalManagedCandidate } from "$lib/server/sessions/sessionQueryService.js";
 import type { Conversation } from "$lib/shared/types/message.js";
@@ -178,7 +179,7 @@ test("B2/US3: BOT filter and keyword search apply to external sessions", (t) => 
   assert.equal(externalOnly.total, 2);
 });
 
-test("B2: lifecycle mutations on external sessions skip as read-only, never not_found", (t) => {
+test("B2: lifecycle mutations manage external sessions through their lifecycle rows", (t) => {
   const fx = setup();
   t.after(() => fx.cleanup());
   const externals = [externalCandidate("alpha", "chat-1", "s-1", "Alpha deploy notes")];
@@ -190,16 +191,58 @@ test("B2: lifecycle mutations on external sessions skip as read-only, never not_
   });
   const id = externals[0].conversation.id;
 
-  for (const outcome of [
-    service.archive({ conversationId: id }),
-    service.restoreArchived({ conversationId: id }),
-    service.trash({ conversationId: id }),
-    service.restoreTrashed({ conversationId: id }),
-    service.setRetain({ conversationId: id, retain: true })
-  ]) {
-    assert.equal(outcome.status, "skipped", `expected skip, got ${JSON.stringify(outcome)}`);
-    assert.equal((outcome as { reason?: string }).reason, "not_applicable");
-  }
-  // Unknown ids still report not_found — the skip is reserved for real externals.
+  // Archive/restore round-trip moves only the lifecycle row.
+  assert.equal(service.archive({ conversationId: id }).status, "succeeded");
+  assert.equal(fx.lifecycle.get(id)?.state, "archived");
+  assert.equal(service.restoreArchived({ conversationId: id }).status, "succeeded");
+  assert.equal(fx.lifecycle.get(id)?.state, "active");
+
+  // Recoverable delete: trash succeeds and hides the session from the active list.
+  assert.equal(service.trash({ conversationId: id }).status, "succeeded");
+  assert.equal(fx.lifecycle.get(id)?.state, "trashed");
+  assert.ok(!service.queryManaged({}).items.some((item) => item.conversationId === id), "trashed external session leaves the active managed list");
+  assert.ok(service.queryManaged({ state: "trashed" }).items.some((item) => item.conversationId === id), "trashed external session is recoverable from the trash view");
+  assert.equal(service.restoreTrashed({ conversationId: id }).status, "succeeded");
+  assert.equal(fx.lifecycle.get(id)?.state, "active");
+
+  // Retention marker is a plain lifecycle mutation too.
+  assert.equal(service.setRetain({ conversationId: id, retain: true }).status, "succeeded");
+  assert.ok(fx.lifecycle.get(id)?.retain);
+
+  // Unknown ids still report not_found — never a silent success.
   assert.equal((service.archive({ conversationId: "missing-local-id" }) as { reason?: string }).reason, "not_found");
+  const vanished = externalCandidate("alpha", "chat-1", "s-gone", "Deleted projection");
+  assert.equal((service.archive({ conversationId: vanished.conversation.id }) as { reason?: string }).reason, "not_found");
+});
+
+test("B2: purged external sessions lose their lifecycle row and never resurrect", (t) => {
+  const fx = setup();
+  t.after(() => fx.cleanup());
+  let externals = [externalCandidate("alpha", "chat-1", "s-1", "Alpha deploy notes")];
+  const service = assembleSessionLifecycle({
+    sessions: fx.sessions,
+    lifecycle: fx.lifecycle,
+    listExternal: () => externals,
+    isExternalSession: isExternalSessionId
+  });
+  const id = externals[0].conversation.id;
+  assert.equal(service.trash({ conversationId: id }).status, "succeeded");
+
+  // Same shape as the production wiring: deleting the projection empties
+  // listExternal, then the cleanup removes the lifecycle row — without the
+  // projection deletion the missing row would resurrect the session as active.
+  const cleanup = new SessionTrashCleanupService({
+    deleteNativeContext: () => {},
+    deleteExternalProjection: (conversationId) => {
+      externals = externals.filter((entry) => entry.conversation.id !== conversationId);
+    },
+    lifecycle: fx.lifecycle,
+    deleteUiConversation: () => {},
+    listAgentChatIds: () => [],
+    deleteAgentSession: () => {},
+    finalizeSearchConversation: () => {}
+  });
+  cleanup.purgeTrashedNow(id);
+  assert.equal(fx.lifecycle.get(id), null);
+  assert.ok(!service.queryManaged({}).items.some((item) => item.conversationId === id), "purged external session must not come back as active");
 });

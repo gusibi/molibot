@@ -20,6 +20,12 @@ export interface SessionTrashCleanupPorts {
   deleteAgentSession: (chatId: string, sessionId: string) => void;
   /** Removes native extension context independently of Agent Context enumeration. */
   deleteNativeContext: (conversationId: string) => void;
+  /**
+   * Removes an external session's Agent Context projection (transcript plus
+   * metadata sidecar). Without it a purged external row would resurrect as
+   * "missing row = active" on the next list. Missing counts as success.
+   */
+  deleteExternalProjection: (conversationId: string) => void;
   /** Finalizes search deletion (durable tombstone; nothing can resurrect the projection). */
   finalizeSearchConversation: (conversationId: string) => void;
   /** Ownership recheck before purging someone else's trash. Defaults to allow. */
@@ -145,6 +151,7 @@ export class SessionTrashCleanupService {
     const version = row?.version ?? 0;
     const steps: Array<{ name: string; run: () => void }> = [
       { name: "native", run: () => this.ports.deleteNativeContext(conversationId) },
+      { name: "external", run: () => this.ports.deleteExternalProjection(conversationId) },
       { name: "search", run: () => this.ports.finalizeSearchConversation(conversationId) },
       { name: "ui", run: () => this.ports.deleteUiConversation(conversationId) },
       {

@@ -6,6 +6,7 @@ import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
   DesktopAgentActivityItem,
   DesktopAgentActivityRunItem,
+  DesktopMemoryExtractionTrigger,
   DesktopSubagentActivityItem,
   DesktopTraceEntityRow,
   DesktopTraceFact,
@@ -22,7 +23,8 @@ import type {
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 
 const KNOWN_RANGES: DesktopTraceRange[] = ["today", "yesterday", "last7Days", "last30Days"];
-const KNOWN_FACT_TYPES: DesktopTraceFactType[] = ["all", "run", "model_call", "tool_call", "skill_usage", "subagent_task", "runtime_notice", "approval", "input_enrichment"];
+const KNOWN_FACT_TYPES: DesktopTraceFactType[] = ["all", "run", "model_call", "tool_call", "skill_usage", "subagent_task", "runtime_notice", "approval", "input_enrichment", "memory_extraction", "compaction"];
+const KNOWN_MEMORY_TRIGGERS = new Set<DesktopMemoryExtractionTrigger>(["idle", "long_session", "daily", "daily_reflection", "manual"]);
 
 export interface DesktopTraceQuery {
   range: DesktopTraceRange;
@@ -258,7 +260,47 @@ function buildEntityRows(facts: TraceFactRecord[], kind: "agent" | "channel" | "
   return [...rows.values()].map(({ runIds, tools, facts, ...row }) => ({ ...row, ...tracePerformance(facts), runs: runIds.size, distinctTools: tools.size })).sort((a, b) => (kind === "agent" || kind === "channel" ? b.modelCalls - a.modelCalls : 0) || b.lastAt.localeCompare(a.lastAt));
 }
 
+function numberPayloadField(fact: TraceFactRecord, key: string): number | undefined {
+  const value = fact.payload?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function memoryTriggerOf(fact: TraceFactRecord): DesktopMemoryExtractionTrigger | undefined {
+  const raw = String(fact.payload?.memoryTrigger ?? fact.name ?? "").trim();
+  return KNOWN_MEMORY_TRIGGERS.has(raw as DesktopMemoryExtractionTrigger)
+    ? (raw as DesktopMemoryExtractionTrigger)
+    : undefined;
+}
+
+function compactionTriggerOf(fact: TraceFactRecord): string | undefined {
+  const raw = String(fact.payload?.compactionTrigger ?? fact.name ?? "").trim();
+  return raw || undefined;
+}
+
+function matchesScopeFilters(fact: TraceFactRecord, query: DesktopTraceQuery): boolean {
+  if (query.agentId && safeString(String(fact.payload?.agentId ?? "")) !== query.agentId) return false;
+  if (query.modelId && `${safeString(fact.provider)}::${safeString(fact.model)}` !== query.modelId) return false;
+  if (query.botId && fact.botId !== query.botId) return false;
+  if (query.channel && fact.channel !== query.channel) return false;
+  if (query.chatId && fact.chatId !== query.chatId) return false;
+  if (query.sessionId && fact.sessionId !== query.sessionId) return false;
+  if (query.runId && fact.runId !== query.runId) return false;
+  return true;
+}
+
 function projectFact(fact: TraceFactRecord): DesktopTraceFact {
+  const memoryTrigger = fact.factType === "memory_extraction" ? memoryTriggerOf(fact) : undefined;
+  const scannedMessages = fact.factType === "memory_extraction" ? numberPayloadField(fact, "scannedMessages") : undefined;
+  const committedMemories = fact.factType === "memory_extraction" ? numberPayloadField(fact, "committedMemories") : undefined;
+  const createdCandidates = fact.factType === "memory_extraction" ? numberPayloadField(fact, "createdCandidates") : undefined;
+  const scannedConversations = fact.factType === "memory_extraction" ? numberPayloadField(fact, "scannedConversations") : undefined;
+  const idleExtractedConversations = fact.factType === "memory_extraction" ? numberPayloadField(fact, "idleExtractedConversations") : undefined;
+  const fallbackExtractedConversations = fact.factType === "memory_extraction" ? numberPayloadField(fact, "fallbackExtractedConversations") : undefined;
+  const compactionTrigger = fact.factType === "compaction" ? compactionTriggerOf(fact) : undefined;
+  const beforeTokens = fact.factType === "compaction" ? numberPayloadField(fact, "beforeTokens") : undefined;
+  const afterTokens = fact.factType === "compaction" ? numberPayloadField(fact, "afterTokens") : undefined;
+  const summarizedMessages = fact.factType === "compaction" ? numberPayloadField(fact, "summarizedMessages") : undefined;
+  const keptMessages = fact.factType === "compaction" ? numberPayloadField(fact, "keptMessages") : undefined;
   return {
     ...(fact.payload?.agentId ? { agentId: String(fact.payload.agentId) } : {}),
     id: fact.id,
@@ -279,7 +321,19 @@ function projectFact(fact: TraceFactRecord): DesktopTraceFact {
     cacheReadTokens: fact.cacheReadTokens ?? 0,
     cacheWriteTokens: fact.cacheWriteTokens ?? 0,
     totalTokens: fact.totalTokens ?? 0,
-    updatedAt: fact.updatedAt
+    updatedAt: fact.updatedAt,
+    ...(memoryTrigger !== undefined ? { memoryTrigger } : {}),
+    ...(scannedMessages !== undefined ? { scannedMessages } : {}),
+    ...(committedMemories !== undefined ? { committedMemories } : {}),
+    ...(createdCandidates !== undefined ? { createdCandidates } : {}),
+    ...(scannedConversations !== undefined ? { scannedConversations } : {}),
+    ...(idleExtractedConversations !== undefined ? { idleExtractedConversations } : {}),
+    ...(fallbackExtractedConversations !== undefined ? { fallbackExtractedConversations } : {}),
+    ...(compactionTrigger !== undefined ? { compactionTrigger } : {}),
+    ...(beforeTokens !== undefined ? { beforeTokens } : {}),
+    ...(afterTokens !== undefined ? { afterTokens } : {}),
+    ...(summarizedMessages !== undefined ? { summarizedMessages } : {}),
+    ...(keptMessages !== undefined ? { keptMessages } : {})
   };
 }
 
@@ -291,17 +345,20 @@ export function buildDesktopTraceSummary(timeZone: string, rawQuery: Partial<Des
     const day = localDateKey(fact.createdAt);
     return day >= window.startDate && day <= window.endDate;
   });
-  const filtered = windowFacts.filter((fact) => {
-    if (query.agentId && safeString(String(fact.payload?.agentId ?? "")) !== query.agentId) return false;
-    if (query.modelId && `${safeString(fact.provider)}::${safeString(fact.model)}` !== query.modelId) return false;
-    if (query.factType !== "all" && fact.factType !== query.factType) return false;
-    if (query.botId && fact.botId !== query.botId) return false;
-    if (query.channel && fact.channel !== query.channel) return false;
-    if (query.chatId && fact.chatId !== query.chatId) return false;
-    if (query.sessionId && fact.sessionId !== query.sessionId) return false;
-    if (query.runId && fact.runId !== query.runId) return false;
-    return true;
-  }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const scopedFacts = windowFacts
+    .filter((fact) => matchesScopeFilters(fact, query))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const filtered = query.factType === "all"
+    ? scopedFacts
+    : scopedFacts.filter((fact) => fact.factType === query.factType);
+  const memoryExtractions = scopedFacts
+    .filter((fact) => fact.factType === "memory_extraction")
+    .slice(0, 20)
+    .map(projectFact);
+  const compactions = scopedFacts
+    .filter((fact) => fact.factType === "compaction")
+    .slice(0, 20)
+    .map(projectFact);
   const start = (query.page - 1) * query.pageSize;
   return {
     timezone: timeZone,
@@ -328,7 +385,9 @@ export function buildDesktopTraceSummary(timeZone: string, rawQuery: Partial<Des
       sessions: buildEntityRows(filtered, "session"),
       runs: buildEntityRows(filtered, "run")
     },
-    facts: { items: filtered.slice(start, start + query.pageSize).map(projectFact), total: filtered.length, page: query.page, pageSize: query.pageSize }
+    facts: { items: filtered.slice(start, start + query.pageSize).map(projectFact), total: filtered.length, page: query.page, pageSize: query.pageSize },
+    memoryExtractions,
+    compactions
   };
 }
 

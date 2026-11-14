@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,6 +7,7 @@ import {
   decodeExternalSessionId,
   encodeExternalSessionId,
   claimExternalSessionAgent,
+  deleteExternalContextFromContexts,
   listExternalSessionsFromContexts,
   readExternalTranscriptFromContexts
 } from "./externalSessionsFromContexts";
@@ -485,6 +486,31 @@ test("claiming an external Session persists ownership without granting execution
     assert.equal(claimExternalSessionAgent(root, id, "researcher").agentId, "researcher");
     assert.throws(() => claimExternalSessionAgent(root, id, "writer"), /immutable/);
     assert.equal(readExternalTranscriptFromContexts(root, id)?.conversation.agentId, "researcher");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("deleteExternalContextFromContexts removes the transcript projection and keeps missing ids idempotent", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "molibot-ctx-delete-"));
+  try {
+    const dir = contextsDir(root, "moli-f", "mybot", "222");
+    seedSession(dir, "default", [
+      { role: "user", content: "hello", timestamp: "2026-11-01T00:00:00.000Z" }
+    ], "2026-11-01T00:00:00.000Z");
+    const id = encodeExternalSessionId({ channel: "feishu", botId: "mybot", chatId: "222", sessionId: "default" });
+    assert.ok(listExternalSessionsFromContexts(root).some((entry) => entry.conversation.id === id));
+
+    deleteExternalContextFromContexts(root, id);
+    assert.ok(listExternalSessionsFromContexts(root).every((entry) => entry.conversation.id !== id), "session must not resurrect after deletion");
+    assert.equal(existsSync(path.join(dir, "default.jsonl")), false);
+    assert.equal(existsSync(path.join(dir, "default.json")), false);
+    assert.equal(existsSync(path.join(dir, "default.meta.json")), false);
+
+    // Idempotent: a second purge of the already-gone projection is a no-op.
+    deleteExternalContextFromContexts(root, id);
+    // Malformed ids never touch the filesystem.
+    deleteExternalContextFromContexts(root, "not-an-external-id");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

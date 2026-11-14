@@ -75,6 +75,37 @@
   // allowlist, no display overrides, no platform credentials.
   const editingWeb = $derived(channelsStore.channelEdit?.channel === WEB_CHANNEL);
 
+  const COMPACTION_MINUTE_PRESETS = [
+    { minutes: 30, labelKey: "channelIdleCompactionPreset30m" },
+    { minutes: 60, labelKey: "channelIdleCompactionPreset1h" },
+    { minutes: 120, labelKey: "channelIdleCompactionPreset2h" },
+    { minutes: 240, labelKey: "channelIdleCompactionPreset4h" }
+  ] as const;
+  const COMPACTION_TOKEN_PRESETS = [2000, 4000, 8000, 16000] as const;
+
+  function formatIdleMinutes(minutes: number): string {
+    if (session.locale === "zh-CN") {
+      return minutes % 60 === 0 && minutes >= 60 ? `${minutes / 60} 小时` : `${minutes} 分钟`;
+    }
+    return minutes % 60 === 0 && minutes >= 60 ? `${minutes / 60}h` : `${minutes}m`;
+  }
+
+  function formatTokenCount(tokens: number): string {
+    return new Intl.NumberFormat(session.locale === "zh-CN" ? "zh-CN" : "en-US").format(tokens);
+  }
+
+  function formatCompactionSummary(minutes: number, minTokens: number): string {
+    return session.text.channelIdleCompactionRowSummary
+      .replace("{duration}", formatIdleMinutes(minutes))
+      .replace("{tokens}", formatTokenCount(minTokens));
+  }
+
+  function clampCompactionInt(value: string, min: number, max: number, fallback: number): number {
+    const parsed = Math.round(Number(value));
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, parsed));
+  }
+
   $effect(() => {
     const endpoint = session.serviceReady ? session.endpoint : null;
     if (endpoint) untrack(() => void loadChannels(endpoint));
@@ -98,8 +129,8 @@
       <AgentAvatar name={agentMap.get(inst.agentId)?.name ?? inst.name} src={agentMap.get(inst.agentId)?.avatar ?? ""} />
       <div class="profile-info">
         <strong>{inst.name}</strong>
-        <p class="directory-description">{session.text.channelLinkedAgent}: {agentMap.get(inst.agentId)?.name ?? (inst.agentId || session.text.noLinkedAgent)}{#if inst.display && channel !== WEB_CHANNEL} · {session.text.channelDisplayCustom}{/if}</p>
-        <details class="directory-row-details"><summary>{session.text.directoryDetails}</summary><dl><div><dt>ID</dt><dd><code>{inst.id}</code></dd></div><div><dt>Agent ID</dt><dd><code>{inst.agentId || "—"}</code></dd></div>{#if channel !== WEB_CHANNEL}<div><dt>{session.text.channelAllowedChats}</dt><dd>{inst.allowedChatCount}</dd></div>{/if}<div><dt>{session.text.channelPermissionMode}</dt><dd>{inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}</dd></div></dl></details>
+        <p class="directory-description">{session.text.channelLinkedAgent}: {agentMap.get(inst.agentId)?.name ?? (inst.agentId || session.text.noLinkedAgent)}{#if inst.display && channel !== WEB_CHANNEL} · {session.text.channelDisplayCustom}{/if}{#if channel !== WEB_CHANNEL && inst.idleCompaction?.enabled} · <span class="directory-compaction-badge">{session.text.channelIdleCompactionBadge.replace("{duration}", formatIdleMinutes(inst.idleCompaction.idleMinutes)).replace("{tokens}", formatTokenCount(inst.idleCompaction.minContextTokens))}</span>{/if}</p>
+        <details class="directory-row-details"><summary>{session.text.directoryDetails}</summary><dl><div><dt>ID</dt><dd><code>{inst.id}</code></dd></div><div><dt>Agent ID</dt><dd><code>{inst.agentId || "—"}</code></dd></div>{#if channel !== WEB_CHANNEL}<div><dt>{session.text.channelAllowedChats}</dt><dd>{inst.allowedChatCount}</dd></div><div><dt>{session.text.channelIdleCompactionDetail}</dt><dd>{inst.idleCompaction?.enabled ? formatCompactionSummary(inst.idleCompaction.idleMinutes, inst.idleCompaction.minContextTokens) : session.text.channelIdleCompactionDisabledLabel}</dd></div>{/if}<div><dt>{session.text.channelPermissionMode}</dt><dd>{inst.permissionMode === null ? session.text.agentPermissionModeInherit : { plan: session.text.permissionModePlan, manual: session.text.permissionModeManual, accept_edits: session.text.permissionModeAcceptEdits, auto: session.text.permissionModeAuto }[inst.permissionMode]}</dd></div></dl></details>
       </div>
       <div class="settings-row-actions">
         <span class="directory-enabled-state" data-enabled={inst.enabled}><i aria-hidden="true"></i>{inst.enabled ? session.text.providerEnabled : session.text.providerDisabled}</span>
@@ -161,6 +192,140 @@
         <label class="settings-field"><span>{session.text.systemRunLogNotice}</span><SelectControl value={channelsStore.channelEdit.display.runLogNotice === undefined ? "inherit" : channelsStore.channelEdit.display.runLogNotice ? "on" : "off"} ariaLabel={session.text.systemRunLogNotice} options={runLogNoticeOptions} onChange={(value) => updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, runLogNotice: value === "inherit" ? undefined : value === "on" } }))} /></label>
         <label class="settings-field"><span>{session.text.systemNotifyInterval}</span><input type="number" min="0" step="1" value={channelsStore.channelEdit.display.gatewayNotifyInterval ?? ""} placeholder={String(globalDisplay.gatewayNotifyInterval ?? 0)} aria-label={session.text.systemNotifyInterval} oninput={(event) => { const raw = (event.currentTarget as HTMLInputElement).value.trim(); updateChannelEdit((draft) => ({ ...draft, display: { ...draft.display, gatewayNotifyInterval: raw === "" ? undefined : Number(raw) } })); }} /><small>{session.text.channelNotifyEmptyHint}</small></label>
       </div>
+      <section class="channel-compaction-card" data-enabled={channelsStore.channelEdit.idleCompaction.enabled ? "true" : "false"} aria-label={session.text.channelIdleCompactionSection}>
+        <header class="channel-compaction-head">
+          <div class="channel-compaction-copy">
+            <div class="channel-compaction-title-row">
+              <strong>{session.text.channelIdleCompactionSection}</strong>
+              <span class="channel-compaction-pill" data-enabled={channelsStore.channelEdit.idleCompaction.enabled ? "true" : "false"}>
+                <i aria-hidden="true"></i>
+                {channelsStore.channelEdit.idleCompaction.enabled
+                  ? `${session.text.channelIdleCompactionStatusOn} · ${formatIdleMinutes(channelsStore.channelEdit.idleCompaction.idleMinutes)}`
+                  : session.text.channelIdleCompactionDisabledLabel}
+              </span>
+            </div>
+            <p>{session.text.channelIdleCompactionHint}</p>
+          </div>
+          <IosSwitch
+            checked={channelsStore.channelEdit.idleCompaction.enabled}
+            ariaLabel={session.text.channelIdleCompactionEnable}
+            onCheckedChange={(checked) => updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, enabled: checked } }))}
+          />
+        </header>
+
+        <ol class="compaction-pipeline" aria-hidden="true">
+          <li class="compaction-pipeline-step">
+            <span class="compaction-step-index">01</span>
+            <div>
+              <strong>{session.text.channelIdleCompactionStepIdle}</strong>
+              <span>{formatIdleMinutes(channelsStore.channelEdit.idleCompaction.idleMinutes)}</span>
+            </div>
+          </li>
+          <li class="compaction-pipeline-arrow">→</li>
+          <li class="compaction-pipeline-step">
+            <span class="compaction-step-index">02</span>
+            <div>
+              <strong>{session.text.channelIdleCompactionStepMemory}</strong>
+              <span>{session.text.memory}</span>
+            </div>
+          </li>
+          <li class="compaction-pipeline-arrow">→</li>
+          <li class="compaction-pipeline-step">
+            <span class="compaction-step-index">03</span>
+            <div>
+              <strong>{session.text.channelIdleCompactionStepCompact}</strong>
+              <span>{session.text.channelIdleCompactionStepCompactDetail.replace("{tokens}", formatTokenCount(channelsStore.channelEdit.idleCompaction.minContextTokens))}</span>
+            </div>
+          </li>
+        </ol>
+
+        {#if channelsStore.channelEdit.idleCompaction.enabled}
+          <div class="compaction-bento-grid">
+            <div class="compaction-param-card">
+              <div class="compaction-param-head">
+                <label for="channel-compaction-minutes">{session.text.channelIdleCompactionMinutes}</label>
+                <span>{session.text.channelIdleCompactionMinutesHint}</span>
+              </div>
+              <div class="bento-preset-row" role="group" aria-label={session.text.channelIdleCompactionMinutes}>
+                {#each COMPACTION_MINUTE_PRESETS as preset (preset.minutes)}
+                  <button
+                    type="button"
+                    class="bento-preset-chip"
+                    class:active={channelsStore.channelEdit.idleCompaction.idleMinutes === preset.minutes}
+                    aria-pressed={channelsStore.channelEdit.idleCompaction.idleMinutes === preset.minutes}
+                    onclick={() => updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, idleMinutes: preset.minutes } }))}
+                  >{session.text[preset.labelKey]}</button>
+                {/each}
+              </div>
+              <div class="bento-unit-input">
+                <input
+                  id="channel-compaction-minutes"
+                  type="number"
+                  min="5"
+                  max="10080"
+                  step="5"
+                  value={channelsStore.channelEdit.idleCompaction.idleMinutes}
+                  aria-label={session.text.channelIdleCompactionMinutes}
+                  oninput={(event) => {
+                    const parsed = Number((event.currentTarget as HTMLInputElement).value);
+                    if (!Number.isFinite(parsed) || parsed <= 0) return;
+                    updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, idleMinutes: Math.min(10080, Math.round(parsed)) } }));
+                  }}
+                  onblur={(event) => {
+                    const next = clampCompactionInt((event.currentTarget as HTMLInputElement).value, 5, 10080, 60);
+                    updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, idleMinutes: next } }));
+                    (event.currentTarget as HTMLInputElement).value = String(next);
+                  }}
+                />
+                <span>{session.text.channelIdleCompactionUnitMinutes}</span>
+              </div>
+            </div>
+
+            <div class="compaction-param-card">
+              <div class="compaction-param-head">
+                <label for="channel-compaction-tokens">{session.text.channelIdleCompactionMinTokens}</label>
+                <span>{session.text.channelIdleCompactionMinTokensHint}</span>
+              </div>
+              <div class="bento-preset-row" role="group" aria-label={session.text.channelIdleCompactionMinTokens}>
+                {#each COMPACTION_TOKEN_PRESETS as tokenPreset (tokenPreset)}
+                  <button
+                    type="button"
+                    class="bento-preset-chip"
+                    class:active={channelsStore.channelEdit.idleCompaction.minContextTokens === tokenPreset}
+                    aria-pressed={channelsStore.channelEdit.idleCompaction.minContextTokens === tokenPreset}
+                    onclick={() => updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, minContextTokens: tokenPreset } }))}
+                  >{formatTokenCount(tokenPreset)}</button>
+                {/each}
+              </div>
+              <div class="bento-unit-input">
+                <input
+                  id="channel-compaction-tokens"
+                  type="number"
+                  min="500"
+                  max="200000"
+                  step="500"
+                  value={channelsStore.channelEdit.idleCompaction.minContextTokens}
+                  aria-label={session.text.channelIdleCompactionMinTokens}
+                  oninput={(event) => {
+                    const parsed = Number((event.currentTarget as HTMLInputElement).value);
+                    if (!Number.isFinite(parsed) || parsed <= 0) return;
+                    updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, minContextTokens: Math.min(200000, Math.round(parsed)) } }));
+                  }}
+                  onblur={(event) => {
+                    const next = clampCompactionInt((event.currentTarget as HTMLInputElement).value, 500, 200000, 4000);
+                    updateChannelEdit((draft) => ({ ...draft, idleCompaction: { ...draft.idleCompaction, minContextTokens: next } }));
+                    (event.currentTarget as HTMLInputElement).value = String(next);
+                  }}
+                />
+                <span>{session.text.channelIdleCompactionUnitTokens}</span>
+              </div>
+            </div>
+          </div>
+          <p class="compaction-foot-note">{session.text.channelIdleCompactionScopeNote}</p>
+        {:else}
+          <p class="compaction-foot-note">{session.text.channelIdleCompactionOffHint}</p>
+        {/if}
+      </section>
       <div class="provider-editor-toolbar"><strong>{session.text.channelCredentials}</strong>{#if channelsStore.channelEdit.channel === "feishu"}<button class="secondary-button" type="button" disabled={channelsStore.testing} onclick={() => void testChannelEditor()}>{channelsStore.testing ? session.text.loading : session.text.channelTest}</button>{/if}</div>
       <div class="settings-form">
         {#each CHANNEL_FIELD_CONFIG[channelsStore.channelEdit.channel].visible as key (key)}

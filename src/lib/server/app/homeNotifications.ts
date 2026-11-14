@@ -13,6 +13,7 @@ import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storag
  * read or resolved; retention drops terminal rows after the keep window.
  */
 export type HomeNotificationType =
+  | "session-completed"
   | "memory-review"
   | "materials"
   | "task-result"
@@ -22,6 +23,13 @@ export type HomeNotificationType =
   | "cross-channel";
 
 export type HomeNotificationStatus = "unread" | "read" | "resolved";
+export type HomeNotificationStatusFilter = "all" | "unread" | "read";
+
+export interface HomeNotificationListOptions {
+  status?: HomeNotificationStatusFilter;
+  type?: HomeNotificationType;
+  limit?: number;
+}
 
 export interface HomeNotificationRecord {
   id: string;
@@ -154,23 +162,42 @@ export class HomeNotificationStore {
   }
 
   /**
-   * Newest first, unread only — the home shows what still needs a look.
+   * Lists home notifications, newest first.
    * `rowid` breaks same-millisecond ties: `id` is a random UUID and would
    * shuffle rows inserted within one clock tick.
    */
-  listUnread(limit = 50): HomeNotificationRecord[] {
-    const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
+  list(options: HomeNotificationListOptions = {}): HomeNotificationRecord[] {
+    const requested = typeof options.limit === "number" && Number.isFinite(options.limit) ? options.limit : 50;
+    const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(requested)));
+    const conditions: string[] = [];
+    const params: Array<string | number> = [];
+    const status = options.status ?? "unread";
+    if (status === "unread") {
+      conditions.push("status = 'unread'");
+    } else if (status === "read") {
+      conditions.push("status IN ('read', 'resolved')");
+    }
+    if (options.type) {
+      conditions.push("type = ?");
+      params.push(options.type);
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    params.push(safeLimit);
     const rows = this.db.prepare(`SELECT * FROM home_notifications
-      WHERE status = 'unread' ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(safeLimit) as unknown as NotificationRow[];
+      ${where} ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(...params) as unknown as NotificationRow[];
     return rows.map(parseRow);
+  }
+
+  /**
+   * Newest first, unread only — the home shows what still needs a look.
+   */
+  listUnread(limit = 50): HomeNotificationRecord[] {
+    return this.list({ status: "unread", limit });
   }
 
   /** Newest first, unread rows of one type — the reconcile's resolution source. */
   listUnreadByType(type: HomeNotificationType, limit = 200): HomeNotificationRecord[] {
-    const safeLimit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
-    const rows = this.db.prepare(`SELECT * FROM home_notifications
-      WHERE status = 'unread' AND type = ? ORDER BY created_at DESC, rowid DESC LIMIT ?`).all(type, safeLimit) as unknown as NotificationRow[];
-    return rows.map(parseRow);
+    return this.list({ status: "unread", type, limit });
   }
 
   get(id: string): HomeNotificationRecord | null {

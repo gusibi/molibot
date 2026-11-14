@@ -5,7 +5,11 @@
   import Button from "./lib/components/ui/Button.svelte";
   import AudioPlayer from "./lib/components/AudioPlayer.svelte";
   import AgentCityStartup from "./lib/chat/AgentCityStartup.svelte";
-  import { isActiveDurableExecution, sessionPlanInspector, publishSessionPlan } from "./lib/chat/sessionPlanUi";
+  import {
+    isActiveDurableExecution,
+    sessionPlanInspector,
+    publishSessionPlan,
+  } from "./lib/chat/sessionPlanUi";
   import CheckCircle from "reicon-svelte/icons/CheckCircle";
   import Layers from "./lib/icons/duotone/components/Layers.svelte";
   import SessionActionsMenu from "./lib/chat/SessionActionsMenu.svelte";
@@ -37,6 +41,7 @@
     type DesktopExternalTranscript,
     type DesktopHandover,
     type DesktopHandoverPending,
+    type DesktopHomeNotification,
     type DesktopMessageAttachment,
     type DesktopMemoryFeedbackValue,
     type DesktopMemoryTraceResponse,
@@ -46,10 +51,15 @@
     type DesktopProviderModelTag,
     type DesktopSessionFile,
     type DesktopSessionSummary,
-    type DesktopWebProfile
+    type DesktopWebProfile,
   } from "@molibot/desktop-contract";
   import type { Translation } from "./lib/i18n";
-  import { agentsStore, cancelAgentEdit, beginAgentEdit, loadAgents as loadAgentsSettings } from "./lib/stores/agents.svelte";
+  import {
+    agentsStore,
+    cancelAgentEdit,
+    beginAgentEdit,
+    loadAgents as loadAgentsSettings,
+  } from "./lib/stores/agents.svelte";
   import IosSwitch from "./lib/components/ui/IosSwitch.svelte";
   import SelectControl from "./lib/components/ui/SelectControl.svelte";
   import {
@@ -74,6 +84,8 @@
     loadDesktopExternalTranscript,
     loadDesktopHandover,
     acknowledgeDesktopHandover,
+    loadDesktopNotifications,
+    markDesktopNotificationsRead,
     resolveDesktopHostBashById,
     runDesktopDurableExecutionAction,
     runDesktopPlanAction,
@@ -111,12 +123,22 @@
     type OnboardingStep,
     type OnboardingRepairTarget,
     type ProviderDraft,
-    validateProviderDraft
+    validateProviderDraft,
   } from "./lib/api";
 
   type PermissionMode = "plan" | "manual" | "accept_edits" | "auto";
-  type PermissionSource = "session" | "project" | "instance" | "agent" | "global";
-  const permissionModeOptions: readonly PermissionMode[] = ["plan", "manual", "accept_edits", "auto"];
+  type PermissionSource =
+    | "session"
+    | "project"
+    | "instance"
+    | "agent"
+    | "global";
+  const permissionModeOptions: readonly PermissionMode[] = [
+    "plan",
+    "manual",
+    "accept_edits",
+    "auto",
+  ];
   let permissionMode: PermissionMode = "accept_edits";
   let permissionModeSource: PermissionSource = "global";
   // The composer menu in a draft shows the *global default* until the user
@@ -136,6 +158,9 @@
   import { appLogo } from "./lib/stores/appLogo.svelte";
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
+  import AgentNotificationsPage from "./lib/chat/AgentNotificationsPage.svelte";
+  import { resolveSessionCompletedTarget } from "./lib/chat/homeNotificationView";
+  import Bell from "./lib/icons/duotone/components/Bell.svelte";
   import Library from "reicon-svelte/icons/Library";
   import History from "reicon-svelte/icons/History";
   import ContextWindowPanel from "./lib/chat/ContextWindowPanel.svelte";
@@ -151,32 +176,46 @@
     type TranscriptAttachmentActions,
     type TranscriptContributionAction,
     type TranscriptMessage,
-    type TranscriptMessageActions
+    type TranscriptMessageActions,
   } from "./lib/chat/transcript";
   import ApprovalCard from "./lib/chat/ApprovalCard.svelte";
   import ChatInputArea from "./lib/chat/ChatInputArea.svelte";
   import ChatMessagesPane from "./lib/chat/ChatMessagesPane.svelte";
   import ConversationPromptNavigator from "./lib/chat/ConversationPromptNavigator.svelte";
   import { PROMPT_NAVIGATOR_MIN_TURNS } from "./lib/chat/conversationNavigation";
-  import { shouldSubmitComposer, thinkingSelectionLabel } from "./lib/chat/composerInput";
+  import {
+    shouldSubmitComposer,
+    thinkingSelectionLabel,
+  } from "./lib/chat/composerInput";
   import RoomWorkspace from "./lib/chat/RoomWorkspace.svelte";
   import { roomsCopy } from "./lib/chat/roomsCopy";
   import type { AgentRoom } from "@molibot/shared/rooms";
   import { loadDesktopRooms, actOnDesktopRoom } from "./lib/api";
   import AgentNavigation from "./lib/chat/AgentNavigation.svelte";
   import AgentAvatar from "./lib/components/ui/AgentAvatar.svelte";
-  import { loadDesktopAgentNavigation, saveDesktopAgentNavigation, claimDesktopSessionAgent, type DesktopAgentNavigation } from "./lib/api";
+  import {
+    loadDesktopAgentNavigation,
+    saveDesktopAgentNavigation,
+    claimDesktopSessionAgent,
+    type DesktopAgentNavigation,
+  } from "./lib/api";
   import ChatSidebar from "./lib/chat/ChatSidebar.svelte";
   import TranscriptSearch from "./lib/chat/TranscriptSearch.svelte";
   import ProjectDetail from "./lib/projects/ProjectDetail.svelte";
   import ArtifactPanel from "./lib/artifacts/ArtifactPanel.svelte";
-  import type { ArtifactScope } from "./lib/artifacts/viewerRegistry";
+  import { isRenderableArtifact, type ArtifactScope } from "./lib/artifacts/viewerRegistry";
   import { shouldOpenArtifactAsDiff } from "./lib/artifacts/artifactOpenMode";
   import SessionPlanInspector from "./lib/chat/SessionPlanInspector.svelte";
   import DurableExecutionInspector from "./lib/chat/DurableExecutionInspector.svelte";
   import MiniAppActionToast from "./lib/miniapps/MiniAppActionToast.svelte";
   import MiniAppsQuickMenu from "./lib/miniapps/MiniAppsQuickMenu.svelte";
-  import { projectsStore, projectsView, refreshProjectSessionList, selectProject, selectProjectSession } from "./lib/stores/projects.svelte";
+  import {
+    projectsStore,
+    projectsView,
+    refreshProjectSessionList,
+    selectProject,
+    selectProjectSession,
+  } from "./lib/stores/projects.svelte";
   import { session, SETTINGS_CHANGED_EVENT } from "./lib/stores/session.svelte";
   import WindowDragMask from "./lib/WindowDragMask.svelte";
   import type { ChannelDescriptor } from "./lib/chat/ChannelAccordion.svelte";
@@ -193,49 +232,83 @@
     miniAppDeepLinkOpenRequest,
     miniAppSessionOpenRequest,
     artifactPathOpenRequest,
-    artifactTurnOpenRequest
+    artifactTurnOpenRequest,
   } from "./lib/projects/composerBridge";
-  import type { TurnFileItem } from "./lib/chat/turnFiles";
+  import { collectTurnFiles, type TurnFileItem } from "./lib/chat/turnFiles";
   import { parseMiniAppDeepLink } from "@molibot/shared/miniappDeepLink";
   import { mimeFromFilename } from "@molibot/shared/filePreview";
   // Files the active Project session has touched, projected for the file panel.
   const sessionFileTouches = projectChatStore.sessionFiles;
   import type { SessionFileTouches } from "./lib/projects/sessionFileTouches";
-  const EMPTY_TOUCHES: SessionFileTouches = { written: new Set(), all: new Set() };
-  import type { ConversationLabels, UiMessage } from "./lib/chat/conversationController.svelte";
+  const EMPTY_TOUCHES: SessionFileTouches = {
+    written: new Set(),
+    all: new Set(),
+  };
+  import type {
+    ConversationLabels,
+    UiMessage,
+  } from "./lib/chat/conversationController.svelte";
   import type { TranscriptLoad } from "./lib/chat/sessionRuntimeRegistry.svelte";
   import { stickToBottom } from "./lib/chat/stickToBottom";
-  import { openWorkspacePaneState, type ChatWorkspacePane as ChatWorkspacePaneName } from "./lib/chat/workspace";
+  import {
+    openWorkspacePaneState,
+    type ChatWorkspacePane as ChatWorkspacePaneName,
+  } from "./lib/chat/workspace";
   import {
     CommandSystem,
     CallbackCommandHostAdapter,
     type CommandContext,
     type CommandExecution,
     type CommandId,
-    type CommandSnapshot
+    type CommandSnapshot,
   } from "./lib/native/commandSystem";
-  import { deriveComposerContextUsage, humanizeModelOption, resolveModelContextWindow } from "./lib/presentation";
+  import {
+    deriveComposerContextUsage,
+    humanizeModelOption,
+    resolveModelContextWindow,
+  } from "./lib/presentation";
   import {
     loadCommandUsage,
     rankCommands,
     recordCommandSuccess,
     saveCommandUsage,
-    type CommandUsage
+    type CommandUsage,
   } from "./lib/native/commandPalette";
   import { DirectManipulation } from "./lib/native/directManipulation";
-  import { ActivityScheduler, agentActivityPolicy, backgroundActivityPolicy, documentActivityVisibility, reconnectActivityPolicy } from "./lib/native/activityScheduler";
+  import {
+    ActivityScheduler,
+    agentActivityPolicy,
+    backgroundActivityPolicy,
+    documentActivityVisibility,
+    reconnectActivityPolicy,
+  } from "./lib/native/activityScheduler";
   import MemoryTraceDrawer from "./lib/chat/MemoryTraceDrawer.svelte";
-  import { miniAppsCatalog, clearMiniAppBadge } from "./lib/stores/miniapps.svelte";
-  import { catalogMessageActions, invokeTranscriptMessageAction } from "./lib/miniapps/messageActions";
+  import {
+    miniAppsCatalog,
+    clearMiniAppBadge,
+  } from "./lib/stores/miniapps.svelte";
+  import {
+    catalogMessageActions,
+    invokeTranscriptMessageAction,
+  } from "./lib/miniapps/messageActions";
   import { fetchDesktopMiniAppAttachment } from "./lib/api";
-  import { agentDraftKey, composerDraftKey } from "./lib/chat/sessionDraftStore";
+  import {
+    agentDraftKey,
+    composerDraftKey,
+  } from "./lib/chat/sessionDraftStore";
   import type { FeedbackEvent } from "./lib/native/feedbackCoordinator";
 
   export let copy: Translation;
   export let locale: "zh-CN" | "en";
   export let serviceEndpoint: string | null;
   export let serviceState: "disconnected" | "ready" | "incompatible" | "error";
-  export let startupPhase: "checking" | "starting" | "delayed" | "ready" | "error" | "retrying" = "checking";
+  export let startupPhase:
+    | "checking"
+    | "starting"
+    | "delayed"
+    | "ready"
+    | "error"
+    | "retrying" = "checking";
   export let startupError = "";
   export let storageMigrationPending = false;
   export let openStorageMigration: () => void = () => {};
@@ -257,8 +330,10 @@
   const LAST_SESSION_KEY = "molibot-desktop-last-session";
   const FIRST_LAUNCH_SEEN_KEY = "molibot-desktop-first-launch-seen";
   const NATIVE_COMMAND_EVENT = "native-command";
-  const PERSONALIZATION_MARKER_START = "<!-- molibot:onboarding-personalization:start -->";
-  const PERSONALIZATION_MARKER_END = "<!-- molibot:onboarding-personalization:end -->";
+  const PERSONALIZATION_MARKER_START =
+    "<!-- molibot:onboarding-personalization:start -->";
+  const PERSONALIZATION_MARKER_END =
+    "<!-- molibot:onboarding-personalization:end -->";
 
   // The per-session runtime registry + active-session bridge (plan §4/§5). The
   // registry owns a pinned ConversationController per session so background turns
@@ -320,7 +395,9 @@
   let miniAppActionPendingKey = "";
   let miniAppActionSuccessKey = "";
   let miniAppActionFeedback = "";
-  let miniAppActionCard: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null;
+  let miniAppActionCard:
+    | import("@molibot/desktop-contract").DesktopMiniAppResultCard
+    | null = null;
   let miniAppActionFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
   let appliedMiniAppInsertionId = 0;
   let appliedMiniAppAttachmentId = 0;
@@ -335,7 +412,10 @@
   let memoryTraceReturnFocus: HTMLElement | null = null;
 
   async function openMemoryTrace(traceId: string): Promise<void> {
-    memoryTraceReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    memoryTraceReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     memoryTraceId = traceId;
     memoryTrace = null;
     memoryTraceError = "";
@@ -359,10 +439,18 @@
     void tick().then(() => target?.focus());
   }
 
-  async function submitMemoryTraceFeedback(memoryId: string, value: DesktopMemoryFeedbackValue): Promise<void> {
+  async function submitMemoryTraceFeedback(
+    memoryId: string,
+    value: DesktopMemoryFeedbackValue,
+  ): Promise<void> {
     if (!memoryTraceId) return;
     try {
-      await submitDesktopMemoryTraceFeedback(connectedEndpoint, memoryTraceId, memoryId, value);
+      await submitDesktopMemoryTraceFeedback(
+        connectedEndpoint,
+        memoryTraceId,
+        memoryId,
+        value,
+      );
       memoryTraceFeedback = new Set(memoryTraceFeedback).add(memoryId);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -378,7 +466,13 @@
   let sidebarRooms: AgentRoom[] = [];
   let roomsLoadGeneration = 0;
   let roomStartEditing = false;
-  let expandedChannels: Record<DesktopConversationChannel, boolean> = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+  let expandedChannels: Record<DesktopConversationChannel, boolean> = {
+    web: true,
+    telegram: false,
+    feishu: false,
+    qq: false,
+    weixin: false,
+  };
   let channelItems: Record<string, DesktopConversationItem[]> = {};
   let channelHasMore: Record<string, boolean> = {};
   let channelNextCursor: Record<string, string | null> = {};
@@ -390,7 +484,9 @@
 
   // Read-only external transcript view (plan §3.3): opened from an external
   // channel's session row; never goes through the registry.
-  const externalTranscriptLoader = new ExternalTranscriptLoader(loadDesktopExternalTranscript);
+  const externalTranscriptLoader = new ExternalTranscriptLoader(
+    loadDesktopExternalTranscript,
+  );
   let externalTranscript: DesktopExternalTranscript | null = null;
   let externalTranscriptLoading = false;
   let externalTranscriptError = "";
@@ -408,7 +504,8 @@
   let roomNavigationRevision = 0;
   let requestedPlanId = "";
   let workspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
-  let appliedRequestedWorkspacePane: ChatWorkspacePaneName = requestedWorkspacePane;
+  let appliedRequestedWorkspacePane: ChatWorkspacePaneName =
+    requestedWorkspacePane;
   let agentActivities: DesktopAgentActivityItem[] = [];
   let agentActivityReady = false;
   let agentActivityError = "";
@@ -442,11 +539,22 @@
     handoverLoading = true;
     try {
       const next = await loadDesktopHandover(endpoint);
-      if (request !== handoverRequestGeneration || generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      if (
+        request !== handoverRequestGeneration ||
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint ||
+        !connectionReady
+      )
+        return;
       handover = next;
       handoverStale = false;
     } catch {
-      if (request !== handoverRequestGeneration || generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      if (
+        request !== handoverRequestGeneration ||
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint
+      )
+        return;
       // Keep the content already on screen; only the freshness label changes.
       handoverStale = true;
     } finally {
@@ -454,9 +562,71 @@
     }
   }
 
+  let unreadNotifications: DesktopHomeNotification[] = [];
+  let unreadNotificationsRequest = 0;
+  let lastUnreadNotificationsRefreshAt = 0;
+  const UNREAD_NOTIFICATIONS_MIN_MS = 1_500;
+  $: unreadNotificationCount = unreadNotifications.length;
+
+  async function refreshUnreadNotifications(force = false): Promise<void> {
+    const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
+    if (!connectionReady || !endpoint) return;
+    const now = Date.now();
+    if (
+      !force &&
+      now - lastUnreadNotificationsRefreshAt < UNREAD_NOTIFICATIONS_MIN_MS
+    )
+      return;
+    lastUnreadNotificationsRefreshAt = now;
+    const request = ++unreadNotificationsRequest;
+    try {
+      const items = await loadDesktopNotifications(endpoint, {
+        status: "unread",
+        limit: 100,
+      });
+      if (
+        request !== unreadNotificationsRequest ||
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint ||
+        !connectionReady
+      )
+        return;
+      unreadNotifications = items;
+    } catch {
+      // Unread dot stays at its last known state on transient network failure.
+    }
+  }
+
+  async function markSessionNotificationRead(
+    sessionId?: string,
+  ): Promise<void> {
+    const endpoint = connectedEndpoint;
+    if (!endpoint || !connectionReady || !sessionId) return;
+    const matchedIds = unreadNotifications
+      .filter(
+        (item) =>
+          item.type === "session-completed" &&
+          item.status === "unread" &&
+          resolveSessionCompletedTarget(item).sessionId === sessionId,
+      )
+      .map((item) => item.id);
+    if (matchedIds.length === 0) return;
+    unreadNotifications = unreadNotifications.filter(
+      (item) => !matchedIds.includes(item.id),
+    );
+    try {
+      await markDesktopNotificationsRead(endpoint, matchedIds);
+      void refreshUnreadNotifications(true);
+    } catch {
+      void refreshUnreadNotifications(true);
+    }
+  }
+
   function refreshHandoverIfDue(force = false): void {
     if (!isDefaultAgentHome) return;
-    if (!force && Date.now() - handoverRefreshedAt < HANDOVER_REFRESH_MIN_MS) return;
+    if (!force && Date.now() - handoverRefreshedAt < HANDOVER_REFRESH_MIN_MS)
+      return;
     void refreshHandover();
   }
 
@@ -473,12 +643,25 @@
     }
   }
 
-  async function resolveHandoverApproval(items: DesktopHandoverPending[], decision: "approve_once" | "reject"): Promise<void> {
+  async function resolveHandoverApproval(
+    items: DesktopHandoverPending[],
+    decision: "approve_once" | "reject",
+  ): Promise<void> {
     const endpoint = connectedEndpoint;
     if (!endpoint || !items.length) return;
     const actions = items
-      .map((item) => ({ item, action: handoverApprovalAction(item, decision, crypto.randomUUID()) }))
-      .filter((entry): entry is { item: DesktopHandoverPending; action: NonNullable<ReturnType<typeof handoverApprovalAction>> } => Boolean(entry.action));
+      .map((item) => ({
+        item,
+        action: handoverApprovalAction(item, decision, crypto.randomUUID()),
+      }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          item: DesktopHandoverPending;
+          action: NonNullable<ReturnType<typeof handoverApprovalAction>>;
+        } => Boolean(entry.action),
+      );
     if (!actions.length) return;
     handoverBusyId = items[0].id;
     handoverError = "";
@@ -489,14 +672,23 @@
           if (action.kind === "durable") {
             await runDesktopDurableExecutionAction(endpoint, action.input);
           } else {
-            const result = await resolveDesktopHostBashById(endpoint, action.requestId, decision);
+            const result = await resolveDesktopHostBashById(
+              endpoint,
+              action.requestId,
+              decision,
+            );
             // An approved command that then fails is reported here and nowhere
             // else: the card is gone, so the failure has to be visible here.
             if (result.status === "not_found") failures.push(result.response);
-            else if (result.status === "failed") failures.push(`${copy.hostBashApprovedFailed}: ${result.error || result.response}`);
+            else if (result.status === "failed")
+              failures.push(
+                `${copy.hostBashApprovedFailed}: ${result.error || result.response}`,
+              );
           }
         } catch (cause) {
-          failures.push(`${item.title || copy.handoverPendingRun}: ${cause instanceof Error ? cause.message : String(cause)}`);
+          failures.push(
+            `${item.title || copy.handoverPendingRun}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          );
         }
       }
     } finally {
@@ -506,7 +698,10 @@
     }
   }
 
-  async function answerHandoverDecision(item: DesktopHandoverPending, answer: string): Promise<void> {
+  async function answerHandoverDecision(
+    item: DesktopHandoverPending,
+    answer: string,
+  ): Promise<void> {
     const endpoint = connectedEndpoint;
     if (!endpoint || !item.executionId || !item.decisionId) return;
     handoverBusyId = item.id;
@@ -518,7 +713,7 @@
         decisionId: item.decisionId,
         answer,
         expectedVersion: Number(item.expectedVersion ?? 0),
-        actionId: crypto.randomUUID()
+        actionId: crypto.randomUUID(),
       });
     } catch (cause) {
       handoverError = cause instanceof Error ? cause.message : String(cause);
@@ -528,7 +723,10 @@
     }
   }
 
-  async function approveHandoverPlan(item: DesktopHandoverPending, mode: "manual" | "accept_edits"): Promise<void> {
+  async function approveHandoverPlan(
+    item: DesktopHandoverPending,
+    mode: "manual" | "accept_edits",
+  ): Promise<void> {
     const endpoint = connectedEndpoint;
     if (!endpoint || !item.planId) return;
     handoverBusyId = item.id;
@@ -539,7 +737,7 @@
         planId: item.planId,
         expectedVersion: Number(item.expectedVersion ?? 0),
         sessionId: item.sessionId,
-        mode
+        mode,
       });
     } catch (cause) {
       handoverError = cause instanceof Error ? cause.message : String(cause);
@@ -555,21 +753,58 @@
    * outside the eight recent rows, and "open the history list" is not an answer
    * to "which session is waiting for me".
    */
-  async function openHandoverSource(input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }): Promise<void> {
+  async function openHandoverSource(input: {
+    sessionId?: string;
+    projectId?: string;
+    channel?: string;
+    title?: string;
+    agentId?: string;
+    planId?: string;
+    executionId?: string;
+  }): Promise<void> {
     const endpoint = connectedEndpoint;
     if (input.planId || input.executionId) {
+      notificationsReturnState = null;
       openWorkspacePane("plans", input.planId || input.executionId);
       return;
     }
+    if (input.projectId && input.sessionId && endpoint) {
+      notificationsReturnState = null;
+      projectsStore.endpoint = endpoint;
+      await selectProject(input.projectId);
+      await selectProjectSession(input.sessionId, input.projectId);
+      closeAgentSettings();
+      agentFilesActive = false;
+      agentHistoryActive = false;
+      agentNotificationsActive = false;
+      roomPaneActive = false;
+      projectPaneActive = true;
+      workspacePane = "chat";
+      viewMode = "local";
+      activeProjectSessionId = input.sessionId;
+      void markSessionNotificationRead(input.sessionId);
+      return;
+    }
     if (input.sessionId && endpoint) {
-      const known = [...ordinarySessions, ...agentHomeSessions].find((item) => item.sessionId === input.sessionId);
+      notificationsReturnState = null;
+      const known = [...ordinarySessions, ...agentHomeSessions].find(
+        (item) => item.sessionId === input.sessionId,
+      );
       if (known) {
         await openSession(known);
         return;
       }
       try {
-        const lookup = await listDesktopConversations(endpoint, { channel: "web", allAgents: true, includeArchived: true, sessionId: input.sessionId, limit: 1 });
-        const found = lookup.items.find((item) => item.sessionId === input.sessionId);
+        const lookup = await listDesktopConversations(endpoint, {
+          channel: "web",
+          allAgents: true,
+          includeArchived: true,
+          sessionId: input.sessionId,
+          limit: 1,
+        });
+        const found = lookup.items.find(
+          (item) => item.sessionId === input.sessionId,
+        );
         if (found) {
           await openSession(found);
           return;
@@ -581,11 +816,22 @@
       // lives (an external reply can be executed through the Web gateway). Ask
       // the external contexts by id before declaring the source gone.
       try {
-        const transcript = await loadDesktopExternalTranscript(endpoint, input.sessionId);
+        const transcript = await loadDesktopExternalTranscript(
+          endpoint,
+          input.sessionId,
+        );
         selectedAgentId = input.agentId || defaultAgentId;
-        agentNavigation = { ...agentNavigation, page: "external", agentId: selectedAgentId, sessionId: input.sessionId };
+        agentNavigation = {
+          ...agentNavigation,
+          page: "external",
+          agentId: selectedAgentId,
+          sessionId: input.sessionId,
+        };
         persistAgentNavigation();
         closeAgentSettings();
+        agentFilesActive = false;
+        agentHistoryActive = false;
+        agentNotificationsActive = false;
         roomPaneActive = false;
         projectPaneActive = false;
         workspacePane = "chat";
@@ -593,8 +839,10 @@
           input.sessionId,
           transcript.channel,
           input.title || transcript.title,
-          onboardingAgents.find((agent) => agent.id === selectedAgentId)?.name ?? ""
+          onboardingAgents.find((agent) => agent.id === selectedAgentId)
+            ?.name ?? "",
         );
+        void markSessionNotificationRead(input.sessionId);
         return;
       } catch {
         // Not in the external contexts either; report the missing source below.
@@ -605,6 +853,7 @@
       void refreshHandover();
       return;
     }
+    notificationsReturnState = null;
     openAgentHistory(defaultAgentId);
   }
 
@@ -622,17 +871,24 @@
     if (!connectionReady || !endpoint) return;
     try {
       const items = await loadDesktopAgentActivity(endpoint);
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      if (
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint ||
+        !connectionReady
+      )
+        return;
       const recovered = !agentActivityReady || handoverStale;
       agentActivities = items;
       agentActivityReady = true;
       agentActivityError = "";
       refreshHandoverIfDue(recovered);
     } catch (cause) {
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint)
+        return;
       agentActivities = [];
       agentActivityReady = false;
-      agentActivityError = cause instanceof Error ? cause.message : String(cause);
+      agentActivityError =
+        cause instanceof Error ? cause.message : String(cause);
       // A failed poll is what turns the page stale, so it must not wait for the
       // slow refresh cadence; the Handover read is cheap when the service is down.
       refreshHandoverIfDue(true);
@@ -649,7 +905,11 @@
 
   function startAgentActivityPolling(): void {
     stopAgentActivityPolling();
-    agentActivityScheduler = new ActivityScheduler(agentActivityPolicy, refreshAgentActivity, documentActivityVisibility);
+    agentActivityScheduler = new ActivityScheduler(
+      agentActivityPolicy,
+      refreshAgentActivity,
+      documentActivityVisibility,
+    );
     agentActivityScheduler.start();
   }
 
@@ -666,14 +926,21 @@
     try {
       await Promise.all([
         refreshAgentSessions(),
-        viewMode === "external" ? refreshExternalTranscript() : Promise.resolve()
+        viewMode === "external"
+          ? refreshExternalTranscript()
+          : Promise.resolve(),
       ]);
     } catch (cause) {
-      if (endpoint === connectedEndpoint && generation === connectionGeneration) {
-        conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+      if (
+        endpoint === connectedEndpoint &&
+        generation === connectionGeneration
+      ) {
+        conversationRefreshError =
+          cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      if (endpoint === connectedEndpoint && generation === connectionGeneration) conversationRefreshing = false;
+      if (endpoint === connectedEndpoint && generation === connectionGeneration)
+        conversationRefreshing = false;
     }
   }
 
@@ -683,7 +950,11 @@
 
   function startConversationPolling(): void {
     stopConversationPolling();
-    conversationScheduler = new ActivityScheduler(agentActivityPolicy, refreshConversations, documentActivityVisibility);
+    conversationScheduler = new ActivityScheduler(
+      agentActivityPolicy,
+      refreshConversations,
+      documentActivityVisibility,
+    );
     conversationScheduler.start();
   }
 
@@ -707,7 +978,10 @@
   let durableExecutions: DesktopDurableExecutionItem[] = [];
   let durableExecutionError = "";
   let durableExecutionScheduler: ActivityScheduler | null = null;
-  let observedDurableExecutionStatuses = new Map<string, DesktopDurableExecutionStatus>();
+  let observedDurableExecutionStatuses = new Map<
+    string,
+    DesktopDurableExecutionStatus
+  >();
   let observedDurableExecutionSignatures = new Map<string, string>();
   let reconnectScheduler: ActivityScheduler | null = null;
 
@@ -718,7 +992,7 @@
     "partial",
     "completed",
     "failed",
-    "cancelled"
+    "cancelled",
   ]);
 
   function durableStatusLabel(status: DesktopDurableExecutionStatus): string {
@@ -727,27 +1001,35 @@
     if (status === "running") return copy.durableStatusRunning;
     if (status === "verifying") return copy.durableStatusVerifying;
     if (status === "waiting_for_user") return copy.durableStatusWaitingForUser;
-    if (status === "waiting_for_approval") return copy.durableStatusWaitingForApproval;
+    if (status === "waiting_for_approval")
+      return copy.durableStatusWaitingForApproval;
     if (status === "paused") return copy.durableStatusPaused;
-    if (status === "recovery_required") return copy.durableStatusRecoveryRequired;
+    if (status === "recovery_required")
+      return copy.durableStatusRecoveryRequired;
     if (status === "partial") return copy.durableStatusPartial;
     if (status === "completed") return copy.durableStatusCompleted;
     if (status === "failed") return copy.durableStatusFailed;
     return copy.durableStatusCancelled;
   }
 
-  function observeDurableExecutionTransitions(items: DesktopDurableExecutionItem[]): void {
+  function observeDurableExecutionTransitions(
+    items: DesktopDurableExecutionItem[],
+  ): void {
     let reloadActive = false;
     for (const item of items) {
       const status = item.execution.status;
       const previous = observedDurableExecutionStatuses.get(item.execution.id);
-      if (previous && previous !== status && durableFeedbackStatuses.has(status)) {
+      if (
+        previous &&
+        previous !== status &&
+        durableFeedbackStatuses.has(status)
+      ) {
         onFeedback({
           id: `durable-execution:${item.execution.id}:${item.execution.version}:${status}`,
           kind: "task",
           terminal: true,
           title: copy.durableExecution,
-          body: `${durableStatusLabel(status)} · ${item.execution.goal}`
+          body: `${durableStatusLabel(status)} · ${item.execution.goal}`,
         });
       }
       observedDurableExecutionStatuses.set(item.execution.id, status);
@@ -757,11 +1039,28 @@
       // Session when such an execution advances (status or progress) so the card's
       // checkmarks and the new activity appear without a manual reload.
       const signature = `${status}:${item.execution.version}`;
-      const previousSignature = observedDurableExecutionSignatures.get(item.execution.id);
+      const previousSignature = observedDurableExecutionSignatures.get(
+        item.execution.id,
+      );
       observedDurableExecutionSignatures.set(item.execution.id, signature);
-      if (previousSignature && (previousSignature !== signature || item.execution.status === "running" || item.execution.status === "queued") && item.execution.sourceUiSessionId) {
-        if (projectPaneActive && item.execution.sourceUiSessionId === activeProjectSessionId) reloadActive = true;
-        else if (!projectPaneActive && viewMode === "local" && item.execution.sourceUiSessionId === activeSessionId) reloadActive = true;
+      if (
+        previousSignature &&
+        (previousSignature !== signature ||
+          item.execution.status === "running" ||
+          item.execution.status === "queued") &&
+        item.execution.sourceUiSessionId
+      ) {
+        if (
+          projectPaneActive &&
+          item.execution.sourceUiSessionId === activeProjectSessionId
+        )
+          reloadActive = true;
+        else if (
+          !projectPaneActive &&
+          viewMode === "local" &&
+          item.execution.sourceUiSessionId === activeSessionId
+        )
+          reloadActive = true;
       }
     }
     if (reloadActive && !sending) {
@@ -774,9 +1073,15 @@
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
     if (!connectionReady || !endpoint) return;
+    void refreshUnreadNotifications();
     try {
       const unreadCount = await loadDesktopTaskUnreadCount(endpoint);
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      if (
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint ||
+        !connectionReady
+      )
+        return;
       automationUnreadCount = unreadCount;
     } catch {
       // The Automations workspace owns visible loading errors; a stale badge is
@@ -789,7 +1094,7 @@
     automationUnreadScheduler = new ActivityScheduler(
       backgroundActivityPolicy,
       refreshAutomationUnread,
-      documentActivityVisibility
+      documentActivityVisibility,
     );
     automationUnreadScheduler.start();
   }
@@ -805,13 +1110,20 @@
     if (!connectionReady || !endpoint) return;
     try {
       const items = await loadDesktopDurableExecutions(endpoint);
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return;
+      if (
+        generation !== connectionGeneration ||
+        endpoint !== connectedEndpoint ||
+        !connectionReady
+      )
+        return;
       observeDurableExecutionTransitions(items);
       durableExecutions = items;
       durableExecutionError = "";
     } catch (cause) {
-      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
-      durableExecutionError = cause instanceof Error ? cause.message : String(cause);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint)
+        return;
+      durableExecutionError =
+        cause instanceof Error ? cause.message : String(cause);
     }
   }
 
@@ -820,7 +1132,7 @@
     durableExecutionScheduler = new ActivityScheduler(
       agentActivityPolicy,
       refreshDurableExecutions,
-      documentActivityVisibility
+      documentActivityVisibility,
     );
     durableExecutionScheduler.start();
   }
@@ -842,7 +1154,16 @@
   let viewportWidth = window.innerWidth;
   let homeSidebarOpen = false;
   let homeSidebarToggle: HTMLButtonElement;
-  $: homeNarrow = viewportWidth < 600 && isDefaultAgentHome && workspacePane === "chat" && viewMode === "local" && !projectPaneActive && !roomPaneActive && !agentFilesActive && !agentHistoryActive;
+  $: homeNarrow =
+    viewportWidth < 600 &&
+    isDefaultAgentHome &&
+    workspacePane === "chat" &&
+    viewMode === "local" &&
+    !projectPaneActive &&
+    !roomPaneActive &&
+    !agentFilesActive &&
+    !agentHistoryActive &&
+    !agentNotificationsActive;
   $: if (!homeNarrow) homeSidebarOpen = false;
 
   function closeHomeSidebar(): void {
@@ -862,8 +1183,11 @@
   type CollapsedFlyout = "conversations" | "projects" | "rooms" | null;
   let collapsedFlyout: CollapsedFlyout = null;
   let sidebarMaxWidth = SIDEBAR_MAX;
-  let sidebarWidth = clampSidebarWidth(Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT);
-  let lastExpandedSidebarWidth = sidebarWidth >= SIDEBAR_MIN ? sidebarWidth : SIDEBAR_DEFAULT;
+  let sidebarWidth = clampSidebarWidth(
+    Number(localStorage.getItem(SIDEBAR_WIDTH_KEY) || 0) || SIDEBAR_DEFAULT,
+  );
+  let lastExpandedSidebarWidth =
+    sidebarWidth >= SIDEBAR_MIN ? sidebarWidth : SIDEBAR_DEFAULT;
   let sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
   let previousViewportWidth = viewportWidth;
   let resizingSidebar = false;
@@ -877,7 +1201,10 @@
       if (snapshot.position < SIDEBAR_COLLAPSE_THRESHOLD) {
         if (!sidebarCollapsed) {
           sidebarCollapsed = true;
-          sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+          sidebarWidth =
+            lastExpandedSidebarWidth >= SIDEBAR_MIN
+              ? lastExpandedSidebarWidth
+              : SIDEBAR_DEFAULT;
           localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
         }
         resizingSidebar = false;
@@ -888,14 +1215,18 @@
         }
         sidebarWidth = clampSidebarWidth(snapshot.position);
         lastExpandedSidebarWidth = sidebarWidth;
-        resizingSidebar = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+        resizingSidebar =
+          snapshot.phase === "tracking" || snapshot.phase === "dragging";
       }
     },
     onSettled(target) {
       resizingSidebar = false;
       if (target < SIDEBAR_COLLAPSE_THRESHOLD) {
         sidebarCollapsed = true;
-        sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+        sidebarWidth =
+          lastExpandedSidebarWidth >= SIDEBAR_MIN
+            ? lastExpandedSidebarWidth
+            : SIDEBAR_DEFAULT;
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, "true");
       } else {
         sidebarCollapsed = false;
@@ -907,7 +1238,7 @@
     },
     onCommitted() {
       if (sidebarGestureId) onHapticCommit(sidebarGestureId);
-    }
+    },
   });
   function clampSidebarWidth(value: number): number {
     return Math.min(sidebarMaxWidth, Math.max(SIDEBAR_MIN, Math.round(value)));
@@ -922,12 +1253,17 @@
     // Either direction starts with no flyout; the lists stay one click away.
     collapsedFlyout = null;
     if (!sidebarCollapsed && sidebarWidth < SIDEBAR_MIN) {
-      sidebarWidth = lastExpandedSidebarWidth >= SIDEBAR_MIN ? lastExpandedSidebarWidth : SIDEBAR_DEFAULT;
+      sidebarWidth =
+        lastExpandedSidebarWidth >= SIDEBAR_MIN
+          ? lastExpandedSidebarWidth
+          : SIDEBAR_DEFAULT;
       localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
     }
   }
   // Opening one list closes the other; clicking the open one closes the flyout.
-  function toggleCollapsedFlyout(section: Exclude<CollapsedFlyout, null>): void {
+  function toggleCollapsedFlyout(
+    section: Exclude<CollapsedFlyout, null>,
+  ): void {
     collapsedFlyout = collapsedFlyout === section ? null : section;
   }
   // The collapsed title-bar cluster's new-chat slot: a fresh draft only reads as
@@ -942,7 +1278,12 @@
     event.preventDefault();
     sidebarGestureId = `sidebar:${event.pointerId}:${event.timeStamp}`;
     sidebarResizer?.setPointerCapture(event.pointerId);
-    sidebarManipulation.begin(event.pointerId, event.clientX, event.timeStamp, sidebarWidth);
+    sidebarManipulation.begin(
+      event.pointerId,
+      event.clientX,
+      event.timeStamp,
+      sidebarWidth,
+    );
   }
   function onSidebarResize(event: PointerEvent): void {
     sidebarManipulation.move(event.pointerId, event.clientX, event.timeStamp);
@@ -988,7 +1329,9 @@
   const FILES_DEFAULT = 280;
   const FILES_MIN = 240;
   let filesMaxWidth = Number.POSITIVE_INFINITY;
-  let filesWidth = clampFilesWidth(Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || FILES_DEFAULT);
+  let filesWidth = clampFilesWidth(
+    Number(localStorage.getItem(FILES_WIDTH_KEY) || 0) || FILES_DEFAULT,
+  );
   let resizingFiles = false;
   let filesGestureId = "";
   let filesResizer: HTMLDivElement | null = null;
@@ -1000,7 +1343,8 @@
     mode: "continuous",
     onUpdate(snapshot) {
       filesWidth = clampFilesWidth(snapshot.position);
-      resizingFiles = snapshot.phase === "tracking" || snapshot.phase === "dragging";
+      resizingFiles =
+        snapshot.phase === "tracking" || snapshot.phase === "dragging";
     },
     onSettled(target) {
       filesWidth = clampFilesWidth(target);
@@ -1009,7 +1353,7 @@
     },
     onCommitted() {
       if (filesGestureId) onHapticCommit(filesGestureId);
-    }
+    },
   });
   function clampFilesWidth(value: number): number {
     return Math.min(filesMaxWidth, Math.max(FILES_MIN, Math.round(value)));
@@ -1019,7 +1363,12 @@
     event.preventDefault();
     filesGestureId = `files:${event.pointerId}:${event.timeStamp}`;
     filesResizer?.setPointerCapture(event.pointerId);
-    filesManipulation.begin(event.pointerId, -event.clientX, event.timeStamp, filesWidth);
+    filesManipulation.begin(
+      event.pointerId,
+      -event.clientX,
+      event.timeStamp,
+      filesWidth,
+    );
   }
   function onFilesResize(event: PointerEvent): void {
     filesManipulation.move(event.pointerId, -event.clientX, event.timeStamp);
@@ -1066,32 +1415,55 @@
   // session file list is what made the panel unreachable while a Mini App was
   // open — and left the Files side of the panel empty in a conversation.
   // Project/session identity still comes from the live pane below.
-  $: artifactPanelVisible = filePanelOpen && serviceState === "ready" && (projectPaneActive || onboardingAgents.length > 0);
-  $: durablePanelVisible = durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
-  $: inspectorVisible = artifactPanelVisible || durablePanelVisible || inspector?.kind === "session-plan";
+  $: artifactPanelVisible =
+    filePanelOpen &&
+    serviceState === "ready" &&
+    (projectPaneActive || onboardingAgents.length > 0);
+  $: durablePanelVisible =
+    durablePanelOpen && serviceState === "ready" && Boolean(connectedEndpoint);
+  $: inspectorVisible =
+    artifactPanelVisible ||
+    durablePanelVisible ||
+    inspector?.kind === "session-plan";
   $: threeColumn = inspectorVisible && viewportWidth > NARROW_WIDTH;
   // The panel has no width ceiling of its own; the only bound is the transcript
   // floor it may not steal. The sidebar stays in the grid at every width (it is
   // never hidden for the panel), so its width is reserved here too.
   function filesCap(windowWidth: number, sidebar: number): number {
-    return Math.max(FILES_MIN, windowWidth > NARROW_WIDTH
-      ? windowWidth - sidebar - CHAT_MIN
-      : windowWidth - sidebar - CHAT_MIN_NARROW);
+    return Math.max(
+      FILES_MIN,
+      windowWidth > NARROW_WIDTH
+        ? windowWidth - sidebar - CHAT_MIN
+        : windowWidth - sidebar - CHAT_MIN_NARROW,
+    );
   }
   // What the first grid track reserves: the full sidebar, or the rail plus its
   // flyout. The flyout reuses the remembered expanded width (see `sidebarWidth`).
   $: reservedSidebarWidth = sidebarCollapsed
     ? SIDEBAR_RAIL_W + (collapsedFlyout ? sidebarWidth : 0)
     : sidebarWidth;
-  $: filesMaxWidth = inspectorVisible ? filesCap(viewportWidth, reservedSidebarWidth) : Number.POSITIVE_INFINITY;
+  $: filesMaxWidth = inspectorVisible
+    ? filesCap(viewportWidth, reservedSidebarWidth)
+    : Number.POSITIVE_INFINITY;
   $: sidebarMaxWidth = !inspectorVisible
     ? SIDEBAR_MAX
-    : Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, viewportWidth - Math.min(filesWidth, filesMaxWidth) - (threeColumn ? CHAT_MIN : CHAT_MIN_NARROW)));
+    : Math.max(
+        SIDEBAR_MIN,
+        Math.min(
+          SIDEBAR_MAX,
+          viewportWidth -
+            Math.min(filesWidth, filesMaxWidth) -
+            (threeColumn ? CHAT_MIN : CHAT_MIN_NARROW),
+        ),
+      );
   // The stored width is the user's preference; only what the grid gets is capped,
   // so shrinking the window never destroys the panel width they asked for.
   $: effectiveFilesWidth = Math.min(filesWidth, filesMaxWidth);
   $: effectiveSidebarWidth = sidebarCollapsed
-    ? SIDEBAR_RAIL_W + (collapsedFlyout ? Math.max(0, Math.min(sidebarWidth, sidebarMaxWidth - SIDEBAR_RAIL_W)) : 0)
+    ? SIDEBAR_RAIL_W +
+      (collapsedFlyout
+        ? Math.max(0, Math.min(sidebarWidth, sidebarMaxWidth - SIDEBAR_RAIL_W))
+        : 0)
     : Math.min(sidebarWidth, sidebarMaxWidth);
 
   // The nav never collapses on its own: only the collapse button or dragging the
@@ -1105,7 +1477,10 @@
     // enlarges the panel — the file you opened — instead of the chat. With no
     // Inspector the transcript keeps absorbing the growth as before.
     if (inspectorVisible && delta !== 0) {
-      filesWidth = Math.min(filesCap(viewportWidth, reservedSidebarWidth), Math.max(FILES_MIN, Math.round(filesWidth + delta)));
+      filesWidth = Math.min(
+        filesCap(viewportWidth, reservedSidebarWidth),
+        Math.max(FILES_MIN, Math.round(filesWidth + delta)),
+      );
     }
   }
 
@@ -1121,7 +1496,7 @@
     locale: "en",
     runtime: "browser",
     workspace: "chat",
-    service: { restartAvailable: false, webAvailable: false }
+    service: { restartAvailable: false, webAvailable: false },
   };
   let commandSnapshot: CommandSnapshot[] = [];
   let commandUsage: CommandUsage = [];
@@ -1134,31 +1509,36 @@
   let messagesElement: HTMLDivElement;
   let sessionFiles: DesktopSessionFile[] = [];
   // All right-hand panels share one slot, width budget and resize handle.
-  type ChatInspector = {
-    kind: "artifact";
-    /** Mini App id to open as a tab on mount or on a live open request. */
-    miniApp?: string;
-    /** Bumped so a repeat open of the same app re-activates its tab. */
-    miniAppNonce?: number;
-    /** App-defined locator when the app was opened from a deep link (§2.4). */
-    miniAppDeepLinkPath?: string;
-    /** A chat attachment to open as a session-scope tab (Slice 1b). */
-    sessionFile?: DesktopSessionFile;
-    /** Bumped so re-opening the same attachment re-activates its tab. */
-    sessionFileNonce?: number;
-    /** Project-relative path requested from a transcript file chip. */
-    openPath?: string;
-    openPathNonce?: number;
-    openPathAsDiff?: boolean;
-    turnFiles?: TurnFileItem[];
-    turnFilesNonce?: number;
-    turnFileKey?: string;
-  } | {
-    kind: "durable-execution";
-    executionId: string;
-  } | { kind: "session-plan" } | null;
+  type ChatInspector =
+    | {
+        kind: "artifact";
+        /** Mini App id to open as a tab on mount or on a live open request. */
+        miniApp?: string;
+        /** Bumped so a repeat open of the same app re-activates its tab. */
+        miniAppNonce?: number;
+        /** App-defined locator when the app was opened from a deep link (§2.4). */
+        miniAppDeepLinkPath?: string;
+        /** A chat attachment to open as a session-scope tab (Slice 1b). */
+        sessionFile?: DesktopSessionFile;
+        /** Bumped so re-opening the same attachment re-activates its tab. */
+        sessionFileNonce?: number;
+        /** Project-relative path requested from a transcript file chip. */
+        openPath?: string;
+        openPathNonce?: number;
+        openPathAsDiff?: boolean;
+        turnFiles?: TurnFileItem[];
+        turnFilesNonce?: number;
+        turnFileKey?: string;
+      }
+    | {
+        kind: "durable-execution";
+        executionId: string;
+      }
+    | { kind: "session-plan" }
+    | null;
   let inspector: ChatInspector = null;
   let inspectorClosing = false;
+  let inspectorMaximized = false;
   $: if ($sessionPlanInspector && !inspectorClosing) {
     // A durable-linked plan has one progress surface (the Durable inspector);
     // the legacy Session-plan inspector is only for plans that still execute
@@ -1183,9 +1563,13 @@
   let onSystemThemeChange: (() => void) | null = null;
 
   function readResolvedTheme(): "light" | "dark" {
-    const explicit = document.documentElement.getAttribute("data-resolved-appearance");
+    const explicit = document.documentElement.getAttribute(
+      "data-resolved-appearance",
+    );
     if (explicit === "dark" || explicit === "light") return explicit;
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
   }
   let previewFile: DesktopSessionFile | null = null;
   let previewUrl = "";
@@ -1199,18 +1583,32 @@
     protocol: "openai-compatible",
     baseUrl: "",
     model: "",
-    apiKeyPresent: false
+    apiKeyPresent: false,
   };
-  let onboardingProviderModels: DesktopProviderModel[] = [{
-    id: "",
-    tags: ["text"],
-    supportedRoles: ["system", "user", "assistant", "tool"],
-    enabled: true,
-    verification: {}
-  }];
-  const onboardingProviderTags: DesktopProviderModelTag[] = ["text", "vision", "audio_input", "stt", "tts", "tool"];
+  let onboardingProviderModels: DesktopProviderModel[] = [
+    {
+      id: "",
+      tags: ["text"],
+      supportedRoles: ["system", "user", "assistant", "tool"],
+      enabled: true,
+      verification: {},
+    },
+  ];
+  const onboardingProviderTags: DesktopProviderModelTag[] = [
+    "text",
+    "vision",
+    "audio_input",
+    "stt",
+    "tts",
+    "tool",
+  ];
   let providerApiKeyInput = "";
-  let agentNavigation: DesktopAgentNavigation = { expandedAgentIds: [], page: "agent", agentId: "", sessionId: "" };
+  let agentNavigation: DesktopAgentNavigation = {
+    expandedAgentIds: [],
+    page: "agent",
+    agentId: "",
+    sessionId: "",
+  };
   /**
    * Opening the app starts at the Default Agent's handover; a reload or a
    * reconnect stays where the user was (PA-U3). `sessionStorage` survives a
@@ -1233,20 +1631,71 @@
   let agentSettingsActive = false;
   let agentSettingsLoading = false;
   let agentSettingsRequest = 0;
-  $: if (agentSettingsActive && (settingsVisible || workspacePane !== "chat" || projectPaneActive || roomPaneActive)) closeAgentSettings();
+  $: if (
+    agentSettingsActive &&
+    (settingsVisible ||
+      workspacePane !== "chat" ||
+      projectPaneActive ||
+      roomPaneActive)
+  )
+    closeAgentSettings();
   let agentFilesActive = false;
-  $: if (agentFilesActive && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) agentFilesActive = false;
+  $: if (
+    agentFilesActive &&
+    (workspacePane !== "chat" ||
+      projectPaneActive ||
+      roomPaneActive ||
+      settingsVisible)
+  )
+    agentFilesActive = false;
+  let agentNotificationsActive = false;
+  $: if (
+    agentNotificationsActive &&
+    (workspacePane !== "chat" ||
+      projectPaneActive ||
+      roomPaneActive ||
+      settingsVisible)
+  )
+    agentNotificationsActive = false;
   let agentHistoryActive = false;
   // Member child sessions of a kanban task open as read-only views (spec 执行
   // 形态修订 切片③): the server rejects sends with 409, so the composer hides
   // while one is active and returns for every ordinary session selection.
   let memberSessionReadOnly = false;
-  $: if (memberSessionReadOnly && (workspacePane !== "chat" || projectPaneActive || roomPaneActive || settingsVisible)) memberSessionReadOnly = false;
+  $: if (
+    memberSessionReadOnly &&
+    (workspacePane !== "chat" ||
+      projectPaneActive ||
+      roomPaneActive ||
+      settingsVisible)
+  )
+    memberSessionReadOnly = false;
   let piAttentionItems: PiExtensionTerminalSummary[] = [];
-  $: piAttention = Object.fromEntries(piAttentionItems.map(item => {
-    const agentId = item.agentId ?? ordinarySessions.find(session => session.sessionId === item.sessionId)?.agentId ?? "";
-    return [agentId, {sessionId:item.sessionId,label:item.requiresReview ? (locale === "zh-CN" ? "Pi 待核对" : "Pi review needed") : (locale === "zh-CN" ? "Pi 待确认" : "Pi needs response")}];
-  }).filter(([id]) => Boolean(id)));
+  $: piAttention = Object.fromEntries(
+    piAttentionItems
+      .map((item) => {
+        const agentId =
+          item.agentId ??
+          ordinarySessions.find(
+            (session) => session.sessionId === item.sessionId,
+          )?.agentId ??
+          "";
+        return [
+          agentId,
+          {
+            sessionId: item.sessionId,
+            label: item.requiresReview
+              ? locale === "zh-CN"
+                ? "Pi 待核对"
+                : "Pi review needed"
+              : locale === "zh-CN"
+                ? "Pi 待确认"
+                : "Pi needs response",
+          },
+        ];
+      })
+      .filter(([id]) => Boolean(id)),
+  );
   let ordinarySessions: DesktopConversationItem[] = [];
   let agentHomeSessions: DesktopConversationItem[] = [];
   let agentHomeKey = "";
@@ -1255,25 +1704,34 @@
   $: handoverSessionIds = new Set<string>(
     [...(handover?.items ?? []), ...(handover?.pending ?? [])]
       .map((entry) => entry.sessionId)
-      .filter((id): id is string => Boolean(id))
+      .filter((id): id is string => Boolean(id)),
   );
-  $: agentHomeDisplaySessions = (selectedAgentId === defaultAgentId && handover
-    ? agentHomeSessions.filter((item) => !handoverSessionIds.has(item.sessionId))
-    : agentHomeSessions
+  $: agentHomeDisplaySessions = (
+    selectedAgentId === defaultAgentId && handover
+      ? agentHomeSessions.filter(
+          (item) => !handoverSessionIds.has(item.sessionId),
+        )
+      : agentHomeSessions
   ).slice(0, 4);
   let hasUnassignedHistory = false;
   let agentSessionsRequest = 0;
-  $: selectedAgent = onboardingAgents.find(agent => agent.id === selectedAgentId);
+  $: selectedAgent = onboardingAgents.find(
+    (agent) => agent.id === selectedAgentId,
+  );
   $: agentCanExecute = Boolean(selectedAgent?.canExecute);
   $: if (selectedAgentId && connectedEndpoint) void refreshAgentHome();
   function persistAgentNavigation(): void {
-    if (connectedEndpoint) void saveDesktopAgentNavigation(connectedEndpoint, agentNavigation).catch(cause => chatStore.setActiveError(String(cause)));
+    if (connectedEndpoint)
+      void saveDesktopAgentNavigation(connectedEndpoint, agentNavigation).catch(
+        (cause) => chatStore.setActiveError(String(cause)),
+      );
   }
   function openAgentHistory(id?: string): void {
     closeAgentSettings();
     historyAgentId = id ?? selectedAgentId;
     selectedAgentId = historyAgentId === "__unassigned__" ? "" : historyAgentId;
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = true;
     browserOpen = false;
     roomPaneActive = false;
@@ -1294,10 +1752,19 @@
     event.preventDefault();
     historyTrigger?.focus();
   }
-  $: if (historyDrawerOpen && (
-    !conversationDetailActive || agentFilesActive || agentHistoryActive || projectPaneActive || roomPaneActive
-    || workspacePane !== "chat" || settingsVisible || historyDrawerAgentId !== (selectedAgentId || "__unassigned__")
-  )) historyDrawerOpen = false;
+  $: if (
+    historyDrawerOpen &&
+    (!conversationDetailActive ||
+      agentFilesActive ||
+      agentHistoryActive ||
+      agentNotificationsActive ||
+      projectPaneActive ||
+      roomPaneActive ||
+      workspacePane !== "chat" ||
+      settingsVisible ||
+      historyDrawerAgentId !== (selectedAgentId || "__unassigned__"))
+  )
+    historyDrawerOpen = false;
 
   function openAgentFiles(id: string): void {
     openAgentChat(id);
@@ -1305,14 +1772,89 @@
     clearInspector();
     searchOpen = false;
   }
+
+  type NotificationsReturnState = {
+    workspacePane: ChatWorkspacePaneName;
+    projectPaneActive: boolean;
+    roomPaneActive: boolean;
+    requestedRoomId: string;
+    agentFilesActive: boolean;
+    agentHistoryActive: boolean;
+    agentSettingsActive: boolean;
+    selectedAgentId: string;
+  };
+  let notificationsReturnState: NotificationsReturnState | null = null;
+
+  function openAgentNotifications(id = selectedAgentId): void {
+    if (!agentNotificationsActive) {
+      notificationsReturnState = {
+        workspacePane,
+        projectPaneActive,
+        roomPaneActive,
+        requestedRoomId,
+        agentFilesActive,
+        agentHistoryActive,
+        agentSettingsActive,
+        selectedAgentId,
+      };
+    }
+    homeSidebarOpen = false;
+    browserOpen = false;
+    closeAgentSettings();
+    roomPaneActive = false;
+    projectPaneActive = false;
+    workspacePane = "chat";
+    agentFilesActive = false;
+    agentHistoryActive = false;
+    if (id) selectedAgentId = id;
+    agentNotificationsActive = true;
+    clearInspector();
+    searchOpen = false;
+    void refreshUnreadNotifications(true);
+  }
+
+  function closeAgentNotifications(): void {
+    const restore = notificationsReturnState;
+    notificationsReturnState = null;
+    agentNotificationsActive = false;
+    if (!restore) {
+      openAgentChat(selectedAgentId || defaultAgentId);
+      return;
+    }
+    workspacePane = restore.workspacePane;
+    projectPaneActive = restore.projectPaneActive;
+    roomPaneActive = restore.roomPaneActive;
+    requestedRoomId = restore.requestedRoomId;
+    agentFilesActive = restore.agentFilesActive;
+    agentHistoryActive = restore.agentHistoryActive;
+    if (restore.selectedAgentId) selectedAgentId = restore.selectedAgentId;
+    if (restore.agentSettingsActive && restore.selectedAgentId) {
+      void openAgentSettings(restore.selectedAgentId);
+    }
+  }
+
+  function toggleAgentNotifications(): void {
+    if (startupPending) return;
+    if (agentNotificationsActive) closeAgentNotifications();
+    else openAgentNotifications(selectedAgentId || defaultAgentId);
+  }
   async function refreshAgentHome(force = false): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint || !selectedAgentId) { agentHomeSessions = []; agentHomeKey = ""; return; }
+    if (!endpoint || !selectedAgentId) {
+      agentHomeSessions = [];
+      agentHomeKey = "";
+      return;
+    }
     const key = `${endpoint}:${selectedAgentId}`;
     if (!force && key === agentHomeKey) return;
     agentHomeKey = key;
     try {
-      const result = await listDesktopConversations(endpoint, { channel: "web", agentId: selectedAgentId, limit: 8, includeArchived: true });
+      const result = await listDesktopConversations(endpoint, {
+        channel: "web",
+        agentId: selectedAgentId,
+        limit: 8,
+        includeArchived: true,
+      });
       if (`${connectedEndpoint}:${selectedAgentId}` !== key) return;
       agentHomeSessions = result.items;
     } catch (cause) {
@@ -1328,27 +1870,53 @@
     if (!endpoint) return;
     try {
       const [result, unassigned] = await Promise.all([
-        listDesktopConversations(endpoint, { channel: "web", allAgents: true, limit: 100, includeArchived: true }),
-        listDesktopConversations(endpoint, { channel: "web", agentId: "__unassigned__", limit: 1, includeArchived: true })
+        listDesktopConversations(endpoint, {
+          channel: "web",
+          allAgents: true,
+          limit: 100,
+          includeArchived: true,
+        }),
+        listDesktopConversations(endpoint, {
+          channel: "web",
+          agentId: "__unassigned__",
+          limit: 1,
+          includeArchived: true,
+        }),
       ]);
-      if (endpoint !== connectedEndpoint || generation !== connectionGeneration || request !== agentSessionsRequest) return;
+      if (
+        endpoint !== connectedEndpoint ||
+        generation !== connectionGeneration ||
+        request !== agentSessionsRequest
+      )
+        return;
       ordinarySessions = result.items;
       hasUnassignedHistory = unassigned.items.length > 0;
       void refreshAgentHome(true);
     } catch (cause) {
       // Cancelled requests belong to an older selection; other failures must be visible.
-      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === agentSessionsRequest) {
+      if (
+        endpoint === connectedEndpoint &&
+        generation === connectionGeneration &&
+        request === agentSessionsRequest
+      ) {
         if (!(cause instanceof Error && cause.name === "AbortError")) {
-          conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+          conversationRefreshError =
+            cause instanceof Error ? cause.message : String(cause);
         }
       }
     }
   }
   async function claimActiveSession(id: string): Promise<void> {
-    const sessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    const sessionId =
+      viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !sessionId) return;
-    try { await claimDesktopSessionAgent(connectedEndpoint, sessionId, id); selectedAgentId = id; await refreshAgentSessions(); }
-    catch (cause) { chatStore.setActiveError(String(cause)); }
+    try {
+      await claimDesktopSessionAgent(connectedEndpoint, sessionId, id);
+      selectedAgentId = id;
+      await refreshAgentSessions();
+    } catch (cause) {
+      chatStore.setActiveError(String(cause));
+    }
   }
   let onboardingAgents: DesktopAgentItem[] = [];
   let onboardingProfiles: DesktopWebProfile[] = [];
@@ -1358,17 +1926,21 @@
   let onboardingAgentSaved = false;
   let onboardingAgentError = "";
   let onboardingUserName = "";
-  let onboardingAiStyle: "concise" | "patient" | "rigorous" | "natural" = "concise";
+  let onboardingAiStyle: "concise" | "patient" | "rigorous" | "natural" =
+    "concise";
   let onboardingPersonalizationSaving = false;
   let onboardingPersonalizationSaved = false;
   let onboardingPersonalizationError = "";
   let onboardingLaunchError = "";
-  let onboardingChannels: OnboardingChannelsView = { rows: [], connectedCount: 0 };
+  let onboardingChannels: OnboardingChannelsView = {
+    rows: [],
+    connectedCount: 0,
+  };
   let onboardingDiagnostics: OnboardingDiagnostics = {
     serviceReady: false,
     depsInstalled: 0,
     depsTotal: 0,
-    missingDependencyNames: []
+    missingDependencyNames: [],
   };
   let onboardingLaunchChoice = launchAtLogin;
   let onboardingLaunchTouched = false;
@@ -1382,43 +1954,53 @@
   let providerTestError = "";
   $: providerValidation = validateProviderDraft({
     ...providerDraft,
-    model: onboardingProviderModels.some((model) => model.id.trim()) ? "configured" : ""
+    model: onboardingProviderModels.some((model) => model.id.trim())
+      ? "configured"
+      : "",
   });
   $: onboardingStepIndex = ONBOARDING_STEPS.indexOf(onboardingStep);
-  $: onboardingIsGuided = onboardingMode === "new" || onboardingMode === "broken";
+  $: onboardingIsGuided =
+    onboardingMode === "new" || onboardingMode === "broken";
   $: onboardingStepLabels = {
     provider: copy.onboardingStepProvider,
     agent: copy.onboardingStepAgent,
     personalization: copy.onboardingStepPersonalization,
     channels: copy.onboardingStepChannels,
     launch: copy.onboardingStepLaunch,
-    diagnostics: copy.onboardingStepDiagnostics
+    diagnostics: copy.onboardingStepDiagnostics,
   } satisfies Record<OnboardingStep, string>;
-  $: onboardingTitle = onboardingMode === "usable"
-    ? copy.onboardingTitleUsable
-    : onboardingMode === "broken"
-      ? copy.onboardingTitleBroken
-      : copy.onboardingTitleNew;
-  $: onboardingHint = onboardingMode === "usable"
-    ? copy.onboardingHintUsable
-    : onboardingMode === "broken"
-      ? onboardingRepairTarget === "model"
-        ? copy.onboardingHintBrokenModel
-        : copy.onboardingHintBrokenProfile
-      : copy.onboardingHintNew;
+  $: onboardingTitle =
+    onboardingMode === "usable"
+      ? copy.onboardingTitleUsable
+      : onboardingMode === "broken"
+        ? copy.onboardingTitleBroken
+        : copy.onboardingTitleNew;
+  $: onboardingHint =
+    onboardingMode === "usable"
+      ? copy.onboardingHintUsable
+      : onboardingMode === "broken"
+        ? onboardingRepairTarget === "model"
+          ? copy.onboardingHintBrokenModel
+          : copy.onboardingHintBrokenProfile
+        : copy.onboardingHintNew;
   $: onboardingStepOfText = copy.onboardingStepOf
     .replace("{n}", String(onboardingStepIndex + 1))
     .replace("{total}", String(ONBOARDING_STEPS.length));
-  $: onboardingEnabledAgents = onboardingAgents.filter((agent) => agent.enabled);
-  $: onboardingAgentCanConfirm = Boolean(onboardingProfileId && onboardingAgentId && !onboardingAgentSaving);
+  $: onboardingEnabledAgents = onboardingAgents.filter(
+    (agent) => agent.enabled,
+  );
+  $: onboardingAgentCanConfirm = Boolean(
+    onboardingProfileId && onboardingAgentId && !onboardingAgentSaving,
+  );
   $: if (!onboardingLaunchTouched && !onboardingLaunchChanging) {
     onboardingLaunchChoice = launchAtLogin;
   }
   $: onboardingHealthCheck = buildOnboardingHealthCheck(readinessSummary, {
     modelReady: copy.healthCheckModel,
     modelMissing: copy.healthCheckModelMissing,
-    profileReady: (count) => copy.healthCheckProfileReady.replace("{count}", String(count)),
-    profileMissing: copy.healthCheckProfileMissing
+    profileReady: (count) =>
+      copy.healthCheckProfileReady.replace("{count}", String(count)),
+    profileMissing: copy.healthCheckProfileMissing,
   });
 
   // Active-session live state, bridged through the store (plan §5). One store
@@ -1430,16 +2012,21 @@
   // External (read-only channel mirror) view renders the mirrored transcript,
   // so every context surface must read that session's rows — never the local
   // session's, which would show the previous conversation until the poll ran.
-  $: contextSessionMessages = viewMode === "external" ? externalTranscript?.messages ?? [] : messages;
+  $: contextSessionMessages =
+    viewMode === "external" ? (externalTranscript?.messages ?? []) : messages;
   // Composer context-usage panel: snapshot when the transcript carries one;
   // otherwise reported usage against the selected model's configured window;
   // null (empty-state panel) only when no assistant row has usage at all.
-  $: composerContextUsage = deriveComposerContextUsage(contextSessionMessages, resolveModelContextWindow(modelOptions, activeModelKey));
+  $: composerContextUsage = deriveComposerContextUsage(
+    contextSessionMessages,
+    resolveModelContextWindow(modelOptions, activeModelKey),
+  );
   // Session-cumulative usage section: server-summed, entry-scoped, null while
   // the draft/new-conversation pane has no session to attribute usage to.
   // External mirrors have no ledger row of their own — stay empty, never show
   // the local session's cumulative stats.
-  $: sessionUsage = viewMode === "external" || draftMode ? null : chatState.usage;
+  $: sessionUsage =
+    viewMode === "external" || draftMode ? null : chatState.usage;
   $: streamingText = chatState.streamingText;
   $: streamingThinking = chatState.streamingThinking;
   $: activity = chatState.activity;
@@ -1454,16 +2041,49 @@
   $: chatError = chatState.error;
   $: activeSessionId = chatState.activeSessionId;
   $: activeProfileId = chatState.activeProfileId;
-  $: contextProfileId = viewMode === "external" ? activeExternalSessionItem?.botId ?? "" : activeProfileId;
-  $: contextSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+  $: contextProfileId =
+    viewMode === "external"
+      ? (activeExternalSessionItem?.botId ?? "")
+      : activeProfileId;
+  $: contextSessionId =
+    viewMode === "external" ? activeExternalSessionId : activeSessionId;
   $: draftMode = chatState.draftMode;
   $: draftProfileId = chatState.draftProfileId;
   $: draftAgentId = chatState.draftAgentId;
   $: statusDots = chatState.statusDots;
+  let sawNotificationSending = false;
+  let observedNotificationStatusDots = "";
+  function observeNotificationRefresh(
+    isReady: boolean,
+    isSending: boolean,
+    dots: typeof statusDots,
+  ): void {
+    if (!isReady) {
+      sawNotificationSending = false;
+      observedNotificationStatusDots = "";
+      return;
+    }
+    if (isSending) sawNotificationSending = true;
+    else if (sawNotificationSending) {
+      sawNotificationSending = false;
+      void refreshUnreadNotifications(true);
+    }
+    const dotSignature = Object.entries(dots)
+      .map(([id, dot]) => `${id}:${dot.color}`)
+      .sort()
+      .join("|");
+    if (dotSignature !== observedNotificationStatusDots) {
+      const hadDots = observedNotificationStatusDots !== "";
+      observedNotificationStatusDots = dotSignature;
+      if (hadDots) void refreshUnreadNotifications();
+    }
+  }
+  $: observeNotificationRefresh(connectionReady, sending, statusDots);
   // Handover watches the same draft state the home renders from. Keep this
   // after the `draftMode`/`selectedAgentId` derivations so one update cycle is
   // enough to load on open and acknowledge on leave.
-  $: isDefaultAgentHome = draftMode && Boolean(selectedAgentId) && selectedAgentId === defaultAgentId;
+  $: isDefaultAgentHome =
+    draftMode && Boolean(selectedAgentId) && selectedAgentId === defaultAgentId;
   $: if (isDefaultAgentHome) {
     if (!sawDefaultAgentHome) {
       sawDefaultAgentHome = true;
@@ -1476,15 +2096,27 @@
     void acknowledgeHandover();
   }
 
-  $: modelReady = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions }).hasModel;
-  $: readinessSummary = summarizeDesktopReadiness(profiles, { currentKey: activeModelKey, options: modelOptions });
+  $: modelReady = summarizeDesktopReadiness(profiles, {
+    currentKey: activeModelKey,
+    options: modelOptions,
+  }).hasModel;
+  $: readinessSummary = summarizeDesktopReadiness(profiles, {
+    currentKey: activeModelKey,
+    options: modelOptions,
+  });
   $: showOnboarding = serviceState === "ready" && !onboardingDismissed;
   $: fileByLocal = new Map(sessionFiles.map((file) => [file.local, file]));
   // The inspector reads a conversation's artifacts through the same identity the
   // transcript's own preview/download actions use — a read-only external
   // transcript belongs to the bot that owns it, not to the active web profile.
-  $: inspectorProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
-  $: inspectorSessionId = viewMode === "external" ? (activeExternalSessionId ?? "") : (activeSessionId ?? "");
+  $: inspectorProfileId =
+    viewMode === "external"
+      ? (activeExternalSessionItem?.botId ?? "")
+      : activeProfileId;
+  $: inspectorSessionId =
+    viewMode === "external"
+      ? (activeExternalSessionId ?? "")
+      : (activeSessionId ?? "");
   /**
    * The file Inspector belongs to the conversation it was opened beside: its
    * turn files, open request and scope all describe that conversation. Carried
@@ -1511,83 +2143,180 @@
       if (inspector?.kind === "artifact") {
         inspector = {
           ...inspector,
-          turnFiles: [], turnFilesNonce: 0, turnFileKey: "",
-          openPath: "", openPathNonce: 0, openPathAsDiff: false,
-          sessionFile: undefined, sessionFileNonce: 0
+          turnFiles: [],
+          turnFilesNonce: 0,
+          turnFileKey: "",
+          openPath: "",
+          openPathNonce: 0,
+          openPathAsDiff: false,
+          sessionFile: undefined,
+          sessionFileNonce: 0,
         };
       }
     }
   }
-  $: modelSelectionHydrating = Boolean(activeSessionId && modelHydratingSessionId === activeSessionId);
-  $: botOptions = onboardingAgents.filter(agent => agent.enabled && (agent.id === defaultAgentId || agent.visible !== false)).map(agent => ({ id: agent.id, name: agent.name, subtitle: agent.description }));
+  $: modelSelectionHydrating = Boolean(
+    activeSessionId && modelHydratingSessionId === activeSessionId,
+  );
+  $: botOptions = onboardingAgents
+    .filter(
+      (agent) =>
+        agent.enabled &&
+        (agent.id === defaultAgentId || agent.visible !== false),
+    )
+    .map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      subtitle: agent.description,
+    }));
   // Per-session model: when the active web session changes, show its model
   // (persisted override → Agent default → global default) and hydrate the override cache once.
   // Gated on loaded options so the selector reflects a valid key.
-  $: if (viewMode === "local" && activeSessionId && activeSessionId !== appliedModelSessionId && modelOptions.length > 0) {
+  $: if (
+    viewMode === "local" &&
+    activeSessionId &&
+    activeSessionId !== appliedModelSessionId &&
+    modelOptions.length > 0
+  ) {
     appliedModelSessionId = activeSessionId;
     const override = resolveSessionModelKey(activeSessionId);
-    activeModelKey = override && modelOptions.some((option) => option.key === override) ? override : selectedAgent?.modelRouting.textModelKey || globalModelKey;
+    activeModelKey =
+      override && modelOptions.some((option) => option.key === override)
+        ? override
+        : selectedAgent?.modelRouting.textModelKey || globalModelKey;
     void hydrateSessionModel(activeSessionId);
   }
-  $: if (viewMode === "local" && activeSessionId && activeProfileId && connectedEndpoint && !hydratedThinkingSessions.has(activeSessionId)) {
+  $: if (
+    viewMode === "local" &&
+    activeSessionId &&
+    activeProfileId &&
+    connectedEndpoint &&
+    !hydratedThinkingSessions.has(activeSessionId)
+  ) {
     void hydrateSessionThinking(activeSessionId, activeProfileId);
   }
   /** Session model precedence: explicit pick → Agent default → global. */
   function resolveSessionModelKey(sessionId: string): string {
     return sessionModelOverrides.get(sessionId) ?? "";
   }
-  $: activeModelOption = modelOptions.find((model) => model.key === activeModelKey);
+  $: activeModelOption = modelOptions.find(
+    (model) => model.key === activeModelKey,
+  );
   $: activeModelFullLabel = activeModelOption?.label ?? copy.model;
-  $: thinkingLevelOptions = activeModelOption?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
-  $: clampedThinkingLevel = thinkingLevel === "auto"
-    ? "auto"
-    : clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
+  $: thinkingLevelOptions =
+    activeModelOption?.thinkingLevels ?? DESKTOP_THINKING_LEVELS;
+  $: clampedThinkingLevel =
+    thinkingLevel === "auto"
+      ? "auto"
+      : clampDesktopThinkingLevel(thinkingLevel, thinkingLevelOptions);
   // The pill prefers the configured alias; otherwise it shows the bare model
   // name (last "/"-segment). The provider prefix like "[Custom] CliProxyAPI /"
   // is kept for the dropdown + tooltip.
-  $: activeModelLabel = activeModelOption?.alias
-    || (humanizeModelOption(activeModelFullLabel, activeModelKey).label.split(" · ").at(-1) ?? copy.model);
+  $: activeModelLabel =
+    activeModelOption?.alias ||
+    (humanizeModelOption(activeModelFullLabel, activeModelKey)
+      .label.split(" · ")
+      .at(-1) ??
+      copy.model);
   $: thinkingLabel = thinkingSelectionLabel(copy, clampedThinkingLevel);
   $: if (requestedWorkspacePane !== appliedRequestedWorkspacePane) {
     appliedRequestedWorkspacePane = requestedWorkspacePane;
     workspacePane = requestedWorkspacePane;
   }
   $: activeBotName = selectedAgent?.name ?? selectedAgentId ?? copy.bot;
-  $: activeAgentName = selectedAgent?.name || selectedAgentId || (locale === "zh-CN" ? "未归属" : "Unassigned");
-  $: activeHeaderBotName = viewMode === "external" ? (activeExternalBotName || copy.bot) : activeBotName;
-  $: activeSessionItem = ordinarySessions.find((item) => item.sessionId === activeSessionId);
-  $: activeExternalSessionItem = ordinarySessions.find((item) => item.sessionId === activeExternalSessionId);
-  $: conversationDetailActive = viewMode === "external" ? Boolean(activeExternalSessionId) : !draftMode && Boolean(activeSessionId);
-  $: activeHeaderChannel = viewMode === "external" ? activeExternalChannel : (activeSessionItem?.channel ?? "web");
-  $: activeHeaderSourceLabel = sidebarChannels.find((channel) => channel.id === activeHeaderChannel)?.name ?? activeHeaderChannel;
-  $: startupPending = serviceState !== "ready" || !connectionReady || loading || initialNavigationPending;
-  $: startupHeaderTitle = startupPhase === "error" || error ? copy.diagStateError : serviceState !== "ready" ? copy.serviceStarting : copy.loading;
-  $: activeHeaderTitle = viewMode === "external" ? (activeExternalTitle || copy.chat) : (draftMode && selectedAgent ? selectedAgent.name : activeSessionItem?.title || copy.chat);
+  $: activeAgentName =
+    selectedAgent?.name ||
+    selectedAgentId ||
+    (locale === "zh-CN" ? "未归属" : "Unassigned");
+  $: activeHeaderBotName =
+    viewMode === "external" ? activeExternalBotName || copy.bot : activeBotName;
+  $: activeSessionItem = ordinarySessions.find(
+    (item) => item.sessionId === activeSessionId,
+  );
+  $: activeExternalSessionItem = ordinarySessions.find(
+    (item) => item.sessionId === activeExternalSessionId,
+  );
+  $: conversationDetailActive =
+    viewMode === "external"
+      ? Boolean(activeExternalSessionId)
+      : !draftMode && Boolean(activeSessionId);
+  $: activeHeaderChannel =
+    viewMode === "external"
+      ? activeExternalChannel
+      : (activeSessionItem?.channel ?? "web");
+  $: activeHeaderSourceLabel =
+    sidebarChannels.find((channel) => channel.id === activeHeaderChannel)
+      ?.name ?? activeHeaderChannel;
+  $: startupPending =
+    serviceState !== "ready" ||
+    !connectionReady ||
+    loading ||
+    initialNavigationPending;
+  $: startupHeaderTitle =
+    startupPhase === "error" || error
+      ? copy.diagStateError
+      : serviceState !== "ready"
+        ? copy.serviceStarting
+        : copy.loading;
+  $: activeHeaderTitle =
+    viewMode === "external"
+      ? activeExternalTitle || copy.chat
+      : draftMode && selectedAgent
+        ? selectedAgent.name
+        : activeSessionItem?.title || copy.chat;
   // Assistant identity shows the thing you are talking to (Web Profile / channel
   // Bot / app name) plus the Agent it runs as. A channel with no explicit Agent
   // binding inherits the default one. Instance ids repeat across channels, so the
   // lookup is scoped to the active channel's group.
-  $: agentNameById = new Map(onboardingAgents.map((agent) => [agent.id, agent.name]));
+  $: agentNameById = new Map(
+    onboardingAgents.map((agent) => [agent.id, agent.name]),
+  );
   $: activeExternalAgentId = activeExternalSessionItem?.agentId ?? "";
-  $: headerAgentId = viewMode === "external" ? activeExternalAgentId : selectedAgentId;
-  $: activeExternalAgentName = activeExternalAgentId ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId) : copy.agentUnassignedName;
-  $: sidebarActiveSessionId = projectPaneActive ? "" : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
-  $: activeDurableExecutions = durableExecutions.filter(isActiveDurableExecution);
+  $: headerAgentId =
+    viewMode === "external" ? activeExternalAgentId : selectedAgentId;
+  $: activeExternalAgentName = activeExternalAgentId
+    ? (agentNameById.get(activeExternalAgentId) ?? activeExternalAgentId)
+    : copy.agentUnassignedName;
+  $: sidebarActiveSessionId = projectPaneActive
+    ? ""
+    : viewMode === "external"
+      ? activeExternalSessionId
+      : activeSessionId;
+  $: activeDurableExecutions = durableExecutions.filter(
+    isActiveDurableExecution,
+  );
   $: durableActiveCount = activeDurableExecutions.length;
-  $: currentSessionId = projectPaneActive ? activeProjectSessionId : (viewMode === "external" ? activeExternalSessionId : activeSessionId);
-  $: currentDurableExecution = activeDurableExecutions.find(item => item.execution.sourceUiSessionId === currentSessionId);
+  $: currentSessionId = projectPaneActive
+    ? activeProjectSessionId
+    : viewMode === "external"
+      ? activeExternalSessionId
+      : activeSessionId;
+  $: currentDurableExecution = activeDurableExecutions.find(
+    (item) => item.execution.sourceUiSessionId === currentSessionId,
+  );
   $: sidebarChannels = buildSidebarChannels(profiles, channelSummary);
-  $: searchMatchIds = findTranscriptMatches(viewMode === "external" ? externalTranscript?.messages ?? [] : messages, searchOpen ? searchQuery : "", copy.chatAssistantError);
+  $: searchMatchIds = findTranscriptMatches(
+    viewMode === "external" ? (externalTranscript?.messages ?? []) : messages,
+    searchOpen ? searchQuery : "",
+    copy.chatAssistantError,
+  );
   $: if (searchMatchIds.length !== previousSearchMatchCount) {
     previousSearchMatchCount = searchMatchIds.length;
-    searchIndex = clampTranscriptSearchIndex(searchIndex, searchMatchIds.length);
+    searchIndex = clampTranscriptSearchIndex(
+      searchIndex,
+      searchMatchIds.length,
+    );
   }
-  $: boundedSearchIndex = clampTranscriptSearchIndex(searchIndex, searchMatchIds.length);
+  $: boundedSearchIndex = clampTranscriptSearchIndex(
+    searchIndex,
+    searchMatchIds.length,
+  );
   $: activeMatchId = searchMatchIds[boundedSearchIndex] ?? "";
-  $: approvalOptions = pendingApproval?.options.map((option) => ({
-    id: option.id,
-    label: approvalOptionLabel(option)
-  })) ?? [];
+  $: approvalOptions =
+    pendingApproval?.options.map((option) => ({
+      id: option.id,
+      label: approvalOptionLabel(option),
+    })) ?? [];
   /**
    * The view-restore closure captured when the service dropped, consumed by
    * the next successful connect(). Null on first launch → default selection.
@@ -1614,6 +2343,8 @@
     stopAutomationUnreadPolling();
     stopDurableExecutionPolling();
     stopReconnectPoll();
+    unreadNotifications = [];
+    notificationsReturnState = null;
     durableExecutions = [];
     durableExecutionError = "";
     observedDurableExecutionStatuses = new Map();
@@ -1623,7 +2354,12 @@
     onboardingAgents = [];
     hasUnassignedHistory = false;
     onboardingChannels = { rows: [], connectedCount: 0 };
-    onboardingDiagnostics = { serviceReady: false, depsInstalled: 0, depsTotal: 0, missingDependencyNames: [] };
+    onboardingDiagnostics = {
+      serviceReady: false,
+      depsInstalled: 0,
+      depsTotal: 0,
+      missingDependencyNames: [],
+    };
     onboardingProfileId = "";
     onboardingAgentId = "";
     onboardingAgentSaved = false;
@@ -1646,7 +2382,13 @@
     channelLoading = {};
     channelRefreshing = {};
     channelLoadingMore = {};
-    expandedChannels = { web: true, telegram: false, feishu: false, qq: false, weixin: false };
+    expandedChannels = {
+      web: true,
+      telegram: false,
+      feishu: false,
+      qq: false,
+      weixin: false,
+    };
     projectPaneActive = false;
     activeProjectSessionId = "";
     activeExternalSessionId = "";
@@ -1664,14 +2406,43 @@
     closePreview();
   }
 
-  function buildSidebarChannels(profilesList: DesktopProfileSummary[], summary: DesktopChannelsSummary | null): ChannelDescriptor[] {
-    const enabled = (channel: string): number => summary?.groups.find((group) => group.channel === channel)?.enabled ?? 0;
+  function buildSidebarChannels(
+    profilesList: DesktopProfileSummary[],
+    summary: DesktopChannelsSummary | null,
+  ): ChannelDescriptor[] {
+    const enabled = (channel: string): number =>
+      summary?.groups.find((group) => group.channel === channel)?.enabled ?? 0;
     return [
-      { id: "web", icon: "globe", name: copy.channelWeb, configured: profilesList.length > 0 },
-      { id: "telegram", icon: "telegram-logo", name: "Telegram", configured: enabled("telegram") > 0 },
-      { id: "feishu", icon: "bird", name: copy.channelFeishu, configured: enabled("feishu") > 0 },
-      { id: "qq", icon: "linux-logo", name: "QQ", configured: enabled("qq") > 0 },
-      { id: "weixin", icon: "wechat-logo", name: copy.channelWeixin, configured: enabled("weixin") > 0 }
+      {
+        id: "web",
+        icon: "globe",
+        name: copy.channelWeb,
+        configured: profilesList.length > 0,
+      },
+      {
+        id: "telegram",
+        icon: "telegram-logo",
+        name: "Telegram",
+        configured: enabled("telegram") > 0,
+      },
+      {
+        id: "feishu",
+        icon: "bird",
+        name: copy.channelFeishu,
+        configured: enabled("feishu") > 0,
+      },
+      {
+        id: "qq",
+        icon: "linux-logo",
+        name: "QQ",
+        configured: enabled("qq") > 0,
+      },
+      {
+        id: "weixin",
+        icon: "wechat-logo",
+        name: copy.channelWeixin,
+        configured: enabled("weixin") > 0,
+      },
     ];
   }
 
@@ -1686,17 +2457,26 @@
       approvalFailed: copy.approvalFailed,
       approvalNotFound: copy.approvalNotFound,
       transcriptLoadFailed: copy.transcriptLoadFailed,
-      submissionUnconfirmed: copy.appSubmissionUnconfirmed
+      submissionUnconfirmed: copy.appSubmissionUnconfirmed,
     };
   }
 
-  async function loadTranscript(profileId: string, sessionId: string): Promise<TranscriptLoad> {
-    const detail = await loadDesktopSession(connectedEndpoint, profileId, sessionId);
+  async function loadTranscript(
+    profileId: string,
+    sessionId: string,
+  ): Promise<TranscriptLoad> {
+    const detail = await loadDesktopSession(
+      connectedEndpoint,
+      profileId,
+      sessionId,
+    );
     return {
       messages: detail.messages
-        .filter((message) => message.role === "user" || message.role === "assistant")
+        .filter(
+          (message) => message.role === "user" || message.role === "assistant",
+        )
         .map((message) => ({ ...message })),
-      usage: detail.usage ?? null
+      usage: detail.usage ?? null,
     };
   }
 
@@ -1704,7 +2484,12 @@
     message: TranscriptMessage,
     plan: import("@molibot/desktop-contract").DesktopConversationPlan,
     decision: "accept" | "reject" | "modify" | "complete",
-    edits?: { title: string; summary: string; steps: string[]; mode?: "manual" | "accept_edits" }
+    edits?: {
+      title: string;
+      summary: string;
+      steps: string[];
+      mode?: "manual" | "accept_edits";
+    },
   ): Promise<void> {
     if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;
     const entry = chatStore.registry.active;
@@ -1715,7 +2500,7 @@
         planId: plan.id,
         expectedVersion: plan.durableVersion,
         decision,
-        ...edits
+        ...edits,
       });
       publishSessionPlan(resolved.plan);
       if (decision === "accept" && chatStore.registry.active === entry) {
@@ -1723,17 +2508,25 @@
         permissionModeSource = "session";
         sessionPlanInspector.set({
           plan: resolved.plan,
-          complete: () => void resolvePlan(message, resolved.plan, "complete")
+          complete: () => void resolvePlan(message, resolved.plan, "complete"),
         });
       }
       await entry?.reloadFromServer();
-      if (decision === "accept" && !resolved.plan.durableExecutionId) await entry?.controller.resumePlan(plan.id);
+      if (decision === "accept" && !resolved.plan.durableExecutionId)
+        await entry?.controller.resumePlan(plan.id);
     } catch (cause) {
-      chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
+      chatStore.setActiveError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     }
   }
 
-  async function continuePlan(input: { planId: string; sessionId?: string; projectId?: string; resume: boolean }): Promise<void> {
+  async function continuePlan(input: {
+    planId: string;
+    sessionId?: string;
+    projectId?: string;
+    resume: boolean;
+  }): Promise<void> {
     if (!connectedEndpoint || !input.planId) return;
     try {
       if (input.projectId && input.sessionId) {
@@ -1752,7 +2545,9 @@
         chatStore.setActiveError(copy.planBoardSourceMissing);
         return;
       }
-      const conversation = Object.values(channelItems).flat().find((item) => item.sessionId === input.sessionId);
+      const conversation = Object.values(channelItems)
+        .flat()
+        .find((item) => item.sessionId === input.sessionId);
       if (!conversation) {
         chatStore.setActiveError(copy.planBoardSourceMissing);
         return;
@@ -1762,11 +2557,16 @@
       openSession(conversation);
       await chatStore.reloadActive();
       if (!input.resume) return;
-      const message = chatStore.registry.active?.messages.find((entry) => entry.plan?.id === input.planId);
-      if (message?.plan) await resolvePlan(message as TranscriptMessage, message.plan, "accept");
+      const message = chatStore.registry.active?.messages.find(
+        (entry) => entry.plan?.id === input.planId,
+      );
+      if (message?.plan)
+        await resolvePlan(message as TranscriptMessage, message.plan, "accept");
       else chatStore.setActiveError(copy.planBoardSourceMissing);
     } catch (cause) {
-      chatStore.setActiveError(cause instanceof Error ? cause.message : String(cause));
+      chatStore.setActiveError(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     }
   }
 
@@ -1790,7 +2590,13 @@
   // selection didn't, and text typed into a session was lost for good.
   let activeDraftKey = "";
   $: {
-    const key = chatState.draftMode && chatState.draftAgentId ? agentDraftKey(chatState.draftAgentId) : composerDraftKey(chatState.activeSessionId, chatState.activeProfileId);
+    const key =
+      chatState.draftMode && chatState.draftAgentId
+        ? agentDraftKey(chatState.draftAgentId)
+        : composerDraftKey(
+            chatState.activeSessionId,
+            chatState.activeProfileId,
+          );
     if (key !== activeDraftKey) {
       activeDraftKey = key;
       const draft = chatStore.draftStore.get(key);
@@ -1798,17 +2604,46 @@
       pendingFiles = draft.files;
       thinkingLevel = draft.thinkingLevel;
     } else {
-      chatStore.draftStore.update(key, { text: messageInput, files: pendingFiles, thinkingLevel, thinkingTouched: draftThinkingTouched, permissionMode: draftPermissionModeTouched ? draftPermissionMode : undefined });
+      chatStore.draftStore.update(key, {
+        text: messageInput,
+        files: pendingFiles,
+        thinkingLevel,
+        thinkingTouched: draftThinkingTouched,
+        permissionMode: draftPermissionModeTouched
+          ? draftPermissionMode
+          : undefined,
+      });
     }
   }
-  $: if (!draftMode && chatState.activeSessionId && hydratedThinkingSessions.has(chatState.activeSessionId)) {
-    const persistedThinking = sessionThinkingOverrides.get(chatState.activeSessionId);
+  $: if (
+    !draftMode &&
+    chatState.activeSessionId &&
+    hydratedThinkingSessions.has(chatState.activeSessionId)
+  ) {
+    const persistedThinking = sessionThinkingOverrides.get(
+      chatState.activeSessionId,
+    );
     if (persistedThinking) thinkingLevel = persistedThinking;
-    else thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+    else
+      thinkingLevel =
+        globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
   }
-  $: if (projectPaneActive && projectsViewSnapshot.selectedProjectId && connectedEndpoint) {
-    if (agentNavigation.page !== "project" || agentNavigation.projectId !== projectsViewSnapshot.selectedProjectId || agentNavigation.sessionId !== projectsViewSnapshot.selectedSessionId) {
-      agentNavigation = { ...agentNavigation, page: "project", projectId: projectsViewSnapshot.selectedProjectId, sessionId: projectsViewSnapshot.selectedSessionId ?? "" };
+  $: if (
+    projectPaneActive &&
+    projectsViewSnapshot.selectedProjectId &&
+    connectedEndpoint
+  ) {
+    if (
+      agentNavigation.page !== "project" ||
+      agentNavigation.projectId !== projectsViewSnapshot.selectedProjectId ||
+      agentNavigation.sessionId !== projectsViewSnapshot.selectedSessionId
+    ) {
+      agentNavigation = {
+        ...agentNavigation,
+        page: "project",
+        projectId: projectsViewSnapshot.selectedProjectId,
+        sessionId: projectsViewSnapshot.selectedSessionId ?? "",
+      };
       persistAgentNavigation();
     }
   }
@@ -1819,7 +2654,8 @@
     pendingSettingsRefresh = true;
     // The execution default may have changed in Settings: an untouched draft
     // menu must refetch (an explicit in-draft pick stays).
-    if (draftMode && !draftPermissionModeTouched) draftPermissionDefaultEndpoint = "";
+    if (draftMode && !draftPermissionModeTouched)
+      draftPermissionDefaultEndpoint = "";
     void refreshModelsAndProfiles();
   }
 
@@ -1836,37 +2672,69 @@
     const refreshEndpoint = connectedEndpoint;
     const refreshGeneration = connectionGeneration;
     try {
-      const [nextProfiles, modelState, nextWebProfiles, nextAgents, nextChannels, nextRuntimeEnv] = await Promise.all([
+      const [
+        nextProfiles,
+        modelState,
+        nextWebProfiles,
+        nextAgents,
+        nextChannels,
+        nextRuntimeEnv,
+      ] = await Promise.all([
         loadDesktopBootstrap(refreshEndpoint),
         loadDesktopModels(refreshEndpoint),
         loadDesktopWebProfiles(refreshEndpoint),
         loadDesktopAgents(refreshEndpoint).catch(() => null),
         loadDesktopChannels(refreshEndpoint).catch(() => null),
-        loadDesktopRuntimeEnv(refreshEndpoint).catch(() => null)
+        loadDesktopRuntimeEnv(refreshEndpoint).catch(() => null),
       ]);
       const [nextAdaptiveThinking, nextRouting] = await Promise.all([
-        loadDesktopAdaptiveThinking(refreshEndpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const, autoAvailable: false })),
-        loadDesktopModelRouting(refreshEndpoint).catch(() => null)
+        loadDesktopAdaptiveThinking(refreshEndpoint).catch(() => ({
+          enabled: false,
+          defaultStrategy: "fixed" as const,
+          autoAvailable: false,
+        })),
+        loadDesktopModelRouting(refreshEndpoint).catch(() => null),
       ]);
-      if (refreshEndpoint !== connectedEndpoint || refreshGeneration !== connectionGeneration) return;
-      
+      if (
+        refreshEndpoint !== connectedEndpoint ||
+        refreshGeneration !== connectionGeneration
+      )
+        return;
+
       profiles = nextProfiles;
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
       if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
       globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
       globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
-      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
+      activeModelKey =
+        resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       onboardingProfiles = nextWebProfiles;
-      if (nextAgents) { onboardingAgents = nextAgents.items; agentNavigation = { ...agentNavigation, expandedAgentIds: agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled)) }; defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? []; }
+      if (nextAgents) {
+        onboardingAgents = nextAgents.items;
+        agentNavigation = {
+          ...agentNavigation,
+          expandedAgentIds: agentNavigation.expandedAgentIds.filter(
+            (id) =>
+              !nextAgents.items.some(
+                (agent) => agent.id === id && !agent.enabled,
+              ),
+          ),
+        };
+        defaultAgentId = nextAgents.defaultAgentId ?? "default";
+        deletedAgentIds = nextAgents.deletedAgentIds ?? [];
+      }
       if (nextChannels) {
         channelSummary = nextChannels;
         onboardingChannels = summarizeOnboardingChannels(nextChannels);
       }
       if (nextRuntimeEnv) {
-        onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
+        onboardingDiagnostics = summarizeOnboardingDiagnostics(
+          nextRuntimeEnv,
+          true,
+        );
       }
-      
+
       const nextReadiness = summarizeDesktopReadiness(nextProfiles, modelState);
       onboardingMode = classifyFirstLaunch(nextReadiness);
       onboardingRepairTarget = resolveOnboardingRepairTarget(nextReadiness);
@@ -1889,17 +2757,28 @@
     loading = true;
     error = "";
     try {
-      const [nextProfiles, modelState, nextWebProfiles, nextAgents, nextChannels, nextRuntimeEnv] = await Promise.all([
+      const [
+        nextProfiles,
+        modelState,
+        nextWebProfiles,
+        nextAgents,
+        nextChannels,
+        nextRuntimeEnv,
+      ] = await Promise.all([
         loadDesktopBootstrap(endpoint),
         loadDesktopModels(endpoint),
         loadDesktopWebProfiles(endpoint),
         loadDesktopAgents(endpoint),
         loadDesktopChannels(endpoint).catch(() => null),
-        loadDesktopRuntimeEnv(endpoint).catch(() => null)
+        loadDesktopRuntimeEnv(endpoint).catch(() => null),
       ]);
       const [nextAdaptiveThinking, nextRouting] = await Promise.all([
-        loadDesktopAdaptiveThinking(endpoint).catch(() => ({ enabled: false, defaultStrategy: "fixed" as const, autoAvailable: false })),
-        loadDesktopModelRouting(endpoint).catch(() => null)
+        loadDesktopAdaptiveThinking(endpoint).catch(() => ({
+          enabled: false,
+          defaultStrategy: "fixed" as const,
+          autoAvailable: false,
+        })),
+        loadDesktopModelRouting(endpoint).catch(() => null),
       ]);
       if (generation !== connectionGeneration) return;
       profiles = nextProfiles;
@@ -1908,20 +2787,31 @@
       if (nextRouting) globalThinkingLevel = nextRouting.defaultThinkingLevel;
       globalThinkingStrategy = nextAdaptiveThinking.defaultStrategy;
       globalAutoAvailable = nextAdaptiveThinking.autoAvailable;
-      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
+      activeModelKey =
+        resolveSessionModelKey(activeSessionId) || modelState.currentKey;
       const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY) ?? "";
       onboardingProfiles = nextWebProfiles;
       onboardingAgents = nextAgents.items;
-      defaultAgentId = nextAgents.defaultAgentId ?? "default"; deletedAgentIds = nextAgents.deletedAgentIds ?? [];
+      defaultAgentId = nextAgents.defaultAgentId ?? "default";
+      deletedAgentIds = nextAgents.deletedAgentIds ?? [];
       agentNavigation = (await loadDesktopAgentNavigation(endpoint)).navigation;
-      agentNavigation.expandedAgentIds = agentNavigation.expandedAgentIds.filter(id => !nextAgents.items.some(agent => agent.id === id && !agent.enabled));
+      agentNavigation.expandedAgentIds =
+        agentNavigation.expandedAgentIds.filter(
+          (id) =>
+            !nextAgents.items.some(
+              (agent) => agent.id === id && !agent.enabled,
+            ),
+        );
       channelSummary = nextChannels;
       onboardingChannels = summarizeOnboardingChannels(nextChannels);
-      onboardingDiagnostics = summarizeOnboardingDiagnostics(nextRuntimeEnv, true);
+      onboardingDiagnostics = summarizeOnboardingDiagnostics(
+        nextRuntimeEnv,
+        true,
+      );
       const onboardingSelection = resolveOnboardingAgentSelection(
         nextWebProfiles,
         nextAgents.items,
-        rememberedProfile
+        rememberedProfile,
       );
       onboardingProfileId = onboardingSelection.profileId;
       onboardingAgentId = onboardingSelection.agentId;
@@ -1939,20 +2829,35 @@
         labels: () => conversationLabels(),
         loadTranscript,
         refreshSidebar: refreshAgentSessions,
-        resolveModel: (_profileId, sessionId) => sessionModelOverrides.get(sessionId),
+        resolveModel: (_profileId, sessionId) =>
+          sessionModelOverrides.get(sessionId),
         onDraftSessionCreated: async (profileId, sessionId, draft) => {
           if (draft.modelKey) {
-            await saveDesktopSessionModel(connectedEndpoint, sessionId, draft.modelKey);
+            await saveDesktopSessionModel(
+              connectedEndpoint,
+              sessionId,
+              draft.modelKey,
+            );
             sessionModelOverrides.set(sessionId, draft.modelKey);
             hydratedModelSessions.add(sessionId);
           }
           if (draft.thinkingTouched) {
-            await saveDesktopSessionThinking(connectedEndpoint, profileId, sessionId, draft.thinkingLevel);
+            await saveDesktopSessionThinking(
+              connectedEndpoint,
+              profileId,
+              sessionId,
+              draft.thinkingLevel,
+            );
             sessionThinkingOverrides.set(sessionId, draft.thinkingLevel);
             hydratedThinkingSessions.add(sessionId);
           }
           if (draft.permissionMode) {
-            const saved = await saveDesktopSessionPermission(connectedEndpoint, profileId, sessionId, draft.permissionMode);
+            const saved = await saveDesktopSessionPermission(
+              connectedEndpoint,
+              profileId,
+              sessionId,
+              draft.permissionMode,
+            );
             sessionPermissionModes.set(sessionId, saved);
           }
         },
@@ -1963,7 +2868,12 @@
           if (chatStore.registry.active?.sessionId === sessionId) {
             persistSelected(profileId, sessionId);
             if (agentId) selectedAgentId = agentId;
-            agentNavigation = { ...agentNavigation, page: "session", agentId: selectedAgentId, sessionId };
+            agentNavigation = {
+              ...agentNavigation,
+              page: "session",
+              agentId: selectedAgentId,
+              sessionId,
+            };
             persistAgentNavigation();
             void refreshFiles(profileId, sessionId);
           }
@@ -1975,14 +2885,18 @@
         // switch, so images the run had just made sat as name-only chips until
         // the user navigated away and back.
         afterMutate: () => {
-          if (viewMode === "external" || !activeProfileId || !activeSessionId) return;
+          if (connectedEndpoint && connectionReady)
+            void refreshUnreadNotifications(true);
+          if (viewMode === "external" || !activeProfileId || !activeSessionId)
+            return;
           void refreshFiles(activeProfileId, activeSessionId);
-        }
+        },
       });
 
       connectionReady = true;
       loading = false;
       void loadRooms();
+      void refreshUnreadNotifications(true);
       startAgentActivityPolling();
       startConversationPolling();
       startAutomationUnreadPolling();
@@ -1997,11 +2911,15 @@
         restoreView();
       } else {
         initialNavigationPending = true;
-        void selectDefaultSession(generation).catch(cause => {
-          if (generation === connectionGeneration) error = cause instanceof Error ? cause.message : String(cause);
-        }).finally(() => {
-          if (generation === connectionGeneration) initialNavigationPending = false;
-        });
+        void selectDefaultSession(generation)
+          .catch((cause) => {
+            if (generation === connectionGeneration)
+              error = cause instanceof Error ? cause.message : String(cause);
+          })
+          .finally(() => {
+            if (generation === connectionGeneration)
+              initialNavigationPending = false;
+          });
       }
       void chatStore.reconnect();
       startReconnectPoll();
@@ -2020,7 +2938,8 @@
 
   $: if (draftMode) permissionMode = draftPermissionMode;
   $: if (draftMode && !draftThinkingTouched) {
-    thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+    thinkingLevel =
+      globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
   }
   // A fresh draft starts at the configured default (not a hardcoded mode), so
   // the menu never advertises something the runtime will not do. Every new
@@ -2032,27 +2951,45 @@
     if (entering) {
       draftPermissionModeTouched = false;
       draftThinkingTouched = false;
-      thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+      thinkingLevel =
+        globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
       draftPermissionDefaultEndpoint = "";
     }
   }
-  $: if (draftMode && connectedEndpoint && connectedEndpoint !== draftPermissionDefaultEndpoint) {
+  $: if (
+    draftMode &&
+    connectedEndpoint &&
+    connectedEndpoint !== draftPermissionDefaultEndpoint
+  ) {
     draftPermissionDefaultEndpoint = connectedEndpoint;
-    void loadDesktopExecutionDefault(connectedEndpoint).then((mode) => {
-      if (!draftPermissionModeTouched) draftPermissionMode = mode;
-    }).catch(() => undefined);
+    void loadDesktopExecutionDefault(connectedEndpoint)
+      .then((mode) => {
+        if (!draftPermissionModeTouched) draftPermissionMode = mode;
+      })
+      .catch(() => undefined);
   }
-  $: if (!draftMode && activeSessionId && activeSessionId !== permissionHydrationSession) {
+  $: if (
+    !draftMode &&
+    activeSessionId &&
+    activeSessionId !== permissionHydrationSession
+  ) {
     permissionHydrationSession = activeSessionId;
     const cached = sessionPermissionModes.get(activeSessionId);
     if (cached) permissionMode = cached;
-    else void loadDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId).then(({ mode, source }) => {
-      sessionPermissionModes.set(activeSessionId, mode);
-      if (activeSessionId === permissionHydrationSession) {
-        permissionMode = mode;
-        permissionModeSource = source;
-      }
-    }).catch(() => undefined);
+    else
+      void loadDesktopSessionPermission(
+        connectedEndpoint,
+        activeProfileId,
+        activeSessionId,
+      )
+        .then(({ mode, source }) => {
+          sessionPermissionModes.set(activeSessionId, mode);
+          if (activeSessionId === permissionHydrationSession) {
+            permissionMode = mode;
+            permissionModeSource = source;
+          }
+        })
+        .catch(() => undefined);
   }
 
   async function changePermissionMode(mode: PermissionMode): Promise<void> {
@@ -2064,7 +3001,12 @@
     }
     if (!connectedEndpoint || !activeSessionId || !activeProfileId) return;
     try {
-      const saved = await saveDesktopSessionPermission(connectedEndpoint, activeProfileId, activeSessionId, mode);
+      const saved = await saveDesktopSessionPermission(
+        connectedEndpoint,
+        activeProfileId,
+        activeSessionId,
+        mode,
+      );
       sessionPermissionModes.set(activeSessionId, saved);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -2077,19 +3019,40 @@
       conversationsExpanded = saved.conversationsExpanded !== false;
       projectsExpanded = saved.projectsExpanded !== false;
       roomsExpanded = saved.roomsExpanded !== false;
-      if (saved.expandedChannels && typeof saved.expandedChannels === "object") {
+      if (
+        saved.expandedChannels &&
+        typeof saved.expandedChannels === "object"
+      ) {
         expandedChannels = { ...expandedChannels, ...saved.expandedChannels };
       }
-    } catch { /* defaults are intentional */ }
+    } catch {
+      /* defaults are intentional */
+    }
   }
 
   function persistSidebarTree(): void {
-    localStorage.setItem(SIDEBAR_TREE_KEY, JSON.stringify({ conversationsExpanded, projectsExpanded, roomsExpanded, expandedChannels }));
+    localStorage.setItem(
+      SIDEBAR_TREE_KEY,
+      JSON.stringify({
+        conversationsExpanded,
+        projectsExpanded,
+        roomsExpanded,
+        expandedChannels,
+      }),
+    );
   }
 
   /** Loads every channel the sidebar currently has expanded. */
   async function loadExpandedChannels(): Promise<void> {
-    await Promise.all((Object.entries(expandedChannels) as Array<[DesktopConversationChannel, boolean]>).filter(([, open]) => open).map(([channel]) => loadChannel(channel)));
+    await Promise.all(
+      (
+        Object.entries(expandedChannels) as Array<
+          [DesktopConversationChannel, boolean]
+        >
+      )
+        .filter(([, open]) => open)
+        .map(([channel]) => loadChannel(channel)),
+    );
   }
 
   // Rooms live as a sidebar list section (like conversations and projects), so
@@ -2100,13 +3063,23 @@
     const generation = ++roomsLoadGeneration;
     try {
       const result = await loadDesktopRooms(requestEndpoint);
-      if (generation === roomsLoadGeneration && requestEndpoint === connectedEndpoint) sidebarRooms = result.rooms;
-    } catch { /* the sidebar keeps the previous snapshot */ }
+      if (
+        generation === roomsLoadGeneration &&
+        requestEndpoint === connectedEndpoint
+      )
+        sidebarRooms = result.rooms;
+    } catch {
+      /* the sidebar keeps the previous snapshot */
+    }
   }
 
   function roomMeta(room: AgentRoom): string {
-    const count = room.participants.filter(participant => participant.active).length;
-    const project = projectsStore.projects.find(project => project.id === room.projectId)?.name ?? roomsCopy[locale].regular;
+    const count = room.participants.filter(
+      (participant) => participant.active,
+    ).length;
+    const project =
+      projectsStore.projects.find((project) => project.id === room.projectId)
+        ?.name ?? roomsCopy[locale].regular;
     return `${count} · ${project}`;
   }
 
@@ -2115,8 +3088,15 @@
     roomNavigationRevision += 1;
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
-    agentNavigation = { ...agentNavigation, page: "room", roomId, sessionId: "" }; persistAgentNavigation();
+    agentNavigation = {
+      ...agentNavigation,
+      page: "room",
+      roomId,
+      sessionId: "",
+    };
+    persistAgentNavigation();
     browserOpen = false;
     closeExternalTranscript();
     roomPaneActive = true;
@@ -2125,20 +3105,33 @@
     projectPaneActive = false;
     workspacePane = "chat";
     viewMode = "local";
-    const item = (channelItems.web ?? []).find(entry => entry.roomId === roomId);
+    const item = (channelItems.web ?? []).find(
+      (entry) => entry.roomId === roomId,
+    );
     if (item) persistSelected(item.botId, item.sessionId);
   }
 
-  function editRoom(roomId: string): void { openRoom(roomId); roomEditRequested = true; }
+  function editRoom(roomId: string): void {
+    openRoom(roomId);
+    roomEditRequested = true;
+  }
   async function deleteRoom(roomId: string): Promise<void> {
     try {
       await actOnDesktopRoom(connectedEndpoint, { action: "delete", roomId });
-      if (requestedRoomId === roomId) { roomPaneActive = false; requestedRoomId = ""; openAgentChat(defaultAgentId); }
-      await loadRooms(); await refreshAgentSessions();
-    } catch (cause) { error = String(cause); }
+      if (requestedRoomId === roomId) {
+        roomPaneActive = false;
+        requestedRoomId = "";
+        openAgentChat(defaultAgentId);
+      }
+      await loadRooms();
+      await refreshAgentSessions();
+    } catch (cause) {
+      error = String(cause);
+    }
   }
   function createRoom(): void {
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
     browserOpen = false;
     closeExternalTranscript();
@@ -2157,7 +3150,10 @@
       persistSidebarTree();
       return;
     }
-    if (!projectsExpanded) { projectsExpanded = true; persistSidebarTree(); }
+    if (!projectsExpanded) {
+      projectsExpanded = true;
+      persistSidebarTree();
+    }
     roomPaneActive = false;
     collapsedFlyout = null;
     projectPaneActive = true;
@@ -2185,7 +3181,10 @@
       persistSidebarTree();
       return;
     }
-    if (!roomsExpanded) { roomsExpanded = true; persistSidebarTree(); }
+    if (!roomsExpanded) {
+      roomsExpanded = true;
+      persistSidebarTree();
+    }
     collapsedFlyout = null;
     if (roomPaneActive && requestedRoomId) return;
     if (sidebarRooms[0]) openRoom(sidebarRooms[0].id);
@@ -2203,7 +3202,12 @@
   function captureViewForRestore(): (() => void) | null {
     if (roomPaneActive && requestedRoomId) {
       const roomId = requestedRoomId;
-      return () => { roomPaneActive = true; requestedRoomId = roomId; roomStartEditing = false; projectPaneActive = false; };
+      return () => {
+        roomPaneActive = true;
+        requestedRoomId = roomId;
+        roomStartEditing = false;
+        projectPaneActive = false;
+      };
     }
     if (projectPaneActive) {
       const projectId = projectsStore.selectedProjectId;
@@ -2222,10 +3226,13 @@
       const channel = activeExternalChannel;
       const title = activeExternalTitle;
       const botName = activeExternalBotName;
-      return () => { void openExternalTranscript(sessionId, channel, title, botName); };
+      return () => {
+        void openExternalTranscript(sessionId, channel, title, botName);
+      };
     }
     if (chatStore.draftMode && selectedAgentId) {
-      const id = selectedAgentId; return () => openAgentChat(id);
+      const id = selectedAgentId;
+      return () => openAgentChat(id);
     }
     const entry = chatStore.registry.active;
     if (!entry) return null;
@@ -2237,39 +3244,74 @@
     };
   }
 
-  async function selectDefaultSession(generation = connectionGeneration): Promise<void> {
+  async function selectDefaultSession(
+    generation = connectionGeneration,
+  ): Promise<void> {
     const saved = agentNavigation;
     restoreSidebarTree();
     await refreshAgentSessions();
-    if (generation !== connectionGeneration || agentNavigation !== saved) return;
+    if (generation !== connectionGeneration || agentNavigation !== saved)
+      return;
     if (coldStartHandover) {
       coldStartHandover = false;
       openAgentChat(defaultAgentId);
       return;
     }
-    if (saved.page === "room" && saved.roomId) { openRoom(saved.roomId); return; }
+    if (saved.page === "room" && saved.roomId) {
+      openRoom(saved.roomId);
+      return;
+    }
     if (saved.page === "project" && saved.projectId) {
       await selectProject(saved.projectId);
-      if (saved.sessionId) await selectProjectSession(saved.sessionId, saved.projectId);
-      projectPaneActive = true; workspacePane = "chat"; return;
+      if (saved.sessionId)
+        await selectProjectSession(saved.sessionId, saved.projectId);
+      projectPaneActive = true;
+      workspacePane = "chat";
+      return;
     }
-    if (["agents", "skills", "plans", "miniapps", "automations"].includes(saved.page)) { openWorkspacePane(saved.page as Exclude<ChatWorkspacePaneName, "chat">); return; }
-    let target = saved.sessionId ? ordinarySessions.find(item => item.sessionId === saved.sessionId) : undefined;
+    if (
+      ["agents", "skills", "plans", "miniapps", "automations"].includes(
+        saved.page,
+      )
+    ) {
+      openWorkspacePane(saved.page as Exclude<ChatWorkspacePaneName, "chat">);
+      return;
+    }
+    let target = saved.sessionId
+      ? ordinarySessions.find((item) => item.sessionId === saved.sessionId)
+      : undefined;
     if (!target && saved.sessionId) {
-      const result = await listDesktopConversations(connectedEndpoint, { channel: "web", allAgents: true, includeArchived: true, sessionId: saved.sessionId, limit: 1 });
+      const result = await listDesktopConversations(connectedEndpoint, {
+        channel: "web",
+        allAgents: true,
+        includeArchived: true,
+        sessionId: saved.sessionId,
+        limit: 1,
+      });
       target = result.items[0];
       if (target) ordinarySessions = [...ordinarySessions, target];
     }
-    if (generation !== connectionGeneration || agentNavigation !== saved) return;
+    if (generation !== connectionGeneration || agentNavigation !== saved)
+      return;
     if (target) openSession(target);
     else {
-      const restored = onboardingAgents.find(agent => agent.id === saved.agentId && agent.canExecute);
+      const restored = onboardingAgents.find(
+        (agent) => agent.id === saved.agentId && agent.canExecute,
+      );
       openAgentChat(restored?.id || defaultAgentId);
     }
   }
 
-  async function loadChannel(channel: DesktopConversationChannel, showLoading = true): Promise<void> {
-    if (!connectedEndpoint || channelRefreshing[channel] || channelLoadingMore[channel]) return;
+  async function loadChannel(
+    channel: DesktopConversationChannel,
+    showLoading = true,
+  ): Promise<void> {
+    if (
+      !connectedEndpoint ||
+      channelRefreshing[channel] ||
+      channelLoadingMore[channel]
+    )
+      return;
     channelRefreshing = { ...channelRefreshing, [channel]: true };
     if (showLoading) channelLoading = { ...channelLoading, [channel]: true };
     try {
@@ -2283,7 +3325,7 @@
         const res = await listDesktopConversations(connectedEndpoint, {
           channel,
           limit: Math.min(100, visibleCount - items.length),
-          cursor
+          cursor,
         });
         items.push(...res.items);
         cursor = res.nextCursor;
@@ -2307,8 +3349,15 @@
     }
   }
 
-  async function loadMoreChannel(channel: DesktopConversationChannel): Promise<void> {
-    if (!connectedEndpoint || channelRefreshing[channel] || channelLoadingMore[channel]) return;
+  async function loadMoreChannel(
+    channel: DesktopConversationChannel,
+  ): Promise<void> {
+    if (
+      !connectedEndpoint ||
+      channelRefreshing[channel] ||
+      channelLoadingMore[channel]
+    )
+      return;
     const cursor = channelNextCursor[channel];
     if (!cursor) {
       channelHasMore = { ...channelHasMore, [channel]: false };
@@ -2317,12 +3366,19 @@
 
     channelLoadingMore = { ...channelLoadingMore, [channel]: true };
     try {
-      const res = await listDesktopConversations(connectedEndpoint, { channel, limit: 10, cursor });
+      const res = await listDesktopConversations(connectedEndpoint, {
+        channel,
+        limit: 10,
+        cursor,
+      });
       const existing = channelItems[channel] ?? [];
       const seen = new Set(existing.map((item) => item.sessionId));
       const appended = res.items.filter((item) => !seen.has(item.sessionId));
       channelItems = { ...channelItems, [channel]: [...existing, ...appended] };
-      channelHasMore = { ...channelHasMore, [channel]: res.hasMore && Boolean(res.nextCursor) };
+      channelHasMore = {
+        ...channelHasMore,
+        [channel]: res.hasMore && Boolean(res.nextCursor),
+      };
       channelNextCursor = { ...channelNextCursor, [channel]: res.nextCursor };
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -2356,6 +3412,7 @@
   function newConversationWithBot(botId: string, agentId = ""): void {
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
     if (!connectedEndpoint) return;
     workspacePane = "chat";
@@ -2407,17 +3464,23 @@
     homeSidebarOpen = false;
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
     memberSessionReadOnly = false;
     selectedAgentId = agentId;
     roomPaneActive = false;
     // The transport profile is a real Web profile; the Agent is carried as an
     // explicit id and never encoded into the profile string.
-    newConversationWithBot(onboardingProfileId || activeProfileId || "personal", agentId);
+    newConversationWithBot(
+      onboardingProfileId || activeProfileId || "personal",
+      agentId,
+    );
     // Paint the home list from the page already in memory, then replace it with
     // the Agent-scoped query. Without the seed, switching Agents flashes an empty
     // history on an async fetch.
-    agentHomeSessions = ordinarySessions.filter(item => item.agentId === agentId).slice(0, 5);
+    agentHomeSessions = ordinarySessions
+      .filter((item) => item.agentId === agentId)
+      .slice(0, 5);
     void refreshAgentHome(true);
     const draft = chatStore.draftStore.get(agentDraftKey(agentId));
     draftModelKey = draft.modelKey ?? "";
@@ -2425,8 +3488,17 @@
     thinkingLevel = draft.thinkingLevel;
     draftPermissionModeTouched = Boolean(draft.permissionMode);
     if (draft.permissionMode) draftPermissionMode = draft.permissionMode;
-    activeModelKey = draftModelKey || onboardingAgents.find(agent => agent.id === agentId)?.modelRouting.textModelKey || globalModelKey;
-    agentNavigation = { ...agentNavigation, page: "agent", agentId, sessionId: "" };
+    activeModelKey =
+      draftModelKey ||
+      onboardingAgents.find((agent) => agent.id === agentId)?.modelRouting
+        .textModelKey ||
+      globalModelKey;
+    agentNavigation = {
+      ...agentNavigation,
+      page: "agent",
+      agentId,
+      sessionId: "",
+    };
     persistAgentNavigation();
     conversationScheduler?.wake("manual");
   }
@@ -2438,26 +3510,40 @@
   }
 
   function openSession(item: DesktopConversationItem): void {
+    notificationsReturnState = null;
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
     memberSessionReadOnly = false;
     selectedAgentId = item.agentId ?? "";
-    agentNavigation = { ...agentNavigation, page: item.channel === "web" ? "session" : "external", agentId: selectedAgentId, sessionId: item.sessionId };
+    agentNavigation = {
+      ...agentNavigation,
+      page: item.channel === "web" ? "session" : "external",
+      agentId: selectedAgentId,
+      sessionId: item.sessionId,
+    };
     persistAgentNavigation();
+    void markSessionNotificationRead(item.sessionId);
     roomPaneActive = Boolean(item.roomId);
     requestedRoomId = item.roomId ?? "";
     roomStartEditing = false;
     if (item.roomId) {
       openRoom(item.roomId);
-      persistSelected(item.botId, item.sessionId); return;
+      persistSelected(item.botId, item.sessionId);
+      return;
     }
     browserOpen = false;
     expandedChannels = { ...expandedChannels, [item.channel]: true };
     persistSidebarTree();
     if (item.readOnly) {
       projectPaneActive = false;
-      void openExternalTranscript(item.sessionId, item.channel, item.title, item.botName);
+      void openExternalTranscript(
+        item.sessionId,
+        item.channel,
+        item.title,
+        item.botName,
+      );
       void refreshFiles(item.botId, item.sessionId);
       return;
     }
@@ -2474,14 +3560,24 @@
   // from the conversation index lists, so this bypasses openSession and keys
   // the registry by the member agent; transcript loading resolves the session's
   // real owner server-side.
-  function openTaskMemberSession(input: { sessionId: string; agentId: string; title: string }): void {
+  function openTaskMemberSession(input: {
+    sessionId: string;
+    agentId: string;
+    title: string;
+  }): void {
     if (!connectedEndpoint) return;
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
     memberSessionReadOnly = true;
     selectedAgentId = input.agentId;
-    agentNavigation = { ...agentNavigation, page: "session", agentId: input.agentId, sessionId: input.sessionId };
+    agentNavigation = {
+      ...agentNavigation,
+      page: "session",
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+    };
     persistAgentNavigation();
     projectPaneActive = false;
     roomPaneActive = false;
@@ -2494,16 +3590,26 @@
     void refreshFiles(input.agentId, input.sessionId);
   }
 
-  async function renameSession(item: DesktopConversationItem, title: string): Promise<void> {
+  async function renameSession(
+    item: DesktopConversationItem,
+    title: string,
+  ): Promise<void> {
     if (!connectedEndpoint || item.readOnly) return;
     const trimmed = title.trim();
     if (!trimmed || trimmed === item.title) return;
     try {
-      const saved = await renameDesktopConversation(connectedEndpoint, item.sessionId, trimmed);
+      const saved = await renameDesktopConversation(
+        connectedEndpoint,
+        item.sessionId,
+        trimmed,
+      );
       // Reflect the sanitized title immediately, then refresh from the server.
-      channelItems = { ...channelItems, [item.channel]: (channelItems[item.channel] ?? []).map((it) =>
-        it.sessionId === item.sessionId ? { ...it, title: saved } : it
-      ) };
+      channelItems = {
+        ...channelItems,
+        [item.channel]: (channelItems[item.channel] ?? []).map((it) =>
+          it.sessionId === item.sessionId ? { ...it, title: saved } : it,
+        ),
+      };
       await refreshAgentSessions();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -2511,21 +3617,37 @@
   }
 
   let agentDeleteBusy = false;
-  async function deleteAgentConversation(item: Pick<DesktopConversationItem, "sessionId" | "botId" | "agentId">): Promise<void> {
+  async function deleteAgentConversation(
+    item: Pick<DesktopConversationItem, "sessionId" | "botId" | "agentId">,
+  ): Promise<void> {
     if (agentDeleteBusy) return;
     agentDeleteBusy = true;
     try {
-      const result = await deleteConversationSelection(connectedEndpoint, [item.sessionId]);
+      const result = await deleteConversationSelection(connectedEndpoint, [
+        item.sessionId,
+      ]);
       if (result.deletedIds.length) {
         chatStore.disposeSession(item.botId, item.sessionId);
-        if ((viewMode === "external" ? activeExternalSessionId : activeSessionId) === item.sessionId) {
-          openAgentChat(item.agentId && onboardingAgents.some(agent => agent.id === item.agentId) ? item.agentId : defaultAgentId);
+        if (
+          (viewMode === "external"
+            ? activeExternalSessionId
+            : activeSessionId) === item.sessionId
+        ) {
+          openAgentChat(
+            item.agentId &&
+              onboardingAgents.some((agent) => agent.id === item.agentId)
+              ? item.agentId
+              : defaultAgentId,
+          );
         }
         await refreshAgentSessions();
       }
       if (result.error) showMiniAppFeedback(result.error);
-    } catch (cause) { showMiniAppFeedback(String(cause)); }
-    finally { agentDeleteBusy = false; }
+    } catch (cause) {
+      showMiniAppFeedback(String(cause));
+    } finally {
+      agentDeleteBusy = false;
+    }
   }
   async function deleteSession(item: DesktopConversationItem): Promise<void> {
     // Confirmation happens inline in the row menu (native window.confirm is
@@ -2534,11 +3656,22 @@
     try {
       await deleteDesktopConversation(connectedEndpoint, item.sessionId);
       chatStore.disposeSession(item.botId, item.sessionId);
-      const remaining = ordinarySessions.filter(it => it.sessionId !== item.sessionId && it.agentId === item.agentId && !it.readOnly);
+      const remaining = ordinarySessions.filter(
+        (it) =>
+          it.sessionId !== item.sessionId &&
+          it.agentId === item.agentId &&
+          !it.readOnly,
+      );
       channelItems = { ...channelItems, [item.channel]: remaining };
       if (viewMode === "local" && item.sessionId === activeSessionId) {
         if (remaining[0]) openSession(remaining[0]);
-        else openAgentChat(item.agentId && onboardingAgents.some(agent => agent.id === item.agentId) ? item.agentId : defaultAgentId);
+        else
+          openAgentChat(
+            item.agentId &&
+              onboardingAgents.some((agent) => agent.id === item.agentId)
+              ? item.agentId
+              : defaultAgentId,
+          );
       }
       await refreshAgentSessions();
     } catch (cause) {
@@ -2546,23 +3679,43 @@
     }
   }
 
-  async function copySessionPath(item: { sessionId: string; projectId?: string; target?: "file" | "directory" }): Promise<void> {
+  async function copySessionPath(item: {
+    sessionId: string;
+    projectId?: string;
+    target?: "file" | "directory";
+  }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      const sessionPath = await getDesktopSessionPath(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId, target: item.target });
+      const sessionPath = await getDesktopSessionPath(connectedEndpoint, {
+        sessionId: item.sessionId,
+        projectId: item.projectId,
+        target: item.target,
+      });
       await navigator.clipboard.writeText(sessionPath);
       showMiniAppFeedback(copy.sessionPathCopied);
     } catch (cause) {
-      showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionPathFailed);
+      showMiniAppFeedback(
+        cause instanceof Error ? cause.message : copy.sessionPathFailed,
+      );
     }
   }
 
-  async function revealSessionInFinder(item: { sessionId: string; projectId?: string; target?: "file" | "directory" }): Promise<void> {
+  async function revealSessionInFinder(item: {
+    sessionId: string;
+    projectId?: string;
+    target?: "file" | "directory";
+  }): Promise<void> {
     if (!connectedEndpoint) return;
     try {
-      await revealDesktopSession(connectedEndpoint, { sessionId: item.sessionId, projectId: item.projectId, target: item.target });
+      await revealDesktopSession(connectedEndpoint, {
+        sessionId: item.sessionId,
+        projectId: item.projectId,
+        target: item.target,
+      });
     } catch (cause) {
-      showMiniAppFeedback(cause instanceof Error ? cause.message : copy.sessionRevealFailed);
+      showMiniAppFeedback(
+        cause instanceof Error ? cause.message : copy.sessionRevealFailed,
+      );
     }
   }
 
@@ -2572,16 +3725,21 @@
     browserOpen = true;
   }
 
-  async function openSearchResult(item: DesktopConversationSearchItem): Promise<void> {
+  async function openSearchResult(
+    item: DesktopConversationSearchItem,
+  ): Promise<void> {
     browserOpen = false;
     if (item.source === "project" && item.projectId) {
+      notificationsReturnState = null;
       projectsStore.endpoint = connectedEndpoint;
       await selectProject(item.projectId);
       await selectProjectSession(item.sessionId, item.projectId);
       projectPaneActive = true;
+      agentNotificationsActive = false;
       workspacePane = "chat";
       viewMode = "local";
       activeProjectSessionId = item.sessionId;
+      void markSessionNotificationRead(item.sessionId);
       return;
     }
     openSession({
@@ -2595,7 +3753,7 @@
       channel: item.channel,
       purpose: "conversation",
       readOnly: item.readOnly,
-      latestMessagePreview: item.latestMessagePreview
+      latestMessagePreview: item.latestMessagePreview,
     });
   }
 
@@ -2605,7 +3763,12 @@
     void tick().then(() => chatInputArea?.focusInput());
   }
 
-  async function openExternalTranscript(sessionId: string, channel: string, title: string, botName: string): Promise<void> {
+  async function openExternalTranscript(
+    sessionId: string,
+    channel: string,
+    title: string,
+    botName: string,
+  ): Promise<void> {
     if (!connectedEndpoint) return;
     workspacePane = "chat";
     viewMode = "external";
@@ -2619,14 +3782,25 @@
   async function refreshExternalTranscript(): Promise<void> {
     const sessionId = activeExternalSessionId;
     if (!connectedEndpoint || viewMode !== "external" || !sessionId) return;
-    await externalTranscriptLoader.select(connectedEndpoint, sessionId, (state) => {
-      externalTranscript = state.transcript;
-      externalTranscriptError = state.error;
-      externalTranscriptLoading = state.loading;
-      if (state.transcript) activeExternalTitle = state.transcript.title;
-    });
-    const profileId = ordinarySessions.find(item => item.sessionId === sessionId)?.botId;
-    if (profileId && !externalTranscriptError && viewMode === "external" && activeExternalSessionId === sessionId) {
+    await externalTranscriptLoader.select(
+      connectedEndpoint,
+      sessionId,
+      (state) => {
+        externalTranscript = state.transcript;
+        externalTranscriptError = state.error;
+        externalTranscriptLoading = state.loading;
+        if (state.transcript) activeExternalTitle = state.transcript.title;
+      },
+    );
+    const profileId = ordinarySessions.find(
+      (item) => item.sessionId === sessionId,
+    )?.botId;
+    if (
+      profileId &&
+      !externalTranscriptError &&
+      viewMode === "external" &&
+      activeExternalSessionId === sessionId
+    ) {
       await refreshFiles(profileId, sessionId);
     }
   }
@@ -2650,36 +3824,61 @@
   function onApiKeyInput(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
     providerApiKeyInput = input.value;
-    providerDraft = { ...providerDraft, apiKeyPresent: input.value.trim().length > 0 };
+    providerDraft = {
+      ...providerDraft,
+      apiKeyPresent: input.value.trim().length > 0,
+    };
   }
 
   function addOnboardingProviderModel(): void {
-    onboardingProviderModels = [...onboardingProviderModels, {
-      id: "",
-      tags: ["text"],
-      supportedRoles: ["system", "user", "assistant", "tool"],
-      enabled: true,
-      verification: {}
-    }];
+    onboardingProviderModels = [
+      ...onboardingProviderModels,
+      {
+        id: "",
+        tags: ["text"],
+        supportedRoles: ["system", "user", "assistant", "tool"],
+        enabled: true,
+        verification: {},
+      },
+    ];
   }
 
-  function updateOnboardingProviderModel(index: number, patch: Partial<DesktopProviderModel>): void {
-    onboardingProviderModels = onboardingProviderModels.map((model, modelIndex) => modelIndex === index ? { ...model, ...patch } : model);
+  function updateOnboardingProviderModel(
+    index: number,
+    patch: Partial<DesktopProviderModel>,
+  ): void {
+    onboardingProviderModels = onboardingProviderModels.map(
+      (model, modelIndex) =>
+        modelIndex === index ? { ...model, ...patch } : model,
+    );
   }
 
-  function toggleOnboardingProviderTag(index: number, tag: DesktopProviderModelTag): void {
+  function toggleOnboardingProviderTag(
+    index: number,
+    tag: DesktopProviderModelTag,
+  ): void {
     const model = onboardingProviderModels[index];
     if (!model) return;
-    const tags = model.tags.includes(tag) ? model.tags.filter((item) => item !== tag) : [...model.tags, tag];
-    updateOnboardingProviderModel(index, { tags: tags.length > 0 ? tags : ["text"] });
+    const tags = model.tags.includes(tag)
+      ? model.tags.filter((item) => item !== tag)
+      : [...model.tags, tag];
+    updateOnboardingProviderModel(index, {
+      tags: tags.length > 0 ? tags : ["text"],
+    });
   }
 
   function removeOnboardingProviderModel(index: number): void {
     if (onboardingProviderModels.length === 1) {
-      updateOnboardingProviderModel(0, { id: "", tags: ["text"], contextWindow: undefined });
+      updateOnboardingProviderModel(0, {
+        id: "",
+        tags: ["text"],
+        contextWindow: undefined,
+      });
       return;
     }
-    onboardingProviderModels = onboardingProviderModels.filter((_, modelIndex) => modelIndex !== index);
+    onboardingProviderModels = onboardingProviderModels.filter(
+      (_, modelIndex) => modelIndex !== index,
+    );
   }
 
   async function saveOnboardingProvider(): Promise<void> {
@@ -2689,7 +3888,9 @@
     providerTestResult = "";
     providerTestError = "";
     try {
-      const models = onboardingProviderModels.filter((model) => model.id.trim()).map((model) => ({ ...model, id: model.id.trim() }));
+      const models = onboardingProviderModels
+        .filter((model) => model.id.trim())
+        .map((model) => ({ ...model, id: model.id.trim() }));
       const request: DesktopProviderCreateRequest = {
         id: `desktop-${Date.now()}`,
         name: providerDraft.name,
@@ -2699,8 +3900,11 @@
         apiKey: providerApiKeyInput,
         models,
         defaultModel: models[0]?.id ?? "",
-        path: providerDraft.protocol === "anthropic" ? "/v1/messages" : "/v1/chat/completions",
-        thinkingFormat: null
+        path:
+          providerDraft.protocol === "anthropic"
+            ? "/v1/messages"
+            : "/v1/chat/completions",
+        thinkingFormat: null,
       };
       const result = await createDesktopProvider(connectedEndpoint, request);
       if (!result.ok) throw new Error(result.error ?? "Unknown error");
@@ -2709,9 +3913,11 @@
       const modelState = await loadDesktopModels(connectedEndpoint, "text");
       modelOptions = modelState.options;
       globalModelKey = modelState.currentKey;
-      activeModelKey = resolveSessionModelKey(activeSessionId) || modelState.currentKey;
+      activeModelKey =
+        resolveSessionModelKey(activeSessionId) || modelState.currentKey;
     } catch (cause) {
-      providerSubmitError = cause instanceof Error ? cause.message : String(cause);
+      providerSubmitError =
+        cause instanceof Error ? cause.message : String(cause);
     } finally {
       providerSubmitting = false;
     }
@@ -2723,7 +3929,10 @@
     providerTestResult = "";
     providerTestError = "";
     try {
-      const result = await testDesktopProvider(connectedEndpoint, providerSubmittedId);
+      const result = await testDesktopProvider(
+        connectedEndpoint,
+        providerSubmittedId,
+      );
       if (result.ok) {
         providerTestResult = "ok";
       } else {
@@ -2732,7 +3941,8 @@
       }
     } catch (cause) {
       providerTestResult = "fail";
-      providerTestError = cause instanceof Error ? cause.message : String(cause);
+      providerTestError =
+        cause instanceof Error ? cause.message : String(cause);
     } finally {
       providerTesting = false;
     }
@@ -2741,7 +3951,8 @@
   function nextOnboardingStep(): void {
     if (onboardingStep === "provider" && !providerSubmitted) return;
     if (onboardingStep === "agent" && !onboardingAgentSaved) return;
-    if (onboardingStep === "personalization" && !onboardingPersonalizationSaved) return;
+    if (onboardingStep === "personalization" && !onboardingPersonalizationSaved)
+      return;
     const next = ONBOARDING_STEPS[onboardingStepIndex + 1] ?? null;
     if (next) onboardingStep = next;
   }
@@ -2753,8 +3964,13 @@
 
   function changeOnboardingProfile(value: string): void {
     onboardingProfileId = value;
-    const profile = onboardingProfiles.find((item) => item.id === onboardingProfileId);
-    if (profile && onboardingEnabledAgents.some((agent) => agent.id === profile.agentId)) {
+    const profile = onboardingProfiles.find(
+      (item) => item.id === onboardingProfileId,
+    );
+    if (
+      profile &&
+      onboardingEnabledAgents.some((agent) => agent.id === profile.agentId)
+    ) {
       onboardingAgentId = profile.agentId;
     }
     onboardingAgentSaved = false;
@@ -2776,61 +3992,85 @@
     onboardingAgentSaving = true;
     onboardingAgentError = "";
     try {
-      const updated = await patchDesktopWebProfile(connectedEndpoint, onboardingProfileId, {
-        agentId: onboardingAgentId,
-        enabled: true
-      });
+      const updated = await patchDesktopWebProfile(
+        connectedEndpoint,
+        onboardingProfileId,
+        {
+          agentId: onboardingAgentId,
+          enabled: true,
+        },
+      );
       onboardingProfiles = onboardingProfiles.map((profile) =>
-        profile.id === updated.id ? updated : profile
+        profile.id === updated.id ? updated : profile,
       );
       profiles = await loadDesktopBootstrap(connectedEndpoint);
       onboardingAgentSaved = true;
     } catch (cause) {
-      onboardingAgentError = cause instanceof Error ? cause.message : String(cause);
+      onboardingAgentError =
+        cause instanceof Error ? cause.message : String(cause);
       onboardingAgentSaved = false;
     } finally {
       onboardingAgentSaving = false;
     }
   }
 
-  function replacePersonalizationSection(existing: string, body: string): string {
+  function replacePersonalizationSection(
+    existing: string,
+    body: string,
+  ): string {
     const section = `${PERSONALIZATION_MARKER_START}\n${body.trim()}\n${PERSONALIZATION_MARKER_END}`;
-    const pattern = new RegExp(`${PERSONALIZATION_MARKER_START}[\\s\\S]*?${PERSONALIZATION_MARKER_END}`);
+    const pattern = new RegExp(
+      `${PERSONALIZATION_MARKER_START}[\\s\\S]*?${PERSONALIZATION_MARKER_END}`,
+    );
     if (pattern.test(existing)) return existing.replace(pattern, section);
     const trimmed = existing.trimEnd();
     return `${trimmed}${trimmed ? "\n\n" : ""}${section}\n`;
   }
 
   function onboardingStyleInstruction(): string {
-    if (onboardingAiStyle === "patient") return "Use a patient, explanatory style. Explain assumptions and next steps clearly.";
-    if (onboardingAiStyle === "rigorous") return "Use a rigorous, direct style. Surface tradeoffs, weak assumptions, and verification steps.";
-    if (onboardingAiStyle === "natural") return "Use a natural conversational style. Keep answers warm, clear, and practical.";
+    if (onboardingAiStyle === "patient")
+      return "Use a patient, explanatory style. Explain assumptions and next steps clearly.";
+    if (onboardingAiStyle === "rigorous")
+      return "Use a rigorous, direct style. Surface tradeoffs, weak assumptions, and verification steps.";
+    if (onboardingAiStyle === "natural")
+      return "Use a natural conversational style. Keep answers warm, clear, and practical.";
     return "Use a concise, practical style. Lead with the answer and avoid unnecessary detail.";
   }
 
   async function saveOnboardingPersonalization(): Promise<void> {
-    if (!connectedEndpoint || !onboardingAgentId || onboardingPersonalizationSaving) return;
+    if (
+      !connectedEndpoint ||
+      !onboardingAgentId ||
+      onboardingPersonalizationSaving
+    )
+      return;
     onboardingPersonalizationSaving = true;
     onboardingPersonalizationError = "";
     try {
-      const currentFiles = await loadDesktopAgentFiles(connectedEndpoint, onboardingAgentId);
+      const currentFiles = await loadDesktopAgentFiles(
+        connectedEndpoint,
+        onboardingAgentId,
+      );
       const userLines = [
         "# User Preferences",
         "",
-        `Preferred name: ${onboardingUserName.trim() || "Not specified"}`
+        `Preferred name: ${onboardingUserName.trim() || "Not specified"}`,
       ];
-      const soulLines = [
-        "# Assistant Style",
-        "",
-        onboardingStyleInstruction()
-      ];
+      const soulLines = ["# Assistant Style", "", onboardingStyleInstruction()];
       await saveDesktopAgentFiles(connectedEndpoint, onboardingAgentId, {
-        "USER.md": replacePersonalizationSection(currentFiles["USER.md"] ?? "", userLines.join("\n")),
-        "SOUL.md": replacePersonalizationSection(currentFiles["SOUL.md"] ?? "", soulLines.join("\n"))
+        "USER.md": replacePersonalizationSection(
+          currentFiles["USER.md"] ?? "",
+          userLines.join("\n"),
+        ),
+        "SOUL.md": replacePersonalizationSection(
+          currentFiles["SOUL.md"] ?? "",
+          soulLines.join("\n"),
+        ),
       });
       onboardingPersonalizationSaved = true;
     } catch (cause) {
-      onboardingPersonalizationError = cause instanceof Error ? cause.message : String(cause);
+      onboardingPersonalizationError =
+        cause instanceof Error ? cause.message : String(cause);
       onboardingPersonalizationSaved = false;
     } finally {
       onboardingPersonalizationSaving = false;
@@ -2845,7 +4085,8 @@
     try {
       onboardingLaunchChoice = await setLaunchAtLogin(!onboardingLaunchChoice);
     } catch (cause) {
-      onboardingLaunchError = cause instanceof Error ? cause.message : String(cause);
+      onboardingLaunchError =
+        cause instanceof Error ? cause.message : String(cause);
       onboardingLaunchTouched = false;
     } finally {
       onboardingLaunchChanging = false;
@@ -2854,12 +4095,17 @@
 
   function isCurrentFileSession(profileId: string, sessionId: string): boolean {
     return viewMode === "external"
-      ? activeExternalSessionItem?.botId === profileId && activeExternalSessionId === sessionId
-      : chatStore.registry.active?.profileId === profileId && chatStore.registry.active?.sessionId === sessionId;
+      ? activeExternalSessionItem?.botId === profileId &&
+          activeExternalSessionId === sessionId
+      : chatStore.registry.active?.profileId === profileId &&
+          chatStore.registry.active?.sessionId === sessionId;
   }
 
   let filesRequest = 0;
-  async function refreshFiles(profileId: string, sessionId: string): Promise<void> {
+  async function refreshFiles(
+    profileId: string,
+    sessionId: string,
+  ): Promise<void> {
     const endpoint = connectedEndpoint;
     const generation = connectionGeneration;
     const request = ++filesRequest;
@@ -2868,22 +4114,47 @@
       return;
     }
     try {
-      const files = await listDesktopSessionFiles(endpoint, profileId, sessionId);
-      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === filesRequest && isCurrentFileSession(profileId, sessionId)) sessionFiles = files;
+      const files = await listDesktopSessionFiles(
+        endpoint,
+        profileId,
+        sessionId,
+      );
+      if (
+        endpoint === connectedEndpoint &&
+        generation === connectionGeneration &&
+        request === filesRequest &&
+        isCurrentFileSession(profileId, sessionId)
+      )
+        sessionFiles = files;
     } catch (cause) {
-      if (endpoint === connectedEndpoint && generation === connectionGeneration && request === filesRequest && isCurrentFileSession(profileId, sessionId)) {
-        conversationRefreshError = cause instanceof Error ? cause.message : String(cause);
+      if (
+        endpoint === connectedEndpoint &&
+        generation === connectionGeneration &&
+        request === filesRequest &&
+        isCurrentFileSession(profileId, sessionId)
+      ) {
+        conversationRefreshError =
+          cause instanceof Error ? cause.message : String(cause);
       }
     }
   }
 
   async function openPreview(file: DesktopSessionFile): Promise<void> {
-    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
-    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    const currentProfileId =
+      viewMode === "external"
+        ? (activeExternalSessionItem?.botId ?? "")
+        : activeProfileId;
+    const currentSessionId =
+      viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     closePreview();
     previewFile = file;
-    previewUrl = desktopFileContentUrl(connectedEndpoint, currentProfileId, currentSessionId, file.id);
+    previewUrl = desktopFileContentUrl(
+      connectedEndpoint,
+      currentProfileId,
+      currentSessionId,
+      file.id,
+    );
   }
 
   function closePreview(): void {
@@ -2893,11 +4164,21 @@
   }
 
   async function downloadFile(file: DesktopSessionFile): Promise<void> {
-    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
-    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    const currentProfileId =
+      viewMode === "external"
+        ? (activeExternalSessionItem?.botId ?? "")
+        : activeProfileId;
+    const currentSessionId =
+      viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     try {
-      const blob = await fetchDesktopFileBlob(connectedEndpoint, currentProfileId, currentSessionId, file.id, true);
+      const blob = await fetchDesktopFileBlob(
+        connectedEndpoint,
+        currentProfileId,
+        currentSessionId,
+        file.id,
+        true,
+      );
       await saveBlobAsFile(blob, file.original);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
@@ -2905,9 +4186,15 @@
   }
 
   function canPreview(file: DesktopSessionFile): boolean {
-    return file.mediaType === "image" || file.mediaType === "audio" || file.mediaType === "video";
+    return (
+      file.mediaType === "image" ||
+      file.mediaType === "audio" ||
+      file.mediaType === "video"
+    );
   }
-  function inferAttachmentKind(file: File): DesktopMessageAttachment["mediaType"] {
+  function inferAttachmentKind(
+    file: File,
+  ): DesktopMessageAttachment["mediaType"] {
     const type = file.type.toLowerCase();
     if (type.startsWith("image/")) return "image";
     if (type.startsWith("audio/")) return "audio";
@@ -2917,7 +4204,9 @@
 
   function onFilesPicked(event: Event): void {
     const input = event.currentTarget as HTMLInputElement;
-    const picked = Array.from(input.files ?? []).filter((file) => file.size > 0);
+    const picked = Array.from(input.files ?? []).filter(
+      (file) => file.size > 0,
+    );
     if (picked.length > 0) pendingFiles = [...pendingFiles, ...picked];
     input.value = "";
   }
@@ -2942,7 +4231,10 @@
       }
     }
     for (const file of files) {
-      if (!pendingAudioTracked.has(file) && inferAttachmentKind(file) === "audio") {
+      if (
+        !pendingAudioTracked.has(file) &&
+        inferAttachmentKind(file) === "audio"
+      ) {
         pendingAudioTracked.set(file, URL.createObjectURL(file));
       }
     }
@@ -2952,19 +4244,29 @@
   let messageMediaUrls = new Map<string, string>();
   let messageMediaLoading = new Set<string>();
   let messageMediaFailed = new Set<string>();
-  $: currentMediaProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
-  $: currentMediaSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
-  $: resolvedMessageMediaUrls = connectedEndpoint && currentMediaProfileId && currentMediaSessionId
-    ? new Map([
-        ...sessionFiles
-          .filter((file) => canPreview(file))
-          .map((file): [string, string] => [
-            file.local,
-            desktopFileContentUrl(connectedEndpoint, currentMediaProfileId, currentMediaSessionId, file.id)
-          ]),
-        ...messageMediaUrls
-      ])
-    : messageMediaUrls;
+  $: currentMediaProfileId =
+    viewMode === "external"
+      ? (activeExternalSessionItem?.botId ?? "")
+      : activeProfileId;
+  $: currentMediaSessionId =
+    viewMode === "external" ? activeExternalSessionId : activeSessionId;
+  $: resolvedMessageMediaUrls =
+    connectedEndpoint && currentMediaProfileId && currentMediaSessionId
+      ? new Map([
+          ...sessionFiles
+            .filter((file) => canPreview(file))
+            .map((file): [string, string] => [
+              file.local,
+              desktopFileContentUrl(
+                connectedEndpoint,
+                currentMediaProfileId,
+                currentMediaSessionId,
+                file.id,
+              ),
+            ]),
+          ...messageMediaUrls,
+        ])
+      : messageMediaUrls;
   $: transcriptAttachmentActions = {
     filesByLocal: fileByLocal,
     mediaUrls: resolvedMessageMediaUrls,
@@ -2975,9 +4277,13 @@
     preview: (file) => void openPreview(file),
     download: (file) => void downloadFile(file),
     contributions: contributedMessageActions,
-    onRunContribution: (action, transcriptMessage, file) => void runMiniAppMessageAction(action, transcriptMessage, undefined, file)
+    onRunContribution: (action, transcriptMessage, file) =>
+      void runMiniAppMessageAction(action, transcriptMessage, undefined, file),
   } satisfies TranscriptAttachmentActions;
-  $: contributedMessageActions = catalogMessageActions($miniAppsCatalog, locale);
+  $: contributedMessageActions = catalogMessageActions(
+    $miniAppsCatalog,
+    locale,
+  );
 
   /**
    * Sole entry point for the mini-app toast: it owns both the text and the
@@ -2986,7 +4292,9 @@
    */
   function showMiniAppFeedback(
     text: string,
-    card: import("@molibot/desktop-contract").DesktopMiniAppResultCard | null = null
+    card:
+      | import("@molibot/desktop-contract").DesktopMiniAppResultCard
+      | null = null,
   ): void {
     miniAppActionFeedback = text;
     miniAppActionCard = card;
@@ -3005,7 +4313,7 @@
     action: TranscriptContributionAction,
     message: TranscriptMessage,
     selection?: string,
-    file?: DesktopSessionFile
+    file?: DesktopSessionFile,
   ): Promise<void> {
     const endpoint = connectedEndpoint || serviceEndpoint || "";
     if (!endpoint) return;
@@ -3013,69 +4321,89 @@
     miniAppActionPendingKey = key;
     miniAppActionSuccessKey = "";
     try {
-      const outcome = await invokeTranscriptMessageAction(endpoint, action, message, {
-        selection,
-        sessionTitle: activeHeaderTitle,
-        ...(file ? {
-          resource: {
-            profileId: inspectorProfileId,
-            sessionId: inspectorSessionId,
-            fileId: file.id
-          }
-        } : {})
-      });
+      const outcome = await invokeTranscriptMessageAction(
+        endpoint,
+        action,
+        message,
+        {
+          selection,
+          sessionTitle: activeHeaderTitle,
+          ...(file
+            ? {
+                resource: {
+                  profileId: inspectorProfileId,
+                  sessionId: inspectorSessionId,
+                  fileId: file.id,
+                },
+              }
+            : {}),
+        },
+      );
       miniAppActionSuccessKey = key;
       showMiniAppFeedback(outcome.text, outcome.card);
     } catch (cause) {
-      showMiniAppFeedback(cause instanceof Error ? cause.message : String(cause));
+      showMiniAppFeedback(
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       miniAppActionPendingKey = "";
     }
   }
-  $: messageActions = messages.length === 0
-    ? null
-    : {
-        copiedId: copiedMessageId,
-        onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
-        onEditUser: viewMode === "external" || sending
-          ? undefined
-          : (m: TranscriptMessage) => startEditUserMessage(m),
-        editingId: editingMessageId,
-        onForkAssistant: viewMode === "external" || sending
-          ? undefined
-          : (m: TranscriptMessage) => void forkFromAssistantMessage(m),
-        forkingId: forkingMessageId,
-        onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId),
-        contributions: contributedMessageActions,
-        pendingContributionKey: miniAppActionPendingKey,
-        successfulContributionKey: miniAppActionSuccessKey,
-        onOpenMiniApp: (appId) => openMiniAppInspector(appId),
-        onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
-        ,onResolvePlan: (message, plan, decision, edits) => void resolvePlan(message, plan, decision, edits)
-      } satisfies TranscriptMessageActions;
+  $: messageActions =
+    messages.length === 0
+      ? null
+      : ({
+          copiedId: copiedMessageId,
+          onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
+          onEditUser:
+            viewMode === "external" || sending
+              ? undefined
+              : (m: TranscriptMessage) => startEditUserMessage(m),
+          editingId: editingMessageId,
+          onForkAssistant:
+            viewMode === "external" || sending
+              ? undefined
+              : (m: TranscriptMessage) => void forkFromAssistantMessage(m),
+          forkingId: forkingMessageId,
+          onOpenMemoryTrace: (traceId: string) => void openMemoryTrace(traceId),
+          contributions: contributedMessageActions,
+          pendingContributionKey: miniAppActionPendingKey,
+          successfulContributionKey: miniAppActionSuccessKey,
+          onOpenMiniApp: (appId) => openMiniAppInspector(appId),
+          onRunContribution: (action, message, selection) =>
+            void runMiniAppMessageAction(action, message, selection),
+          onResolvePlan: (message, plan, decision, edits) =>
+            void resolvePlan(message, plan, decision, edits),
+        } satisfies TranscriptMessageActions);
   // Read-only external transcript supports copy-only (no edit); bind its own
   // actions so the clipboard still works there even when `messageActions`
   // above is null (e.g. main transcript empty).
   $: externalMessageActions = externalTranscript?.messages?.length
-    ? {
+    ? ({
         copiedId: copiedMessageId,
         onCopy: (m: TranscriptMessage) => void copyMessageContent(m),
         contributions: contributedMessageActions,
         pendingContributionKey: miniAppActionPendingKey,
         successfulContributionKey: miniAppActionSuccessKey,
         onOpenMiniApp: (appId) => openMiniAppInspector(appId),
-        onRunContribution: (action, message, selection) => void runMiniAppMessageAction(action, message, selection)
-      } satisfies TranscriptMessageActions
+        onRunContribution: (action, message, selection) =>
+          void runMiniAppMessageAction(action, message, selection),
+      } satisfies TranscriptMessageActions)
     : null;
   // Reset the editing banner when the active session changes underneath us;
   // the edit is bound to a specific message id in a specific session.
-  $: if (editingMessageId && editingSessionId && activeSessionId !== editingSessionId) {
+  $: if (
+    editingMessageId &&
+    editingSessionId &&
+    activeSessionId !== editingSessionId
+  ) {
     editingMessageId = "";
     editingSessionId = "";
   }
   let messageMediaSession = "";
   $: {
-    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    const currentSessionId =
+      viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (currentSessionId !== messageMediaSession) {
       for (const url of messageMediaUrls.values()) {
         if (url.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -3088,8 +4416,12 @@
   }
 
   async function loadMessageMedia(file: DesktopSessionFile): Promise<void> {
-    const currentProfileId = viewMode === "external" ? (activeExternalSessionItem?.botId ?? "") : activeProfileId;
-    const currentSessionId = viewMode === "external" ? activeExternalSessionId : activeSessionId;
+    const currentProfileId =
+      viewMode === "external"
+        ? (activeExternalSessionItem?.botId ?? "")
+        : activeProfileId;
+    const currentSessionId =
+      viewMode === "external" ? activeExternalSessionId : activeSessionId;
     if (!connectedEndpoint || !currentProfileId || !currentSessionId) return;
     if (messageMediaLoading.has(file.local)) return;
     const retrying = new Set(messageMediaFailed);
@@ -3098,7 +4430,15 @@
     const next = new Map(messageMediaUrls);
     next.set(
       file.local,
-      desktopFileContentUrl(connectedEndpoint, currentProfileId, currentSessionId, file.id, false, undefined, Date.now())
+      desktopFileContentUrl(
+        connectedEndpoint,
+        currentProfileId,
+        currentSessionId,
+        file.id,
+        false,
+        undefined,
+        Date.now(),
+      ),
     );
     messageMediaUrls = next;
   }
@@ -3106,7 +4446,10 @@
   async function sendMessage(): Promise<void> {
     if (modelSelectionHydrating) return;
     const text = messageInput;
-    const submittedKey = draftMode && draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey(activeSessionId, activeProfileId);
+    const submittedKey =
+      draftMode && draftAgentId
+        ? agentDraftKey(draftAgentId)
+        : composerDraftKey(activeSessionId, activeProfileId);
     thinkingLevel = clampedThinkingLevel;
     const files = pendingFiles;
     const editingId = editingMessageId;
@@ -3124,7 +4467,12 @@
       editingMessageId = "";
       editingSessionId = "";
       try {
-        await truncateDesktopMessages(connectedEndpoint, activeProfileId, activeSessionId, editingId);
+        await truncateDesktopMessages(
+          connectedEndpoint,
+          activeProfileId,
+          activeSessionId,
+          editingId,
+        );
       } catch (cause) {
         const status = (cause as Error & { status?: number }).status;
         if (status === 422) {
@@ -3150,13 +4498,21 @@
     try {
       await chatStore.send(text, files);
     } catch (cause) {
-      if ((draftMode && draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey(activeSessionId, activeProfileId)) === submittedKey && !messageInput.trim() && pendingFiles.length === 0) {
+      if (
+        (draftMode && draftAgentId
+          ? agentDraftKey(draftAgentId)
+          : composerDraftKey(activeSessionId, activeProfileId)) ===
+          submittedKey &&
+        !messageInput.trim() &&
+        pendingFiles.length === 0
+      ) {
         error = cause instanceof Error ? cause.message : String(cause);
         messageInput = text;
         pendingFiles = files;
       } else {
         const draft = chatStore.draftStore.get(submittedKey);
-        if (!draft.text.trim() && draft.files.length === 0) chatStore.draftStore.update(submittedKey, { text, files });
+        if (!draft.text.trim() && draft.files.length === 0)
+          chatStore.draftStore.update(submittedKey, { text, files });
       }
     }
   }
@@ -3171,12 +4527,16 @@
         copiedMessageId = "";
         copiedMessageTimer = null;
       }, 1500);
-    } catch { /* clipboard unavailable */ }
+    } catch {
+      /* clipboard unavailable */
+    }
   }
 
   function focusComposerAtEnd(): void {
     void tick().then(() => {
-      const textarea = messagesElement?.closest(".chat-content")?.querySelector("textarea");
+      const textarea = messagesElement
+        ?.closest(".chat-content")
+        ?.querySelector("textarea");
       textarea?.focus();
       if (textarea instanceof HTMLTextAreaElement) {
         const length = textarea.value.length;
@@ -3193,8 +4553,10 @@
    */
   async function ensureChatAgent(): Promise<boolean> {
     if (selectedAgent?.canExecute) return true;
-    const fallback = onboardingAgents.find((agent) => agent.id === defaultAgentId && agent.canExecute)
-      ?? onboardingAgents.find((agent) => agent.canExecute);
+    const fallback =
+      onboardingAgents.find(
+        (agent) => agent.id === defaultAgentId && agent.canExecute,
+      ) ?? onboardingAgents.find((agent) => agent.canExecute);
     if (!fallback) return false;
     openAgentChat(fallback.id);
     await tick();
@@ -3202,8 +4564,17 @@
   }
 
   $: void applyMiniAppComposerInsertion($miniAppComposerInsertion);
-  async function applyMiniAppComposerInsertion(request: import("./lib/projects/composerBridge").MiniAppComposerInsertion | null): Promise<void> {
-    if (!request || request.scope !== "session" || request.id === appliedMiniAppInsertionId) return;
+  async function applyMiniAppComposerInsertion(
+    request:
+      | import("./lib/projects/composerBridge").MiniAppComposerInsertion
+      | null,
+  ): Promise<void> {
+    if (
+      !request ||
+      request.scope !== "session" ||
+      request.id === appliedMiniAppInsertionId
+    )
+      return;
     appliedMiniAppInsertionId = request.id;
     if (viewMode === "external") {
       showMiniAppFeedback(copy.miniAppComposerReadOnly);
@@ -3228,7 +4599,11 @@
    * selectors the Runtime accepts, so the pane hands over the first alias and
    * the composer receives `/alias ` exactly as if the owner had typed it.
    */
-  async function trySkillInChat(skill: { id: string; name: string; aliases: string[] }): Promise<void> {
+  async function trySkillInChat(skill: {
+    id: string;
+    name: string;
+    aliases: string[];
+  }): Promise<void> {
     if (viewMode === "external") {
       showMiniAppFeedback(copy.miniAppComposerReadOnly);
       return;
@@ -3250,14 +4625,27 @@
 
   $: applyMiniAppComposerAttachment($miniAppComposerAttachment);
   async function applyMiniAppComposerAttachment(
-    request: import("./lib/projects/composerBridge").MiniAppComposerAttachment | null
+    request:
+      | import("./lib/projects/composerBridge").MiniAppComposerAttachment
+      | null,
   ): Promise<void> {
-    if (!request || request.scope !== "session" || request.id === appliedMiniAppAttachmentId) return;
+    if (
+      !request ||
+      request.scope !== "session" ||
+      request.id === appliedMiniAppAttachmentId
+    )
+      return;
     // Claimed before the await so a second store tick during the fetch cannot
     // start the same attachment again (pitfall #3).
     appliedMiniAppAttachmentId = request.id;
-    if (viewMode === "external") { showMiniAppFeedback(copy.miniAppComposerReadOnly); return; }
-    if (editingMessageId) { showMiniAppFeedback(copy.miniAppComposerEditing); return; }
+    if (viewMode === "external") {
+      showMiniAppFeedback(copy.miniAppComposerReadOnly);
+      return;
+    }
+    if (editingMessageId) {
+      showMiniAppFeedback(copy.miniAppComposerEditing);
+      return;
+    }
     if (!connectedEndpoint) return;
     try {
       const file = await fetchDesktopMiniAppAttachment(
@@ -3266,32 +4654,44 @@
         // Reuse the shared classifier rather than a local guess: an empty or
         // wrong MIME is exactly what made uploaded screenshots stop being
         // treated as images (pitfall #26e).
-        mimeFromFilename(request.name) ?? "application/octet-stream"
+        mimeFromFilename(request.name) ?? "application/octet-stream",
       );
       workspacePane = "chat";
       pendingFiles = [...pendingFiles, file];
-      showMiniAppFeedback(copy.miniAppComposerAttached.replace("{name}", file.name));
+      showMiniAppFeedback(
+        copy.miniAppComposerAttached.replace("{name}", file.name),
+      );
     } catch (cause) {
       // Never silent: "the button did nothing" is the worst failure shape.
-      showMiniAppFeedback(copy.miniAppComposerAttachFailed.replace(
-        "{reason}",
-        cause instanceof Error ? cause.message : String(cause)
-      ));
+      showMiniAppFeedback(
+        copy.miniAppComposerAttachFailed.replace(
+          "{reason}",
+          cause instanceof Error ? cause.message : String(cause),
+        ),
+      );
     }
   }
 
   $: applyMiniAppSessionOpen($miniAppSessionOpenRequest);
   function applyMiniAppSessionOpen(
-    request: import("./lib/projects/composerBridge").MiniAppSessionOpen | null
+    request: import("./lib/projects/composerBridge").MiniAppSessionOpen | null,
   ): void {
-    if (!request || request.scope !== "session" || request.id === appliedMiniAppSessionOpenId) return;
+    if (
+      !request ||
+      request.scope !== "session" ||
+      request.id === appliedMiniAppSessionOpenId
+    )
+      return;
     appliedMiniAppSessionOpenId = request.id;
     const match = Object.values(channelItems)
       .flat()
       .find((item) => item.sessionId === request.sessionId);
     // An App may hold a session id that has since been deleted; say so rather
     // than leaving the click looking ignored.
-    if (!match) { showMiniAppFeedback(copy.miniAppSessionNotFound); return; }
+    if (!match) {
+      showMiniAppFeedback(copy.miniAppSessionNotFound);
+      return;
+    }
     openSession(match);
   }
 
@@ -3321,7 +4721,7 @@
   let appliedArtifactPathId = 0;
   $: applyArtifactPathOpen($artifactPathOpenRequest);
   function applyArtifactPathOpen(
-    request: import("./lib/projects/composerBridge").ArtifactPathOpen | null
+    request: import("./lib/projects/composerBridge").ArtifactPathOpen | null,
   ): void {
     if (!request || request.id === appliedArtifactPathId) return;
     appliedArtifactPathId = request.id;
@@ -3331,7 +4731,7 @@
   let appliedArtifactTurnId = 0;
   $: applyArtifactTurnOpen($artifactTurnOpenRequest);
   function applyArtifactTurnOpen(
-    request: import("./lib/projects/composerBridge").ArtifactTurnOpen | null
+    request: import("./lib/projects/composerBridge").ArtifactTurnOpen | null,
   ): void {
     if (!request || request.id === appliedArtifactTurnId) return;
     appliedArtifactTurnId = request.id;
@@ -3340,7 +4740,7 @@
 
   $: applyMiniAppDeepLinkOpen($miniAppDeepLinkOpenRequest);
   function applyMiniAppDeepLinkOpen(
-    request: import("./lib/projects/composerBridge").MiniAppDeepLinkOpen | null
+    request: import("./lib/projects/composerBridge").MiniAppDeepLinkOpen | null,
   ): void {
     if (!request || request.id === appliedMiniAppDeepLinkId) return;
     appliedMiniAppDeepLinkId = request.id;
@@ -3362,12 +4762,21 @@
     editingSessionId = "";
   }
 
-  async function forkFromAssistantMessage(message: TranscriptMessage): Promise<void> {
+  async function forkFromAssistantMessage(
+    message: TranscriptMessage,
+  ): Promise<void> {
     const fromMessageId = message.id;
     const sourceSessionId = activeSessionId;
-    if (message.role !== "assistant" || !fromMessageId || fromMessageId.startsWith("pending-") || !sourceSessionId) return;
+    if (
+      message.role !== "assistant" ||
+      !fromMessageId ||
+      fromMessageId.startsWith("pending-") ||
+      !sourceSessionId
+    )
+      return;
     if (!connectedEndpoint || !activeProfileId || sending || forkingMessageId) {
-      if (!connectedEndpoint || !activeProfileId) error = copy.forkMessageUnavailable;
+      if (!connectedEndpoint || !activeProfileId)
+        error = copy.forkMessageUnavailable;
       return;
     }
     forkingMessageId = fromMessageId;
@@ -3377,7 +4786,7 @@
         activeProfileId,
         sourceSessionId,
         fromMessageId,
-        globalThis.crypto.randomUUID()
+        globalThis.crypto.randomUUID(),
       );
       const inheritedModel = sessionModelOverrides.get(sourceSessionId);
       if (inheritedModel) sessionModelOverrides.set(child.id, inheritedModel);
@@ -3412,18 +4821,23 @@
     if (option.id === "approve_session") return copy.approveSession;
     // "一直允许" covers every session of one bot or one project — say which,
     // otherwise it reads as an install-wide grant, which it is not.
-    if (option.id === "approve_persistent") return persistentApprovalLabel(pendingApproval?.owner);
+    if (option.id === "approve_persistent")
+      return persistentApprovalLabel(pendingApproval?.owner);
     if (option.id === "reject") return copy.reject;
     return option.label;
   }
 
-  function persistentApprovalLabel(owner: DesktopApprovalOwner | undefined): string {
+  function persistentApprovalLabel(
+    owner: DesktopApprovalOwner | undefined,
+  ): string {
     if (owner?.kind === "project") return copy.approvePersistentProject;
     if (owner?.kind === "bot") return copy.approvePersistentBot;
     return copy.approvePersistent;
   }
 
-  async function resolveApproval(decision: DesktopApprovalDecision): Promise<void> {
+  async function resolveApproval(
+    decision: DesktopApprovalDecision,
+  ): Promise<void> {
     await chatStore.resolveApproval(decision);
   }
 
@@ -3437,7 +4851,10 @@
   async function hydrateSessionModel(sessionId: string): Promise<void> {
     if (!connectedEndpoint || !sessionId) return;
     const seq = ++modelHydrationSeq;
-    if (sessionModelOverrides.has(sessionId) || hydratedModelSessions.has(sessionId)) {
+    if (
+      sessionModelOverrides.has(sessionId) ||
+      hydratedModelSessions.has(sessionId)
+    ) {
       modelHydratingSessionId = "";
       return;
     }
@@ -3458,18 +4875,31 @@
     }
   }
 
-  async function hydrateSessionThinking(sessionId: string, profileId: string): Promise<void> {
-    if (!connectedEndpoint || !sessionId || hydratedThinkingSessions.has(sessionId)) return;
+  async function hydrateSessionThinking(
+    sessionId: string,
+    profileId: string,
+  ): Promise<void> {
+    if (
+      !connectedEndpoint ||
+      !sessionId ||
+      hydratedThinkingSessions.has(sessionId)
+    )
+      return;
     const seq = ++thinkingHydrationSeq;
     try {
-      const selection = await loadDesktopSessionThinking(connectedEndpoint, profileId, sessionId);
+      const selection = await loadDesktopSessionThinking(
+        connectedEndpoint,
+        profileId,
+        sessionId,
+      );
       if (seq !== thinkingHydrationSeq || activeSessionId !== sessionId) return;
       hydratedThinkingSessions.add(sessionId);
       if (selection) {
         sessionThinkingOverrides.set(sessionId, selection);
         thinkingLevel = selection;
       } else if (!sessionThinkingOverrides.has(sessionId)) {
-        thinkingLevel = globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
+        thinkingLevel =
+          globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel;
       }
     } catch {
       // Keep the local selection if the optional persistence request is unavailable.
@@ -3488,7 +4918,12 @@
       if (draftMode || !sessionId) {
         activeModelKey = value;
         draftModelKey = value;
-        chatStore.draftStore.update(draftAgentId ? agentDraftKey(draftAgentId) : composerDraftKey("", draftProfileId), { modelKey: value });
+        chatStore.draftStore.update(
+          draftAgentId
+            ? agentDraftKey(draftAgentId)
+            : composerDraftKey("", draftProfileId),
+          { modelKey: value },
+        );
       } else {
         await saveDesktopSessionModel(connectedEndpoint, sessionId, value);
         sessionModelOverrides.set(sessionId, value);
@@ -3507,10 +4942,20 @@
     }
   }
 
-  async function changeThinking(value: DesktopThinkingSelection): Promise<void> {
-    const next = value === "auto" ? "auto" : clampDesktopThinkingLevel(value, thinkingLevelOptions);
+  async function changeThinking(
+    value: DesktopThinkingSelection,
+  ): Promise<void> {
+    const next =
+      value === "auto"
+        ? "auto"
+        : clampDesktopThinkingLevel(value, thinkingLevelOptions);
     thinkingLevel = next;
-    if (draftMode || !activeSessionId || !connectedEndpoint || !activeProfileId) {
+    if (
+      draftMode ||
+      !activeSessionId ||
+      !connectedEndpoint ||
+      !activeProfileId
+    ) {
       draftThinkingTouched = true;
       return;
     }
@@ -3518,7 +4963,12 @@
     sessionThinkingOverrides.set(activeSessionId, next);
     hydratedThinkingSessions.add(activeSessionId);
     try {
-      await saveDesktopSessionThinking(connectedEndpoint, activeProfileId, activeSessionId, next);
+      await saveDesktopSessionThinking(
+        connectedEndpoint,
+        activeProfileId,
+        activeSessionId,
+        next,
+      );
     } catch (cause) {
       if (previous) sessionThinkingOverrides.set(activeSessionId, previous);
       else sessionThinkingOverrides.delete(activeSessionId);
@@ -3562,7 +5012,10 @@
       searchReturnFocus = null;
       return;
     }
-    searchReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    searchReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     searchOpen = true;
   }
 
@@ -3610,7 +5063,9 @@
     }
   }
 
-  commandSystem = new CommandSystem(new CallbackCommandHostAdapter(executeCommand));
+  commandSystem = new CommandSystem(
+    new CallbackCommandHostAdapter(executeCommand),
+  );
   // Deps must be referenced directly in the reactive statement (a no-arg
   // helper call would run once and go stale — tray items stay disabled).
   $: commandContext = {
@@ -3619,8 +5074,8 @@
     workspace: projectPaneActive ? "project" : workspacePane,
     service: {
       restartAvailable: serviceOwnership === "managed",
-      webAvailable: Boolean(serviceEndpoint)
-    }
+      webAvailable: Boolean(serviceEndpoint),
+    },
   };
   $: commandSnapshot = commandSystem.snapshot(commandContext);
   $: commandResults = rankCommands(commandSnapshot, commandQuery, commandUsage);
@@ -3632,7 +5087,11 @@
   async function runSystemCommand(id: string): Promise<void> {
     const result = await commandSystem.execute(id, commandContext);
     if (result.status === "executed") {
-      commandUsage = recordCommandSuccess(commandUsage, result.id, commandSnapshot);
+      commandUsage = recordCommandSuccess(
+        commandUsage,
+        result.id,
+        commandSnapshot,
+      );
       saveCommandUsage(localStorage, commandUsage);
     }
     onCommandResult(result);
@@ -3642,9 +5101,15 @@
     commandUsage = loadCommandUsage(localStorage, commandSnapshot);
     // The shell writes `data-appearance` on <html>; watching it (plus the OS
     // query for "system") keeps an open Mini App panel in step with a switch.
-    themeObserver = new MutationObserver(() => (resolvedTheme = readResolvedTheme()));
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-resolved-appearance"] });
-    systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
+    themeObserver = new MutationObserver(
+      () => (resolvedTheme = readResolvedTheme()),
+    );
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-resolved-appearance"],
+    });
+    systemThemeQuery =
+      window.matchMedia?.("(prefers-color-scheme: dark)") ?? null;
     onSystemThemeChange = () => (resolvedTheme = readResolvedTheme());
     systemThemeQuery?.addEventListener("change", onSystemThemeChange);
     if (!isTauriRuntime()) return;
@@ -3668,7 +5133,10 @@
       commandReturnFocus?.focus();
       return;
     }
-    commandReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    commandReturnFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     commandQuery = "";
     commandIndex = 0;
     commandOpen = true;
@@ -3688,7 +5156,8 @@
 
   function selectCommand(delta: number): void {
     if (commandResults.length === 0) return;
-    commandIndex = (commandIndex + delta + commandResults.length) % commandResults.length;
+    commandIndex =
+      (commandIndex + delta + commandResults.length) % commandResults.length;
   }
 
   function onCommandInput(event: Event): void {
@@ -3724,10 +5193,18 @@
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
       event.preventDefault();
       toggleSidebarCollapse();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    } else if (
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "k"
+    ) {
       event.preventDefault();
       void toggleCommandPalette();
-    } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f" && workspacePane === "chat" && !projectPaneActive) {
+    } else if (
+      (event.metaKey || event.ctrlKey) &&
+      event.key.toLowerCase() === "f" &&
+      workspacePane === "chat" &&
+      !projectPaneActive
+    ) {
       event.preventDefault();
       if (!searchOpen) void toggleSearch();
     } else if ((event.metaKey || event.ctrlKey) && event.key === ",") {
@@ -3752,14 +5229,18 @@
 
   function gotoMatch(delta: number): void {
     if (searchMatchIds.length === 0) return;
-    searchIndex = (boundedSearchIndex + delta + searchMatchIds.length) % searchMatchIds.length;
+    searchIndex =
+      (boundedSearchIndex + delta + searchMatchIds.length) %
+      searchMatchIds.length;
     void scrollToMatch();
   }
 
   async function scrollToMatch(): Promise<void> {
     await tick();
     if (!activeMatchId) return;
-    const target = messagesElement?.querySelector(`[data-message-id="${CSS.escape(activeMatchId)}"]`);
+    const target = messagesElement?.querySelector(
+      `[data-message-id="${CSS.escape(activeMatchId)}"]`,
+    );
     target?.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
@@ -3792,7 +5273,7 @@
       openPath: path,
       openPathNonce: ++openPathSeq,
       // HTML is useful as the rendered product; other writes open their diff.
-      openPathAsDiff: shouldOpenArtifactAsDiff(path, mutates)
+      openPathAsDiff: shouldOpenArtifactAsDiff(path, mutates),
     };
   }
 
@@ -3809,21 +5290,69 @@
       kind: "artifact",
       turnFiles: files,
       turnFilesNonce: ++turnFilesSeq,
-      turnFileKey: selectedKey
+      turnFileKey: selectedKey,
     };
   }
 
-  async function openDurableExecutionInspector(executionId: string): Promise<void> {
-    const source = durableExecutions.find((item) => item.execution.id === executionId)?.execution;
+  let lastAutoPreviewedTurnId = "";
+  let previousSendingForAutoPreview = false;
+
+  $: observeAutoPreview(sending, messages, fileByLocal);
+
+  function observeAutoPreview(
+    isSending: boolean,
+    currentMessages: TranscriptMessage[],
+    filesMap: Map<string, DesktopSessionFile>,
+  ): void {
+    const wasSending = previousSendingForAutoPreview;
+    previousSendingForAutoPreview = isSending;
+
+    if (!wasSending || isSending) return;
+    if (viewMode === "external") return;
+
+    try {
+      if (localStorage.getItem("molibot-desktop-file-follow") === "0") return;
+    } catch {
+      // ignore
+    }
+
+    if (!currentMessages || !currentMessages.length) return;
+    const lastMsg = currentMessages[currentMessages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant" || !lastMsg.id) return;
+    if (lastMsg.id === lastAutoPreviewedTurnId) return;
+
+    const turnFiles = collectTurnFiles(lastMsg, filesMap);
+    if (!turnFiles.length) return;
+
+    const renderable = turnFiles.filter((file) => isRenderableArtifact(file.name));
+    if (!renderable.length) return;
+
+    const targetFile = renderable[renderable.length - 1];
+    lastAutoPreviewedTurnId = lastMsg.id;
+
+    openTurnFiles(turnFiles, targetFile.key);
+  }
+
+  async function openDurableExecutionInspector(
+    executionId: string,
+  ): Promise<void> {
+    const source = durableExecutions.find(
+      (item) => item.execution.id === executionId,
+    )?.execution;
     if (source?.sourceProjectId && source.sourceUiSessionId) {
       projectsStore.endpoint = connectedEndpoint;
       await selectProject(source.sourceProjectId);
-      await selectProjectSession(source.sourceUiSessionId, source.sourceProjectId);
+      await selectProjectSession(
+        source.sourceUiSessionId,
+        source.sourceProjectId,
+      );
       projectPaneActive = true;
       viewMode = "local";
       activeProjectSessionId = source.sourceUiSessionId;
     } else if (source?.sourceUiSessionId) {
-      const conversation = Object.values(channelItems).flat().find((item) => item.sessionId === source.sourceUiSessionId);
+      const conversation = Object.values(channelItems)
+        .flat()
+        .find((item) => item.sessionId === source.sourceUiSessionId);
       if (conversation) openSession(conversation);
     }
     sessionPlanInspector.set(null);
@@ -3852,19 +5381,22 @@
       kind: "artifact",
       miniApp: appId,
       miniAppNonce: ++miniAppSeq,
-      miniAppDeepLinkPath: deepLinkPath
+      miniAppDeepLinkPath: deepLinkPath,
     };
   }
 
   function inspectorMotionDisabled(): boolean {
-    return document.documentElement.dataset.performance === "low"
-      || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return (
+      document.documentElement.dataset.performance === "low" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
   }
 
   function clearInspector(): void {
     sessionPlanInspector.set(null);
     inspector = null;
     inspectorClosing = false;
+    inspectorMaximized = false;
   }
 
   function closeInspector(immediate = false): void {
@@ -3877,16 +5409,22 @@
   }
 
   function finishInspectorClose(event: AnimationEvent): void {
-    if (!inspectorClosing || event.animationName !== "motion-inspector-out") return;
+    if (!inspectorClosing || event.animationName !== "motion-inspector-out")
+      return;
     clearInspector();
   }
 
-  function openWorkspacePane(pane: Exclude<ChatWorkspacePaneName, "chat">, planId = ""): void {
+  function openWorkspacePane(
+    pane: Exclude<ChatWorkspacePaneName, "chat">,
+    planId = "",
+  ): void {
     requestedPlanId = pane === "plans" ? planId : "";
     closeAgentSettings();
     agentFilesActive = false;
+    agentNotificationsActive = false;
     agentHistoryActive = false;
-    agentNavigation = { ...agentNavigation, page: pane, sessionId: "" }; persistAgentNavigation();
+    agentNavigation = { ...agentNavigation, page: pane, sessionId: "" };
+    persistAgentNavigation();
     roomPaneActive = false;
     collapsedFlyout = null;
     const next = openWorkspacePaneState(pane);
@@ -3895,7 +5433,12 @@
     searchOpen = next.searchOpen;
     // Leaving Chat closes whichever Inspector was open, not just Files.
     if (!next.filePanelOpen) clearInspector();
-    if (!connectionReady && !loading && serviceState === "ready" && serviceEndpoint) {
+    if (
+      !connectionReady &&
+      !loading &&
+      serviceState === "ready" &&
+      serviceEndpoint
+    ) {
       void connect(serviceEndpoint);
     }
     if (pane === "automations") automationUnreadScheduler?.wake("manual");
@@ -3904,7 +5447,10 @@
   function formatTime(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
-    return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
   }
 
   function formatSessionTime(value: string): string {
@@ -3917,24 +5463,36 @@
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "";
     const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfToday = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    ).getTime();
     const startOfYesterday = startOfToday - 86400000;
     if (date.getTime() >= startOfToday) {
-      return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date);
+      return new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
     }
     if (date.getTime() >= startOfYesterday) return copy.groupYesterday;
     const sameYear = date.getFullYear() === now.getFullYear();
-    return new Intl.DateTimeFormat(undefined, sameYear
-      ? { month: "numeric", day: "numeric" }
-      : { year: "numeric", month: "numeric", day: "numeric" }).format(date);
+    return new Intl.DateTimeFormat(
+      undefined,
+      sameYear
+        ? { month: "numeric", day: "numeric" }
+        : { year: "numeric", month: "numeric", day: "numeric" },
+    ).format(date);
   }
 
   function startReconnectPoll(): void {
     reconnectScheduler?.dispose();
     reconnectScheduler = new ActivityScheduler(
       reconnectActivityPolicy,
-      async () => { await chatStore.reconnect(); },
-      documentActivityVisibility
+      async () => {
+        await chatStore.reconnect();
+      },
+      documentActivityVisibility,
     );
     reconnectScheduler.start();
   }
@@ -3967,11 +5525,16 @@
 
   function startRecordingTimer(): void {
     recordingSeconds = 0;
-    recordingTimer = setInterval(() => { recordingSeconds += 1; }, 1000);
+    recordingTimer = setInterval(() => {
+      recordingSeconds += 1;
+    }, 1000);
   }
 
   function stopRecordingTimer(): void {
-    if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
+    if (recordingTimer) {
+      clearInterval(recordingTimer);
+      recordingTimer = null;
+    }
   }
 
   function teardownRecordingStream(): void {
@@ -3997,7 +5560,10 @@
 
   async function toggleRecording(): Promise<void> {
     if (recordingBusy) return;
-    if (recording) { void finishRecording(true); return; }
+    if (recording) {
+      void finishRecording(true);
+      return;
+    }
     if ((!activeSessionId && !roomPaneActive) || !modelReady) return;
     recordingError = "";
 
@@ -4020,7 +5586,9 @@
       return;
     }
     try {
-      recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
     } catch (cause) {
       recordingError = cause instanceof Error ? cause.message : String(cause);
       return;
@@ -4036,7 +5604,9 @@
     mediaRecorder.ondataavailable = (event) => {
       if (event.data.size > 0) recordingChunks.push(event.data);
     };
-    mediaRecorder.onstop = () => { teardownRecordingStream(); };
+    mediaRecorder.onstop = () => {
+      teardownRecordingStream();
+    };
     mediaRecorder.start();
     recording = true;
     startRecordingTimer();
@@ -4057,11 +5627,19 @@
         const bytes = base64ToBytes(result.audioBase64);
         if (bytes.length === 0) return;
         const mimeType = result.mimeType || "audio/wav";
-        const file = new File([bytes.buffer as ArrayBuffer], `recording-${Date.now()}.wav`, { type: mimeType });
+        const file = new File(
+          [bytes.buffer as ArrayBuffer],
+          `recording-${Date.now()}.wav`,
+          { type: mimeType },
+        );
         receiveRecording([file]);
       } catch (cause) {
         recordingError = cause instanceof Error ? cause.message : String(cause);
-        try { await invoke("cancel_recording"); } catch { /* ignore */ }
+        try {
+          await invoke("cancel_recording");
+        } catch {
+          /* ignore */
+        }
       } finally {
         recording = false;
         recordingBusy = false;
@@ -4069,22 +5647,41 @@
       return;
     }
 
-    if (!mediaRecorder) { recording = false; return; }
+    if (!mediaRecorder) {
+      recording = false;
+      return;
+    }
     stopRecordingTimer();
     const recorder = mediaRecorder;
     const chunks = recordingChunks;
     const stopped = new Promise<void>((resolve) => {
-      if (recorder.state === "inactive") { resolve(); return; }
-      recorder.onstop = () => { teardownRecordingStream(); resolve(); };
+      if (recorder.state === "inactive") {
+        resolve();
+        return;
+      }
+      recorder.onstop = () => {
+        teardownRecordingStream();
+        resolve();
+      };
     });
-    try { recorder.stop(); } catch { /* ignore */ }
+    try {
+      recorder.stop();
+    } catch {
+      /* ignore */
+    }
     await stopped;
     recording = false;
     if (!send) return;
     if (chunks.length === 0) return;
     const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-    const ext = (blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm");
-    const file = new File([blob], `recording-${Date.now()}.${ext}`, { type: blob.type });
+    const ext = blob.type.includes("mp4")
+      ? "m4a"
+      : blob.type.includes("ogg")
+        ? "ogg"
+        : "webm";
+    const file = new File([blob], `recording-${Date.now()}.${ext}`, {
+      type: blob.type,
+    });
     receiveRecording([file]);
   }
 
@@ -4095,7 +5692,8 @@
     nativeCommandUnlisten = null;
     themeObserver?.disconnect();
     themeObserver = null;
-    if (onSystemThemeChange) systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
+    if (onSystemThemeChange)
+      systemThemeQuery?.removeEventListener("change", onSystemThemeChange);
     onSystemThemeChange = null;
     systemThemeQuery = null;
     connectionGeneration += 1;
@@ -4109,7 +5707,9 @@
     projectChatStore.disposeAll();
     stopRecordingTimer();
     if (recording && isTauriRuntime()) {
-      void invoke("cancel_recording").catch(() => { /* ignore */ });
+      void invoke("cancel_recording").catch(() => {
+        /* ignore */
+      });
     }
     teardownRecordingStream();
     for (const url of pendingAudioTracked.values()) URL.revokeObjectURL(url);
@@ -4121,92 +5721,118 @@
 </script>
 
 {#snippet conversationComposer()}
-      <ChatInputArea
-        bind:this={chatInputArea}
-        bind:value={messageInput}
-        floating={!draftMode}
-        thinkingLevel={clampedThinkingLevel}
-        autoAvailable={globalAutoAvailable}
-        {thinkingLevelOptions}
-        endpoint={connectedEndpoint}
-        {copy}
-        {locale}
-        contextUsage={composerContextUsage}
-        {sessionUsage}
-        {sending}
-        {streamingText}
-        {streamingThinking}
-        {activity}
-        activities={activityEntries}
-        disabled={!modelReady || !agentCanExecute || (!draftMode && !activeSessionId) || modelSelectionHydrating}
-        canSend={agentCanExecute && Boolean(messageInput.trim() || pendingFiles.length > 0) && (draftMode ? Boolean(draftProfileId) : true)}
-        placeholder={sending ? copy.queueHint : isDefaultAgentHome ? copy.handoverNewTask : copy.enterHint}
-        {modelReady}
-        {modelOptions}
-        {activeModelKey}
-        {activeModelLabel}
-        activeModelTitle={activeModelFullLabel}
-        thinkingLevelLabel={thinkingLabel}
-        changingModel={changingModel || modelSelectionHydrating}
-        error={error || chatError}
-        {recordingError}
-        {queuedMessages}
-        {pendingFiles}
-        {pendingAudioUrls}
-        {recording}
-        {recordingSeconds}
-        showSettingsAction={true}
-        fileToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
-        recordingToolDisabled={(!draftMode && !activeSessionId) || sending || !modelReady || modelSelectionHydrating}
-        inferAttachmentKind={inferAttachmentKind}
-        onSend={sendMessage}
-        onStop={stopRun}
-        onKeydown={handleComposerKeydown}
-        onPasteFiles={addPastedFiles}
-        onPickFiles={() => fileInput?.click()}
-        onToggleRecording={toggleRecording}
-        onFinishRecording={(send) => void finishRecording(send)}
-        onRemoveQueued={removeQueued}
-        onSteerQueued={(index) => void steerQueued(index)}
-        onRemoveFile={removePendingFile}
-        onDismissError={() => { error = ""; chatStore.clearActiveError?.(); }}
-        onDismissRecordingError={() => (recordingError = "")}
-        onOpenSettings={() => openSettings()}
-        onChangeModel={changeModel}
-        onChangeThinking={changeThinking}
-        {permissionMode}
-        {permissionModeOptions}
-        permissionModeSource={permissionModeSource}
-        onChangePermissionMode={changePermissionMode}
-      >
-        <svelte:fragment slot="mention">
-          {#if !draftMode && onboardingAgents.length > 0 && activeSessionId}
-            <!-- Sessions keep a read-only bot badge; agent switching lives in the
+  <ChatInputArea
+    bind:this={chatInputArea}
+    bind:value={messageInput}
+    floating={!draftMode}
+    thinkingLevel={clampedThinkingLevel}
+    autoAvailable={globalAutoAvailable}
+    {thinkingLevelOptions}
+    endpoint={connectedEndpoint}
+    {copy}
+    {locale}
+    contextUsage={composerContextUsage}
+    {sessionUsage}
+    {sending}
+    {streamingText}
+    {streamingThinking}
+    {activity}
+    activities={activityEntries}
+    disabled={!modelReady ||
+      !agentCanExecute ||
+      (!draftMode && !activeSessionId) ||
+      modelSelectionHydrating}
+    canSend={agentCanExecute &&
+      Boolean(messageInput.trim() || pendingFiles.length > 0) &&
+      (draftMode ? Boolean(draftProfileId) : true)}
+    placeholder={sending
+      ? copy.queueHint
+      : isDefaultAgentHome
+        ? copy.handoverNewTask
+        : copy.enterHint}
+    {modelReady}
+    {modelOptions}
+    {activeModelKey}
+    {activeModelLabel}
+    activeModelTitle={activeModelFullLabel}
+    thinkingLevelLabel={thinkingLabel}
+    changingModel={changingModel || modelSelectionHydrating}
+    error={error || chatError}
+    {recordingError}
+    {queuedMessages}
+    {pendingFiles}
+    {pendingAudioUrls}
+    {recording}
+    {recordingSeconds}
+    showSettingsAction={true}
+    fileToolDisabled={(!draftMode && !activeSessionId) ||
+      sending ||
+      !modelReady ||
+      modelSelectionHydrating}
+    recordingToolDisabled={(!draftMode && !activeSessionId) ||
+      sending ||
+      !modelReady ||
+      modelSelectionHydrating}
+    {inferAttachmentKind}
+    onSend={sendMessage}
+    onStop={stopRun}
+    onKeydown={handleComposerKeydown}
+    onPasteFiles={addPastedFiles}
+    onPickFiles={() => fileInput?.click()}
+    onToggleRecording={toggleRecording}
+    onFinishRecording={(send) => void finishRecording(send)}
+    onRemoveQueued={removeQueued}
+    onSteerQueued={(index) => void steerQueued(index)}
+    onRemoveFile={removePendingFile}
+    onDismissError={() => {
+      error = "";
+      chatStore.clearActiveError?.();
+    }}
+    onDismissRecordingError={() => (recordingError = "")}
+    onOpenSettings={() => openSettings()}
+    onChangeModel={changeModel}
+    onChangeThinking={changeThinking}
+    {permissionMode}
+    {permissionModeOptions}
+    {permissionModeSource}
+    onChangePermissionMode={changePermissionMode}
+  >
+    <svelte:fragment slot="mention">
+      {#if !draftMode && onboardingAgents.length > 0 && activeSessionId}
+        <!-- Sessions keep a read-only bot badge; agent switching lives in the
                sidebar, so the composer no longer duplicates it on agent homes. -->
-            <BotMention
-              mode="locked"
-              bots={botOptions}
-              selectedId={selectedAgentId}
-              onSelect={(id) => openAgentChat(id)}
-              labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
-            />
-          {/if}
-        </svelte:fragment>
-        {#if editingMessageId}
-          <div class="composer-edit-banner" role="status">
-            <Pen size={16} aria-hidden="true" />
-            <span>{copy.editingMessage}</span>
-            <button type="button" aria-label={copy.cancelEdit} title={copy.cancelEdit} onclick={cancelEditMessage}>
-              <X size={16} aria-hidden="true" />{copy.cancelEdit}
-            </button>
-          </div>
-        {/if}
-      </ChatInputArea>
+        <BotMention
+          mode="locked"
+          bots={botOptions}
+          selectedId={selectedAgentId}
+          onSelect={(id) => openAgentChat(id)}
+          labels={{ chooseHint: copy.chooseBot, lockedHint: copy.botLocked }}
+        />
+      {/if}
+    </svelte:fragment>
+    {#if editingMessageId}
+      <div class="composer-edit-banner" role="status">
+        <Pen size={16} aria-hidden="true" />
+        <span>{copy.editingMessage}</span>
+        <button
+          type="button"
+          aria-label={copy.cancelEdit}
+          title={copy.cancelEdit}
+          onclick={cancelEditMessage}
+        >
+          <X size={16} aria-hidden="true" />{copy.cancelEdit}
+        </button>
+      </div>
+    {/if}
+  </ChatInputArea>
 {/snippet}
 
-
 <svelte:document onvisibilitychange={onHandoverVisibilityChange} />
-<svelte:window onkeydown={onChatShortcut} bind:innerWidth={viewportWidth} onpagehide={onHandoverPageHide} />
+<svelte:window
+  onkeydown={onChatShortcut}
+  bind:innerWidth={viewportWidth}
+  onpagehide={onHandoverPageHide}
+/>
 
 <main
   class="chat-layout"
@@ -4220,7 +5846,12 @@
   style={`--sidebar-w:${effectiveSidebarWidth}px; --files-w:${effectiveFilesWidth}px`}
 >
   {#if homeNarrow && homeSidebarOpen}
-    <Button variant="icon" class="home-nav-scrim" ariaLabel={copy.collapseSidebar} onclick={closeHomeSidebar}><span aria-hidden="true"></span></Button>
+    <Button
+      variant="icon"
+      class="home-nav-scrim"
+      ariaLabel={copy.collapseSidebar}
+      onclick={closeHomeSidebar}><span aria-hidden="true"></span></Button
+    >
   {/if}
   <div class="window-material" aria-hidden="true"></div>
   <WindowDragMask />
@@ -4239,45 +5870,125 @@
          theme families that dress `.sidebar-titlebar-btn` keep working with the
          buttons living outside the sidebar element. Collapsing swaps the second
          slot's action but never moves the buttons. -->
-    <div class="titlebar-cluster" data-theme-region="sidebar" data-tauri-drag-region>
+    <div
+      class="titlebar-cluster"
+      data-theme-region="sidebar"
+      data-tauri-drag-region
+    >
       <button
         type="button"
         class="sidebar-titlebar-btn"
         bind:this={homeSidebarToggle}
-        aria-label={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed) ? copy.expandSidebar : copy.collapseSidebar}
-        title={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed) ? copy.expandSidebar : copy.collapseSidebar}
+        aria-label={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed)
+          ? copy.expandSidebar
+          : copy.collapseSidebar}
+        title={(homeNarrow ? !homeSidebarOpen : sidebarCollapsed)
+          ? copy.expandSidebar
+          : copy.collapseSidebar}
         onclick={toggleSidebarCollapse}
       >
         <Sidebar size={16} aria-hidden="true" />
       </button>
       {#if sidebarCollapsed}
-        <button type="button" class="sidebar-titlebar-btn" aria-label={copy.newChat} title={copy.newChat} onclick={newChatFromCollapsedSidebar}>
+        <button
+          type="button"
+          class="sidebar-titlebar-btn"
+          aria-label={copy.newChat}
+          title={copy.newChat}
+          onclick={newChatFromCollapsedSidebar}
+        >
           <Pen size={16} aria-hidden="true" />
         </button>
       {:else}
-        <button type="button" class="sidebar-titlebar-btn" aria-label={copy.searchConversations} title={copy.searchConversations} onclick={openBrowser}>
+        <button
+          type="button"
+          class="sidebar-titlebar-btn"
+          aria-label={copy.searchConversations}
+          title={copy.searchConversations}
+          onclick={openBrowser}
+        >
           <Search4 size={16} aria-hidden="true" />
         </button>
       {/if}
+      <button
+        type="button"
+        class="sidebar-titlebar-btn"
+        aria-label={unreadNotificationCount > 0
+          ? locale === "zh-CN"
+            ? `通知中心（${unreadNotificationCount} 条未读）`
+            : `Notifications (${unreadNotificationCount} unread)`
+          : locale === "zh-CN"
+            ? "通知中心"
+            : "Notifications"}
+        title={unreadNotificationCount > 0
+          ? locale === "zh-CN"
+            ? `通知中心（${unreadNotificationCount} 条未读）`
+            : `Notifications (${unreadNotificationCount} unread)`
+          : locale === "zh-CN"
+            ? "通知中心"
+            : "Notifications"}
+        aria-pressed={agentNotificationsActive}
+        disabled={startupPending}
+        onclick={toggleAgentNotifications}
+      >
+        <Bell size={16} aria-hidden="true" />
+        {#if unreadNotificationCount > 0}
+          <span
+            class="sidebar-titlebar-dot"
+            data-testid="notification-bell-dot"
+            aria-hidden="true"
+          ></span>
+        {/if}
+      </button>
     </div>
     <div class="window-header-page">
       {#if $windowHeader.title}
         <div class="chat-title-block" data-tauri-drag-region>
           <div class="chat-title-text" data-tauri-drag-region>
-            <div class="chat-title-name" data-tauri-drag-region title={$windowHeader.title}>{$windowHeader.title}</div>
+            <div
+              class="chat-title-name"
+              data-tauri-drag-region
+              title={$windowHeader.title}
+            >
+              {$windowHeader.title}
+            </div>
             {#if $windowHeader.subtitle}
-              <div class="chat-title-sub" data-tauri-drag-region title={$windowHeader.subtitle}>{$windowHeader.subtitle}</div>
+              <div
+                class="chat-title-sub"
+                data-tauri-drag-region
+                title={$windowHeader.subtitle}
+              >
+                {$windowHeader.subtitle}
+              </div>
             {/if}
           </div>
           {#if $windowHeader.agentLabel}
             {#if $windowHeader.onAgentClick}
-              <Button variant="text" class="chat-agent-label" title={locale === "zh-CN" ? `打开 ${$windowHeader.agentLabel} 首页` : `Open ${$windowHeader.agentLabel} home`} onclick={$windowHeader.onAgentClick}>{$windowHeader.agentLabel}</Button>
+              <Button
+                variant="text"
+                class="chat-agent-label"
+                title={locale === "zh-CN"
+                  ? `打开 ${$windowHeader.agentLabel} 首页`
+                  : `Open ${$windowHeader.agentLabel} home`}
+                onclick={$windowHeader.onAgentClick}
+                >{$windowHeader.agentLabel}</Button
+              >
             {:else}
-              <span class="chat-agent-label" data-tauri-drag-region title={$windowHeader.agentLabel}>{$windowHeader.agentLabel}</span>
+              <span
+                class="chat-agent-label"
+                data-tauri-drag-region
+                title={$windowHeader.agentLabel}
+                >{$windowHeader.agentLabel}</span
+              >
             {/if}
           {/if}
           {#if $windowHeader.sourceLabel}
-            <span class="chat-source-label" data-tauri-drag-region title={$windowHeader.sourceLabel}>{$windowHeader.sourceLabel}</span>
+            <span
+              class="chat-source-label"
+              data-tauri-drag-region
+              title={$windowHeader.sourceLabel}
+              >{$windowHeader.sourceLabel}</span
+            >
           {/if}
         </div>
       {/if}
@@ -4289,8 +6000,22 @@
     </div>
   </header>
   {#if commandOpen}
-    <div class="command-palette-layer" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeCommandPalette(); }}>
-      <div class="command-palette" role="dialog" aria-modal="false" aria-label={copy.commandPalette} tabindex="-1" bind:this={commandElement} onkeydown={onCommandKeydown}>
+    <div
+      class="command-palette-layer"
+      role="presentation"
+      onclick={(event) => {
+        if (event.target === event.currentTarget) closeCommandPalette();
+      }}
+    >
+      <div
+        class="command-palette"
+        role="dialog"
+        aria-modal="false"
+        aria-label={copy.commandPalette}
+        tabindex="-1"
+        bind:this={commandElement}
+        onkeydown={onCommandKeydown}
+      >
         <header><strong>{copy.commandPalette}</strong><kbd>⌘K</kbd></header>
         <input
           class="command-palette-input"
@@ -4301,7 +6026,12 @@
           aria-controls="command-palette-results"
           oninput={onCommandInput}
         />
-        <div id="command-palette-results" class="command-palette-results" role="listbox" aria-label={copy.commandPalette}>
+        <div
+          id="command-palette-results"
+          class="command-palette-results"
+          role="listbox"
+          aria-label={copy.commandPalette}
+        >
           {#if commandResults.length === 0}
             <p class="command-palette-empty">{copy.noMatches}</p>
           {:else}
@@ -4317,7 +6047,9 @@
               >
                 <span>{command.label}</span>
                 {#if command.shortcut}<kbd>{command.shortcut}</kbd>{/if}
-                {#if !command.enabled && command.disabledReason}<small>{command.disabledReason}</small>{/if}
+                {#if !command.enabled && command.disabledReason}<small
+                    >{command.disabledReason}</small
+                  >{/if}
               </button>
             {/each}
           {/if}
@@ -4326,7 +6058,30 @@
     </div>
   {/if}
   {#snippet agentConversationContent()}
-    <AgentNavigation attention={piAttention} onAttention={(sessionId,agentId) => void openHandoverSource({sessionId,agentId})} {hasUnassignedHistory} activities={agentActivities} activityReady={agentActivityReady} selectedAgentId={workspacePane === "chat" && !roomPaneActive && !projectPaneActive ? selectedAgentId : ""} overviewActive={workspacePane === "agents"} onOverview={() => openAgentOverview()} agents={onboardingAgents} {defaultAgentId} {deletedAgentIds} {locale} {copy} onAgent={openAgentChat} onHistory={openAgentHistory} onFiles={openAgentFiles} onSettings={(id) => void openAgentSettings(id)} />
+    <AgentNavigation
+      attention={piAttention}
+      onAttention={(sessionId, agentId) =>
+        void openHandoverSource({ sessionId, agentId })}
+      {hasUnassignedHistory}
+      activities={agentActivities}
+      activityReady={agentActivityReady}
+      selectedAgentId={workspacePane === "chat" &&
+      !roomPaneActive &&
+      !projectPaneActive
+        ? selectedAgentId
+        : ""}
+      overviewActive={workspacePane === "agents"}
+      onOverview={() => openAgentOverview()}
+      agents={onboardingAgents}
+      {defaultAgentId}
+      {deletedAgentIds}
+      {locale}
+      {copy}
+      onAgent={openAgentChat}
+      onHistory={openAgentHistory}
+      onFiles={openAgentFiles}
+      onSettings={(id) => void openAgentSettings(id)}
+    />
   {/snippet}
   <ChatSidebar
     conversationContent={agentConversationContent}
@@ -4348,7 +6103,7 @@
     rooms={sidebarRooms}
     {roomMeta}
     endpoint={connectedEndpoint}
-    serviceState={serviceState}
+    {serviceState}
     {statusDots}
     formatTime={formatListTime}
     collapsed={sidebarCollapsed && !homeNarrow}
@@ -4370,13 +6125,15 @@
     onToggleConversations={toggleConversations}
     onToggleProjects={toggleProjects}
     onToggleRooms={toggleRooms}
-    onToggleChannel={(channel) => toggleChannel(channel as DesktopConversationChannel)}
+    onToggleChannel={(channel) =>
+      toggleChannel(channel as DesktopConversationChannel)}
     onSelectSession={openSession}
     onSelectRoom={openRoom}
     onEditRoom={editRoom}
-    onDeleteRoom={id => void deleteRoom(id)}
+    onDeleteRoom={(id) => void deleteRoom(id)}
     onCreateRoom={createRoom}
-    onMoreChannel={(channel) => void loadMoreChannel(channel as DesktopConversationChannel)}
+    onMoreChannel={(channel) =>
+      void loadMoreChannel(channel as DesktopConversationChannel)}
     onRenameSession={renameSession}
     onDeleteSession={deleteSession}
     onCopySessionPath={copySessionPath}
@@ -4384,9 +6141,15 @@
     onActivateProjectSession={() => {
       roomPaneActive = false;
       const selectedId = projectsStore.selectedSessionId;
-      void loadDesktopRooms(connectedEndpoint).then(result => {
+      void loadDesktopRooms(connectedEndpoint).then((result) => {
         if (connectedEndpoint) sidebarRooms = result.rooms;
-        if (projectsStore.selectedSessionId === selectedId && result.rooms.some(r => r.id === selectedId)) { requestedRoomId = selectedId; roomPaneActive = true; }
+        if (
+          projectsStore.selectedSessionId === selectedId &&
+          result.rooms.some((r) => r.id === selectedId)
+        ) {
+          requestedRoomId = selectedId;
+          roomPaneActive = true;
+        }
       });
       projectPaneActive = true;
       workspacePane = "chat";
@@ -4416,393 +6179,739 @@
   ></div>
 
   <div class="workspace-main" inert={homeNarrow && homeSidebarOpen}>
-  {#if agentSettingsActive}
-    {#if !agentSettingsLoading && agentsStore.agentEdit}
-      <AgentSettingsPage onClose={closeAgentSettings} backLabel={locale === "zh-CN" ? "返回 Agent" : "Back to Agent"} />
-    {:else}
-      <section class="agent-settings-loading" aria-busy={agentSettingsLoading}>
-        <Button onclick={closeAgentSettings}>{locale === "zh-CN" ? "返回 Agent" : "Back to Agent"}</Button>
-        {#if agentSettingsLoading}<p>{copy.loading}</p>{:else}<p role="alert">{session.error || (locale === "zh-CN" ? "无法加载 Agent 设置。" : "Unable to load Agent settings.")}</p><Button onclick={() => void openAgentSettings(selectedAgentId)}>{locale === "zh-CN" ? "重试" : "Retry"}</Button>{/if}
-      </section>
-    {/if}
-  {:else if roomPaneActive}
-    <RoomWorkspace bind:this={roomWorkspace} draftStore={chatStore.draftStore} endpoint={connectedEndpoint} {copy} {locale} {requestedRoomId}
-      startInCreate={roomStartEditing}
-      navigationRevision={roomNavigationRevision}
-      editRequested={roomEditRequested} onEditConsumed={() => roomEditRequested = false}
-      onSelectRoom={id => {
-        requestedRoomId = id;
-        roomStartEditing = false;
-        const item = (channelItems.web ?? []).find(item => item.roomId === id);
-        if (item) persistSelected(item.botId, item.sessionId);
-      }}
-      onExit={() => { roomPaneActive = false; requestedRoomId = ""; roomStartEditing = false; }}
-      {modelOptions} defaultThinking={globalThinkingStrategy === "auto" ? "auto" : globalThinkingLevel} autoAvailable={globalAutoAvailable}
-      {recording} {recordingSeconds} {recordingError} {pendingAudioUrls} {inferAttachmentKind}
-      onToggleRecording={toggleRecording} onFinishRecording={(send) => void finishRecording(send)}
-      onDismissRecordingError={() => recordingError = ""} onOpenSettings={() => openSettings()}
-      onSessionChanged={() => { void loadExpandedChannels(); void loadRooms(); }} />
-  {:else if projectPaneActive}
-    <ProjectDetail
-      {copy}
-      autoAvailable={globalAutoAvailable}
-      onOpenFiles={toggleFilesInspector}
-      onOpenMiniApp={openMiniAppInspector}
-      onOpenMiniApps={() => openWorkspacePane("miniapps")}
-    />
-  {:else}
-  <section class="chat-content" data-theme-region="chat">
-    {#if workspacePane !== "chat"}
-      <ChatWorkspacePane
-        pane={workspacePane}
-        {copy}
-        serviceEndpoint={connectionReady ? connectedEndpoint : null}
-        serviceReady={connectionReady}
-        serviceError={error}
-        onRetryService={() => serviceEndpoint && void connect(serviceEndpoint)}
-        onOpenAgentSettings={(agentId) => { void openAgentSettings(agentId); }}
-        agents={onboardingAgents}
-        activities={agentActivities}
-        activityReady={agentActivityReady}
-        activityError={agentActivityError}
-        focusedAgentId={overviewAgentId}
-        onOpenAgentChat={openAgentChat}
-        onAutomationUnreadChange={(count) => (automationUnreadCount = count)}
-        onOpenMiniApp={openMiniAppInspector}
-        onOpenMiniAppAiSettings={() => openSettings("models")}
-        onTrySkill={trySkillInChat}
-        formatTime={formatListTime}
-        targetSessionId={projectPaneActive ? activeProjectSessionId : activeSessionId}
-        targetPlanId={requestedPlanId}
-        onContinuePlan={continuePlan}
-        onOpenMemberSession={openTaskMemberSession}
-      />
-    {:else}
-    <ChatHeader
-      title={startupPending ? startupHeaderTitle : agentFilesActive ? `${selectedAgent?.name || selectedAgentId} · ${locale === "zh-CN" ? "文件与附件" : "Files and attachments"}` : agentHistoryActive ? `${selectedAgent?.name || (locale === "zh-CN" ? "未归属历史" : "Unassigned history")} · ${locale === "zh-CN" ? "全部对话" : "All conversations"}` : activeHeaderTitle}
-      sourceLabel={!agentFilesActive && !agentHistoryActive && activeHeaderChannel !== "web" ? activeHeaderSourceLabel : ""}
-      agentLabel={!startupPending && conversationDetailActive && !agentFilesActive && !agentHistoryActive ? (viewMode === "external" ? activeExternalAgentName : activeAgentName) : ""}
-      onAgentClick={onboardingAgents.some(agent => agent.id === headerAgentId) ? () => openAgentChat(headerAgentId) : null}
-      searching={searchOpen}
-    >
-      {#snippet actions()}
-        {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && conversationDetailActive}
-          <ContextWindowPanel
-            {copy}
-            {locale}
-            endpoint={connectedEndpoint}
-            profileId={contextProfileId}
-            sessionId={contextSessionId}
-            external={viewMode === "external"}
-            usage={composerContextUsage}
-            {sessionUsage}
-            fallbackContextWindow={resolveModelContextWindow(modelOptions, activeModelKey)}
-            modelLabel={activeModelLabel}
-            sending={viewMode === "external" ? false : sending}
-            streamingText={viewMode === "external" ? "" : streamingText}
-            streamingThinking={viewMode === "external" ? "" : streamingThinking}
-            activities={viewMode === "external" ? [] : activityEntries}
-            messages={contextSessionMessages}
-          />
-          <Button variant="icon" title={locale === "zh-CN" ? "Agent 全部对话" : "Agent conversations"} aria-expanded={historyDrawerOpen} onclick={openHistoryDrawer}><History size={16} aria-hidden="true" /></Button>
-        {/if}
-        {#if !startupPending && viewMode === "local" && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive}
-          <Button variant="icon" title={locale === "zh-CN" ? "文件与附件" : "Files and attachments"} onclick={() => openAgentFiles(selectedAgentId)}><Library size={16} weight="Filled" aria-hidden="true" /></Button>
-          <Button variant="icon" title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"} onclick={() => void openAgentSettings(selectedAgentId)}><Tuning3 size={16} aria-hidden="true" /></Button>
-        {/if}
-        {#if durableActiveCount > 0}
-          <button
-            type="button"
-            class="durable-header-badge"
-            aria-label={copy.durableExecution}
-            title={copy.durableExecution}
-            onclick={openActiveDurableExecutionInspector}
+    {#if agentSettingsActive}
+      {#if !agentSettingsLoading && agentsStore.agentEdit}
+        <AgentSettingsPage
+          onClose={closeAgentSettings}
+          backLabel={locale === "zh-CN" ? "返回 Agent" : "Back to Agent"}
+        />
+      {:else}
+        <section
+          class="agent-settings-loading"
+          aria-busy={agentSettingsLoading}
+        >
+          <Button onclick={closeAgentSettings}
+            >{locale === "zh-CN" ? "返回 Agent" : "Back to Agent"}</Button
           >
-            <Layers size={16} aria-hidden="true" />
-            <span>{durableActiveCount > 99 ? "99+" : durableActiveCount}</span>
-          </button>
-        {/if}
-        {#if !agentFilesActive && !agentHistoryActive && serviceState === "ready" && onboardingAgents.length > 0}
-          <TranscriptSearch
-            bind:this={transcriptSearch}
-            bind:value={searchQuery}
-            open={searchOpen}
-            matchCount={searchMatchIds.length}
-            activeIndex={boundedSearchIndex}
-            placeholder={copy.searchPlaceholder}
-            noMatchesLabel={copy.noMatches}
-            previousLabel={copy.prevMatch}
-            nextLabel={copy.nextMatch}
-            closeLabel={copy.closeSearch}
-            onInput={onSearchInput}
-            onPrevious={() => gotoMatch(-1)}
-            onNext={() => gotoMatch(1)}
-            onClose={toggleSearch}
-          />
-          <MiniAppsQuickMenu
-            {copy}
-            endpoint={connectedEndpoint || serviceEndpoint || ""}
-            onOpenApp={openMiniAppInspector}
-            onOpenLaunchpad={() => openWorkspacePane("miniapps")}
-          />
-          {#if conversationDetailActive}
-            <SessionActionsMenu {locale}
-              onSearch={async (trigger) => { if (!searchOpen) await toggleSearch(); searchReturnFocus = trigger ?? null; await tick(); transcriptSearch?.focus(); }}
-              onCopyPath={() => void copySessionPath({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "file" })}
-              onRevealFile={() => void revealSessionInFinder({ sessionId: viewMode === "external" ? activeExternalSessionId : activeSessionId, target: "file" })}
-              onDelete={() => deleteAgentConversation(viewMode === "external"
-                ? { sessionId: activeExternalSessionId, botId: activeExternalSessionItem?.botId || "", agentId: activeExternalAgentId }
-                : { sessionId: activeSessionId, botId: activeProfileId, agentId: selectedAgentId })} />
-          {/if}
-          <button
-            class="icon-button"
-            type="button"
-            aria-pressed={filePanelOpen}
-            aria-label={copy.files}
-            title={copy.files}
-            onclick={toggleFilesInspector}
-          >
-            <Sidebar class="flip" size={16} aria-hidden="true" />
-            {#if sessionFiles.length}<span class="icon-badge">{sessionFiles.length}</span>{/if}
-          </button>
-        {/if}
-      {/snippet}
-    </ChatHeader>
-
-    {#if conversationRefreshError}<p class="onboarding-error" role="status">{conversationRefreshError}</p>{/if}
-    {#if storageMigrationPending}
-      <div class="empty-state" aria-live="polite">
-        <h2>{locale === "zh-CN" ? "会话数据尚未处理" : "Session data needs a decision"}</h2>
-        <p>{locale === "zh-CN" ? "旧数据还没有完成处理，运行与任务已暂停。可选择迁移，或排除不需要的旧 Bot 数据，再确认应用选择。" : "Old data has not been processed. Runs and tasks are paused. Migrate it or exclude unwanted old Bot data, then confirm your choices."}</p>
-        <Button onclick={openStorageMigration}>{locale === "zh-CN" ? "处理会话数据" : "Review session data"}</Button>
-      </div>
-    {:else if startupPending}
-      <div class="startup-city-state">
-        <AgentCityStartup paused={startupPhase === "error"} />
-        <div class="startup-city-status" role="status" aria-live="polite">
-          <h2>{startupHeaderTitle}</h2>
-          <p>{startupError || error || (serviceState === "ready" ? copy.loading : serviceEndpoint ? copy.serviceLaunching : copy.serviceChecking)}</p>
-          {#if startupPhase === "delayed" || startupPhase === "error" || error}
-            <div class="startup-recovery-actions">
-              <Button variant="secondary" onclick={retryStartup}>{copy.reconnectService}</Button>
-              <Button variant="secondary" onclick={openStartupDiagnostics}>{copy.diagnostics}</Button>
-              <Button variant="secondary" onclick={openStartupLogs}>{copy.openLogFile}</Button>
-            </div>
-          {/if}
-        </div>
-      </div>
-    {:else if agentFilesActive}
-      <AgentFilesPage endpoint={connectedEndpoint} agentId={selectedAgentId} {locale} {copy} theme={resolvedTheme} formatTime={formatListTime} onClose={() => openAgentChat(selectedAgentId)} onConversation={(item) => void openSearchResult(item)} />
-    {:else if agentHistoryActive}
-      <ConversationBrowserDialog
+          {#if agentSettingsLoading}<p>{copy.loading}</p>{:else}<p role="alert">
+              {session.error ||
+                (locale === "zh-CN"
+                  ? "无法加载 Agent 设置。"
+                  : "Unable to load Agent settings.")}
+            </p>
+            <Button onclick={() => void openAgentSettings(selectedAgentId)}
+              >{locale === "zh-CN" ? "重试" : "Retry"}</Button
+            >{/if}
+        </section>
+      {/if}
+    {:else if roomPaneActive}
+      <RoomWorkspace
+        bind:this={roomWorkspace}
+        draftStore={chatStore.draftStore}
         endpoint={connectedEndpoint}
-        page
+        {copy}
         {locale}
-        open={true}
-        agentId={historyAgentId}
-        onDeleted={() => { void refreshAgentSessions().catch(cause => error = String(cause)); }}
-        onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
-        includeArchived={true}
-        labels={{
-          search: copy.searchConversations,
-          searchEmpty: copy.searchEmpty,
-          loading: copy.loading,
-          loadMore: copy.loadMore,
-          empty: copy.noConversations,
-          close: locale === "zh-CN" ? "返回 Agent 首页" : "Back to Agent home",
-          all: copy.searchScopeAll,
-          web: copy.channelWeb,
-          project: copy.projects,
-          channels: copy.searchScopeChannels,
-          allChannels: copy.searchScopeAllChannels,
-          scopeFilter: copy.searchScopeFilter,
-          clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
-          telegram: copy.channelTelegram,
-          feishu: copy.channelFeishu,
-          qq: copy.channelQq,
-          weixin: copy.channelWeixin,
-          unknownBot: copy.unknownBot
+        {requestedRoomId}
+        startInCreate={roomStartEditing}
+        navigationRevision={roomNavigationRevision}
+        editRequested={roomEditRequested}
+        onEditConsumed={() => (roomEditRequested = false)}
+        onSelectRoom={(id) => {
+          requestedRoomId = id;
+          roomStartEditing = false;
+          const item = (channelItems.web ?? []).find(
+            (item) => item.roomId === id,
+          );
+          if (item) persistSelected(item.botId, item.sessionId);
         }}
-        formatTime={formatListTime}
-        onSelect={(item) => void openSearchResult(item)}
-        onClose={() => historyAgentId === "__unassigned__" ? (agentHistoryActive = false) : openAgentChat(historyAgentId || defaultAgentId)}
+        onExit={() => {
+          roomPaneActive = false;
+          requestedRoomId = "";
+          roomStartEditing = false;
+        }}
+        {modelOptions}
+        defaultThinking={globalThinkingStrategy === "auto"
+          ? "auto"
+          : globalThinkingLevel}
+        autoAvailable={globalAutoAvailable}
+        {recording}
+        {recordingSeconds}
+        {recordingError}
+        {pendingAudioUrls}
+        {inferAttachmentKind}
+        onToggleRecording={toggleRecording}
+        onFinishRecording={(send) => void finishRecording(send)}
+        onDismissRecordingError={() => (recordingError = "")}
+        onOpenSettings={() => openSettings()}
+        onSessionChanged={() => {
+          void loadExpandedChannels();
+          void loadRooms();
+        }}
       />
-    {:else if loading}
-      <div class="empty-state"><p>{copy.loadingChat}</p></div>
-    {:else if onboardingAgents.length === 0}
-      <div class="empty-state">
-        <h2>{copy.noProfiles}</h2>
-        <p>{copy.noProfilesHint}</p>
-        <button class="secondary-button" type="button" onclick={() => openSettings()}>{copy.openSettings}</button>
-      </div>
-    {:else if viewMode === "external" && !activeExternalSessionId}
-      <div class="empty-state">
-        <div class="empty-icon" aria-hidden="true"><img src={appLogo.src} alt="" width="32" height="32" /></div>
-        <h2>{copy.chat}</h2>
-        <p>{copy.externalChannelsHint}</p>
-      </div>
-    {:else if viewMode === "external"}
-      <div
-        class:has-prompt-navigator={(externalTranscript?.messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length ?? 0) >= PROMPT_NAVIGATOR_MIN_TURNS}
-        class="chat-messages-frame"
-      >
-        <div class="messages" bind:this={messagesElement} use:stickToBottom={{ key: activeExternalSessionId }} aria-live="polite">
-          {#if externalTranscriptLoading}
-            <div class="conversation-empty">
-              <h2>{copy.loading}</h2>
-            </div>
-          {:else if externalTranscriptError && !externalTranscript}
-            <div class="conversation-empty">
-              <p class="onboarding-error">{externalTranscriptError}</p>
-            </div>
-          {:else if externalTranscript}
-            {#if externalTranscriptError}<p class="onboarding-error" role="status">{externalTranscriptError}</p>{/if}
-            {#if externalTranscript.messages.length === 0}
-              <div class="conversation-empty">
-                <h2>{copy.noExternalSessions}</h2>
-              </div>
-            {/if}
-            {#if !selectedAgentId}
-            <div class="agent-claim-row"><span>{locale === "zh-CN" ? "认领仅标记归属，外部历史仍为只读。" : "Assignment preserves read-only external history."}</span>
-              {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
-            </div>
-          {/if}
-          <ConversationTranscript showUnresolvedStatus messages={externalTranscript.messages} {searchMatchIds} {activeMatchId} {copy} formatTime={formatSessionTime} assistantName={activeHeaderBotName} agentName={activeExternalAgentName} attachmentActions={transcriptAttachmentActions} messageActions={externalMessageActions} endpoint={connectedEndpoint || serviceEndpoint || ""} />
-          {/if}
-        </div>
-        {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
-          <ConversationPromptNavigator messages={externalTranscript.messages} {copy} formatTime={formatSessionTime} scrollElement={messagesElement} />
-        {/if}
-      </div>
-      {#if externalTranscript}
-        <footer class="composer-wrap" data-theme-region="composer">
-          <p class="external-readonly-notice">
-            <span>{copy.externalSessionReadOnly.replace("{channel}", activeHeaderSourceLabel)}</span>
-            <Button variant="icon" title={copy.conversationRefresh} disabled={!connectionReady || conversationRefreshing || externalTranscriptLoading} onclick={refreshActiveConversation}><Refresh size={16} aria-hidden="true" /></Button>
-          </p>
-        </footer>
-      {/if}
+    {:else if projectPaneActive}
+      <ProjectDetail
+        {copy}
+        autoAvailable={globalAutoAvailable}
+        onOpenFiles={toggleFilesInspector}
+        onOpenMiniApp={openMiniAppInspector}
+        onOpenMiniApps={() => openWorkspacePane("miniapps")}
+      />
     {:else}
-      {#if !selectedAgentId && activeSessionId && viewMode === "local"}
-        <div class="agent-claim-row"><span>{locale === "zh-CN" ? "此历史尚未归属 Agent，认领后可继续。" : "Assign this history to an Agent to continue."}</span>
-          {#each onboardingAgents.filter(agent => agent.enabled) as agent}<button type="button" class="secondary-button" onclick={() => claimActiveSession(agent.id)}>{agent.name}</button>{/each}
-        </div>
-      {/if}
-      {#if draftMode && selectedAgent}
-        <div class="chat-start-page">
-            <AgentHome activity={agentActivities.find(item => item.agentId === selectedAgentId)} activityReady={agentActivityReady} onActivity={() => openAgentOverview(selectedAgentId)} composer={conversationComposer} agent={selectedAgent} agentId={selectedAgentId} sessions={agentHomeDisplaySessions} {locale} {copy}
-              handover={selectedAgentId === defaultAgentId ? handover : null}
-              handoverLoading={selectedAgentId === defaultAgentId && handoverLoading}
-              handoverStale={selectedAgentId === defaultAgentId && (handoverStale || !connectionReady)}
-              handoverError={selectedAgentId === defaultAgentId ? handoverError : ""}
-              handoverBusyId={handoverBusyId}
-              agentLabel={(id) => onboardingAgents.find(agent => agent.id === id)?.name ?? copy.handoverUnknownSource}
-              onTasks={() => openWorkspacePane("automations")}
+      <section class="chat-content" data-theme-region="chat">
+        {#if workspacePane !== "chat"}
+          <ChatWorkspacePane
+            pane={workspacePane}
+            {copy}
+            serviceEndpoint={connectionReady ? connectedEndpoint : null}
+            serviceReady={connectionReady}
+            serviceError={error}
+            onRetryService={() =>
+              serviceEndpoint && void connect(serviceEndpoint)}
+            onOpenAgentSettings={(agentId) => {
+              void openAgentSettings(agentId);
+            }}
+            agents={onboardingAgents}
+            activities={agentActivities}
+            activityReady={agentActivityReady}
+            activityError={agentActivityError}
+            focusedAgentId={overviewAgentId}
+            onOpenAgentChat={openAgentChat}
+            onAutomationUnreadChange={(count) =>
+              (automationUnreadCount = count)}
+            onOpenMiniApp={openMiniAppInspector}
+            onOpenMiniAppAiSettings={() => openSettings("models")}
+            onTrySkill={trySkillInChat}
+            formatTime={formatListTime}
+            targetSessionId={projectPaneActive
+              ? activeProjectSessionId
+              : activeSessionId}
+            targetPlanId={requestedPlanId}
+            onContinuePlan={continuePlan}
+            onOpenMemberSession={openTaskMemberSession}
+          />
+        {:else}
+          <ChatHeader
+            title={startupPending
+              ? startupHeaderTitle
+              : agentNotificationsActive
+                ? locale === "zh-CN"
+                  ? "通知中心"
+                  : "Notifications"
+                : agentFilesActive
+                  ? `${selectedAgent?.name || selectedAgentId} · ${locale === "zh-CN" ? "文件与附件" : "Files and attachments"}`
+                  : agentHistoryActive
+                    ? `${selectedAgent?.name || (locale === "zh-CN" ? "未归属历史" : "Unassigned history")} · ${locale === "zh-CN" ? "全部对话" : "All conversations"}`
+                    : activeHeaderTitle}
+            sourceLabel={!agentFilesActive &&
+            !agentHistoryActive &&
+            !agentNotificationsActive &&
+            activeHeaderChannel !== "web"
+              ? activeHeaderSourceLabel
+              : ""}
+            agentLabel={!startupPending &&
+            conversationDetailActive &&
+            !agentFilesActive &&
+            !agentHistoryActive &&
+            !agentNotificationsActive
+              ? viewMode === "external"
+                ? activeExternalAgentName
+                : activeAgentName
+              : ""}
+            onAgentClick={onboardingAgents.some(
+              (agent) => agent.id === headerAgentId,
+            )
+              ? () => openAgentChat(headerAgentId)
+              : null}
+            searching={searchOpen}
+          >
+            {#snippet actions()}
+              {#if !startupPending && connectionReady && !agentFilesActive && !agentHistoryActive && !agentNotificationsActive && conversationDetailActive}
+                <ContextWindowPanel
+                  {copy}
+                  {locale}
+                  endpoint={connectedEndpoint}
+                  profileId={contextProfileId}
+                  sessionId={contextSessionId}
+                  external={viewMode === "external"}
+                  usage={composerContextUsage}
+                  {sessionUsage}
+                  fallbackContextWindow={resolveModelContextWindow(
+                    modelOptions,
+                    activeModelKey,
+                  )}
+                  modelLabel={activeModelLabel}
+                  sending={viewMode === "external" ? false : sending}
+                  streamingText={viewMode === "external" ? "" : streamingText}
+                  streamingThinking={viewMode === "external"
+                    ? ""
+                    : streamingThinking}
+                  activities={viewMode === "external" ? [] : activityEntries}
+                  messages={contextSessionMessages}
+                />
+                <Button
+                  variant="icon"
+                  title={locale === "zh-CN"
+                    ? "Agent 全部对话"
+                    : "Agent conversations"}
+                  aria-expanded={historyDrawerOpen}
+                  onclick={openHistoryDrawer}
+                  ><History size={16} aria-hidden="true" /></Button
+                >
+              {/if}
+              {#if !startupPending && viewMode === "local" && draftMode && selectedAgent && !agentFilesActive && !agentHistoryActive && !agentNotificationsActive}
+                <Button
+                  variant="icon"
+                  title={locale === "zh-CN"
+                    ? "文件与附件"
+                    : "Files and attachments"}
+                  onclick={() => openAgentFiles(selectedAgentId)}
+                  ><Library
+                    size={16}
+                    weight="Filled"
+                    aria-hidden="true"
+                  /></Button
+                >
+                <Button
+                  variant="icon"
+                  title={locale === "zh-CN" ? "Agent 设置" : "Agent settings"}
+                  onclick={() => void openAgentSettings(selectedAgentId)}
+                  ><Tuning3 size={16} aria-hidden="true" /></Button
+                >
+              {/if}
+              {#if durableActiveCount > 0}
+                <button
+                  type="button"
+                  class="durable-header-badge"
+                  aria-label={copy.durableExecution}
+                  title={copy.durableExecution}
+                  onclick={openActiveDurableExecutionInspector}
+                >
+                  <Layers size={16} aria-hidden="true" />
+                  <span
+                    >{durableActiveCount > 99
+                      ? "99+"
+                      : durableActiveCount}</span
+                  >
+                </button>
+              {/if}
+              {#if !agentFilesActive && !agentHistoryActive && !agentNotificationsActive && serviceState === "ready" && onboardingAgents.length > 0}
+                <TranscriptSearch
+                  bind:this={transcriptSearch}
+                  bind:value={searchQuery}
+                  open={searchOpen}
+                  matchCount={searchMatchIds.length}
+                  activeIndex={boundedSearchIndex}
+                  placeholder={copy.searchPlaceholder}
+                  noMatchesLabel={copy.noMatches}
+                  previousLabel={copy.prevMatch}
+                  nextLabel={copy.nextMatch}
+                  closeLabel={copy.closeSearch}
+                  onInput={onSearchInput}
+                  onPrevious={() => gotoMatch(-1)}
+                  onNext={() => gotoMatch(1)}
+                  onClose={toggleSearch}
+                />
+                <MiniAppsQuickMenu
+                  {copy}
+                  endpoint={connectedEndpoint || serviceEndpoint || ""}
+                  onOpenApp={openMiniAppInspector}
+                  onOpenLaunchpad={() => openWorkspacePane("miniapps")}
+                />
+                {#if conversationDetailActive}
+                  <SessionActionsMenu
+                    {locale}
+                    onSearch={async (trigger) => {
+                      if (!searchOpen) await toggleSearch();
+                      searchReturnFocus = trigger ?? null;
+                      await tick();
+                      transcriptSearch?.focus();
+                    }}
+                    onCopyPath={() =>
+                      void copySessionPath({
+                        sessionId:
+                          viewMode === "external"
+                            ? activeExternalSessionId
+                            : activeSessionId,
+                        target: "file",
+                      })}
+                    onRevealFile={() =>
+                      void revealSessionInFinder({
+                        sessionId:
+                          viewMode === "external"
+                            ? activeExternalSessionId
+                            : activeSessionId,
+                        target: "file",
+                      })}
+                    onDelete={() =>
+                      deleteAgentConversation(
+                        viewMode === "external"
+                          ? {
+                              sessionId: activeExternalSessionId,
+                              botId: activeExternalSessionItem?.botId || "",
+                              agentId: activeExternalAgentId,
+                            }
+                          : {
+                              sessionId: activeSessionId,
+                              botId: activeProfileId,
+                              agentId: selectedAgentId,
+                            },
+                      )}
+                  />
+                {/if}
+                <button
+                  class="icon-button"
+                  type="button"
+                  aria-pressed={filePanelOpen}
+                  aria-label={copy.files}
+                  title={copy.files}
+                  onclick={toggleFilesInspector}
+                >
+                  <Sidebar class="flip" size={16} aria-hidden="true" />
+                  {#if sessionFiles.length}<span class="icon-badge"
+                      >{sessionFiles.length}</span
+                    >{/if}
+                </button>
+              {/if}
+            {/snippet}
+          </ChatHeader>
+
+          {#if conversationRefreshError}<p
+              class="onboarding-error"
+              role="status"
+            >
+              {conversationRefreshError}
+            </p>{/if}
+          {#if storageMigrationPending}
+            <div class="empty-state" aria-live="polite">
+              <h2>
+                {locale === "zh-CN"
+                  ? "会话数据尚未处理"
+                  : "Session data needs a decision"}
+              </h2>
+              <p>
+                {locale === "zh-CN"
+                  ? "旧数据还没有完成处理，运行与任务已暂停。可选择迁移，或排除不需要的旧 Bot 数据，再确认应用选择。"
+                  : "Old data has not been processed. Runs and tasks are paused. Migrate it or exclude unwanted old Bot data, then confirm your choices."}
+              </p>
+              <Button onclick={openStorageMigration}
+                >{locale === "zh-CN"
+                  ? "处理会话数据"
+                  : "Review session data"}</Button
+              >
+            </div>
+          {:else if startupPending}
+            <div class="startup-city-state">
+              <AgentCityStartup paused={startupPhase === "error"} />
+              <div class="startup-city-status" role="status" aria-live="polite">
+                <h2>{startupHeaderTitle}</h2>
+                <p>
+                  {startupError ||
+                    error ||
+                    (serviceState === "ready"
+                      ? copy.loading
+                      : serviceEndpoint
+                        ? copy.serviceLaunching
+                        : copy.serviceChecking)}
+                </p>
+                {#if startupPhase === "delayed" || startupPhase === "error" || error}
+                  <div class="startup-recovery-actions">
+                    <Button variant="secondary" onclick={retryStartup}
+                      >{copy.reconnectService}</Button
+                    >
+                    <Button variant="secondary" onclick={openStartupDiagnostics}
+                      >{copy.diagnostics}</Button
+                    >
+                    <Button variant="secondary" onclick={openStartupLogs}
+                      >{copy.openLogFile}</Button
+                    >
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {:else if agentNotificationsActive}
+            <AgentNotificationsPage
+              endpoint={connectedEndpoint ?? ""}
+              {locale}
+              stale={handoverStale || !connectionReady}
+              revision={handover?.generatedAt ?? ""}
+              formatTime={formatListTime}
+              {copy}
+              pending={handover?.pending ?? []}
+              busyId={handoverBusyId}
+              onClose={closeAgentNotifications}
+              onCountChange={(count) => {
+                if (count === 0) unreadNotifications = [];
+                else if (count !== unreadNotificationCount)
+                  void refreshUnreadNotifications(true);
+              }}
+              onResolve={resolveHandoverApproval}
+              onAnswer={answerHandoverDecision}
+              onPlan={approveHandoverPlan}
+              onOpen={openHandoverSource}
+              onHistory={() => openAgentHistory(selectedAgentId)}
               onPlans={(planId) => openWorkspacePane("plans", planId)}
+              onTasks={() => openWorkspacePane("automations")}
               onFiles={() => openAgentFiles(selectedAgentId)}
               onResultFile={async (sessionId, file) => {
                 await openHandoverSource({ sessionId });
-                if ((viewMode === "external" ? activeExternalSessionId : chatState.activeSessionId) === sessionId) openTurnFiles([file], file.key);
+                if (
+                  (viewMode === "external"
+                    ? activeExternalSessionId
+                    : chatState.activeSessionId) === sessionId
+                )
+                  openTurnFiles([file], file.key);
               }}
-              onHandoverOpen={openHandoverSource}
-              onHandoverResolve={resolveHandoverApproval}
-              onHandoverAnswer={answerHandoverDecision}
-              onHandoverPlan={approveHandoverPlan}
-              endpoint={connectedEndpoint || ""}
-              onMemoryChanged={refreshHandover}
               onOpenMemory={() => openSettings("memory")}
-              actions={agentCanExecute ? emptyQuickStarts(copy) : []}
-              onPrompt={fillEmptyPrompt} onSession={openSession} onDelete={deleteAgentConversation}
-              onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
-              onHistory={() => openAgentHistory(selectedAgentId)} formatTime={formatListTime} />
-        </div>
-      {:else}
-      <ChatMessagesPane
-        bind:messagesElement
-        customHome={draftMode && Boolean(selectedAgent)}
-        {messages}
-        {copy}
-        formatTime={formatSessionTime}
-        assistantName={activeBotName}
-        agentName={activeAgentName}
-        stickKey={activeSessionId}
-        {sending}
-        {streamingText}
-        {streamingThinking}
-        {activity}
-        activities={activityEntries}
-        {liveSteps}
-        emptyTitle={selectedAgent?.name || copy.emptyChatTitle}
-        emptyHint={selectedAgent?.description || copy.emptyChatHint}
-        emptyActionLabel={copy.emptyChatQuickStart}
-        emptyActionHint={copy.emptyChatQuickStartHint}
-        emptyActions={!agentCanExecute || messageInput.trim() ? [] : emptyQuickStarts(copy)}
-        onEmptyAction={fillEmptyPrompt}
-        {searchMatchIds}
-        {activeMatchId}
-        showReadReceipt={true}
-        attachmentActions={transcriptAttachmentActions}
-        messageActions={messageActions}
-        onOpenTurnFiles={openTurnFiles}
-        attentionElement={approvalElement}
-        endpoint={connectedEndpoint || serviceEndpoint || ""}
-        attentionLabel={copy.pendingApprovalNotice}
-        attentionAction={copy.pendingApprovalJump}
-      >
-
-        {#if pendingApproval}
-          {@const isRecoveryReview = pendingApproval.command === "recovery_review"}
-          <!-- The wrapper exists so the pane can watch this card without knowing
+            />
+          {:else if agentFilesActive}
+            <AgentFilesPage
+              endpoint={connectedEndpoint}
+              agentId={selectedAgentId}
+              {locale}
+              {copy}
+              theme={resolvedTheme}
+              formatTime={formatListTime}
+              onClose={() => openAgentChat(selectedAgentId)}
+              onConversation={(item) => void openSearchResult(item)}
+            />
+          {:else if agentHistoryActive}
+            <ConversationBrowserDialog
+              endpoint={connectedEndpoint}
+              page
+              {locale}
+              open={true}
+              agentId={historyAgentId}
+              onDeleted={() => {
+                void refreshAgentSessions().catch(
+                  (cause) => (error = String(cause)),
+                );
+              }}
+              onCopyPath={copySessionPath}
+              onRevealInFinder={revealSessionInFinder}
+              includeArchived={true}
+              labels={{
+                search: copy.searchConversations,
+                searchEmpty: copy.searchEmpty,
+                loading: copy.loading,
+                loadMore: copy.loadMore,
+                empty: copy.noConversations,
+                close:
+                  locale === "zh-CN" ? "返回 Agent 首页" : "Back to Agent home",
+                all: copy.searchScopeAll,
+                web: copy.channelWeb,
+                project: copy.projects,
+                channels: copy.searchScopeChannels,
+                allChannels: copy.searchScopeAllChannels,
+                scopeFilter: copy.searchScopeFilter,
+                clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
+                telegram: copy.channelTelegram,
+                feishu: copy.channelFeishu,
+                qq: copy.channelQq,
+                weixin: copy.channelWeixin,
+                unknownBot: copy.unknownBot,
+              }}
+              formatTime={formatListTime}
+              onSelect={(item) => void openSearchResult(item)}
+              onClose={() =>
+                historyAgentId === "__unassigned__"
+                  ? (agentHistoryActive = false)
+                  : openAgentChat(historyAgentId || defaultAgentId)}
+            />
+          {:else if loading}
+            <div class="empty-state"><p>{copy.loadingChat}</p></div>
+          {:else if onboardingAgents.length === 0}
+            <div class="empty-state">
+              <h2>{copy.noProfiles}</h2>
+              <p>{copy.noProfilesHint}</p>
+              <button
+                class="secondary-button"
+                type="button"
+                onclick={() => openSettings()}>{copy.openSettings}</button
+              >
+            </div>
+          {:else if viewMode === "external" && !activeExternalSessionId}
+            <div class="empty-state">
+              <div class="empty-icon" aria-hidden="true">
+                <img src={appLogo.src} alt="" width="32" height="32" />
+              </div>
+              <h2>{copy.chat}</h2>
+              <p>{copy.externalChannelsHint}</p>
+            </div>
+          {:else if viewMode === "external"}
+            <div
+              class:has-prompt-navigator={(externalTranscript?.messages.filter(
+                (message) =>
+                  message.role === "user" && Boolean(message.id?.trim()),
+              ).length ?? 0) >= PROMPT_NAVIGATOR_MIN_TURNS}
+              class="chat-messages-frame"
+            >
+              <div
+                class="messages"
+                bind:this={messagesElement}
+                use:stickToBottom={{ key: activeExternalSessionId }}
+                aria-live="polite"
+              >
+                {#if externalTranscriptLoading}
+                  <div class="conversation-empty">
+                    <h2>{copy.loading}</h2>
+                  </div>
+                {:else if externalTranscriptError && !externalTranscript}
+                  <div class="conversation-empty">
+                    <p class="onboarding-error">{externalTranscriptError}</p>
+                  </div>
+                {:else if externalTranscript}
+                  {#if externalTranscriptError}<p
+                      class="onboarding-error"
+                      role="status"
+                    >
+                      {externalTranscriptError}
+                    </p>{/if}
+                  {#if externalTranscript.messages.length === 0}
+                    <div class="conversation-empty">
+                      <h2>{copy.noExternalSessions}</h2>
+                    </div>
+                  {/if}
+                  {#if !selectedAgentId}
+                    <div class="agent-claim-row">
+                      <span
+                        >{locale === "zh-CN"
+                          ? "认领仅标记归属，外部历史仍为只读。"
+                          : "Assignment preserves read-only external history."}</span
+                      >
+                      {#each onboardingAgents.filter((agent) => agent.enabled) as agent}<button
+                          type="button"
+                          class="secondary-button"
+                          onclick={() => claimActiveSession(agent.id)}
+                          >{agent.name}</button
+                        >{/each}
+                    </div>
+                  {/if}
+                  <ConversationTranscript
+                    showUnresolvedStatus
+                    messages={externalTranscript.messages}
+                    {searchMatchIds}
+                    {activeMatchId}
+                    {copy}
+                    formatTime={formatSessionTime}
+                    assistantName={activeHeaderBotName}
+                    agentName={activeExternalAgentName}
+                    attachmentActions={transcriptAttachmentActions}
+                    messageActions={externalMessageActions}
+                    endpoint={connectedEndpoint || serviceEndpoint || ""}
+                  />
+                {/if}
+              </div>
+              {#if externalTranscript && !externalTranscriptLoading && !externalTranscriptError}
+                <ConversationPromptNavigator
+                  messages={externalTranscript.messages}
+                  {copy}
+                  formatTime={formatSessionTime}
+                  scrollElement={messagesElement}
+                />
+              {/if}
+            </div>
+            {#if externalTranscript}
+              <footer class="composer-wrap" data-theme-region="composer">
+                <p class="external-readonly-notice">
+                  <span
+                    >{copy.externalSessionReadOnly.replace(
+                      "{channel}",
+                      activeHeaderSourceLabel,
+                    )}</span
+                  >
+                  <Button
+                    variant="icon"
+                    title={copy.conversationRefresh}
+                    disabled={!connectionReady ||
+                      conversationRefreshing ||
+                      externalTranscriptLoading}
+                    onclick={refreshActiveConversation}
+                    ><Refresh size={16} aria-hidden="true" /></Button
+                  >
+                </p>
+              </footer>
+            {/if}
+          {:else}
+            {#if !selectedAgentId && activeSessionId && viewMode === "local"}
+              <div class="agent-claim-row">
+                <span
+                  >{locale === "zh-CN"
+                    ? "此历史尚未归属 Agent，认领后可继续。"
+                    : "Assign this history to an Agent to continue."}</span
+                >
+                {#each onboardingAgents.filter((agent) => agent.enabled) as agent}<button
+                    type="button"
+                    class="secondary-button"
+                    onclick={() => claimActiveSession(agent.id)}
+                    >{agent.name}</button
+                  >{/each}
+              </div>
+            {/if}
+            {#if draftMode && selectedAgent}
+              <div class="chat-start-page">
+                <AgentHome
+                  activity={agentActivities.find(
+                    (item) => item.agentId === selectedAgentId,
+                  )}
+                  activityReady={agentActivityReady}
+                  onActivity={() => openAgentOverview(selectedAgentId)}
+                  composer={conversationComposer}
+                  agent={selectedAgent}
+                  agentId={selectedAgentId}
+                  sessions={agentHomeDisplaySessions}
+                  {locale}
+                  {copy}
+                  handover={selectedAgentId === defaultAgentId
+                    ? handover
+                    : null}
+                  handoverLoading={selectedAgentId === defaultAgentId &&
+                    handoverLoading}
+                  handoverStale={selectedAgentId === defaultAgentId &&
+                    (handoverStale || !connectionReady)}
+                  handoverError={selectedAgentId === defaultAgentId
+                    ? handoverError
+                    : ""}
+                  {handoverBusyId}
+                  agentLabel={(id) =>
+                    onboardingAgents.find((agent) => agent.id === id)?.name ??
+                    copy.handoverUnknownSource}
+                  onTasks={() => openWorkspacePane("automations")}
+                  onPlans={(planId) => openWorkspacePane("plans", planId)}
+                  onFiles={() => openAgentFiles(selectedAgentId)}
+                  onNotifications={() =>
+                    openAgentNotifications(selectedAgentId)}
+                  onResultFile={async (sessionId, file) => {
+                    await openHandoverSource({ sessionId });
+                    if (
+                      (viewMode === "external"
+                        ? activeExternalSessionId
+                        : chatState.activeSessionId) === sessionId
+                    )
+                      openTurnFiles([file], file.key);
+                  }}
+                  onHandoverOpen={openHandoverSource}
+                  onHandoverResolve={resolveHandoverApproval}
+                  onHandoverAnswer={answerHandoverDecision}
+                  onHandoverPlan={approveHandoverPlan}
+                  endpoint={connectedEndpoint || ""}
+                  onMemoryChanged={refreshHandover}
+                  onOpenMemory={() => openSettings("memory")}
+                  actions={agentCanExecute ? emptyQuickStarts(copy) : []}
+                  onPrompt={fillEmptyPrompt}
+                  onSession={openSession}
+                  onDelete={deleteAgentConversation}
+                  onCopyPath={copySessionPath}
+                  onRevealInFinder={revealSessionInFinder}
+                  onHistory={() => openAgentHistory(selectedAgentId)}
+                  formatTime={formatListTime}
+                />
+              </div>
+            {:else}
+              <ChatMessagesPane
+                bind:messagesElement
+                customHome={draftMode && Boolean(selectedAgent)}
+                {messages}
+                {copy}
+                formatTime={formatSessionTime}
+                assistantName={activeBotName}
+                agentName={activeAgentName}
+                stickKey={activeSessionId}
+                {sending}
+                {streamingText}
+                {streamingThinking}
+                {activity}
+                activities={activityEntries}
+                {liveSteps}
+                emptyTitle={selectedAgent?.name || copy.emptyChatTitle}
+                emptyHint={selectedAgent?.description || copy.emptyChatHint}
+                emptyActionLabel={copy.emptyChatQuickStart}
+                emptyActionHint={copy.emptyChatQuickStartHint}
+                emptyActions={!agentCanExecute || messageInput.trim()
+                  ? []
+                  : emptyQuickStarts(copy)}
+                onEmptyAction={fillEmptyPrompt}
+                {searchMatchIds}
+                {activeMatchId}
+                showReadReceipt={true}
+                attachmentActions={transcriptAttachmentActions}
+                {messageActions}
+                onOpenTurnFiles={openTurnFiles}
+                attentionElement={approvalElement}
+                endpoint={connectedEndpoint || serviceEndpoint || ""}
+                attentionLabel={copy.pendingApprovalNotice}
+                attentionAction={copy.pendingApprovalJump}
+              >
+                {#if pendingApproval}
+                  {@const isRecoveryReview =
+                    pendingApproval.command === "recovery_review"}
+                  <!-- The wrapper exists so the pane can watch this card without knowing
                what it is; `bind:this` on the component would hand over the
                instance, not a node an IntersectionObserver can take. -->
-          <div bind:this={approvalElement}>
-            <ApprovalCard
-              cardId={pendingApproval.requestId}
-              title={isRecoveryReview ? copy.approvalRecoveryReviewTitle : copy.approvalTitle}
-              subtitle={[isRecoveryReview ? copy.approvalRecoveryReviewSubtitle : (pendingApproval.displayName ?? ""), pendingApprovals.length > 1 ? copy.approvalQueuePosition.replace("{index}", "1").replace("{total}", String(pendingApprovals.length)) : ""].filter(Boolean).join(" · ")}
-              reasonLabel={copy.approvalReason}
-              command={pendingApproval.command}
-              reason={pendingApproval.reason}
-              payload={pendingApproval.payload}
-              options={approvalOptions}
-              defaultOptionId="approve_once"
-              submitting={resolvingApprovalId === pendingApproval.requestId}
-              submittingLabel={copy.approvalSubmitting}
-              waitingLabel={copy.approvalWaiting}
-              secondsLabel={copy.approvalWaitingSeconds}
-              minutesLabel={copy.approvalWaitingMinutes}
-              moreLinesLabel={copy.approvalMoreDiffLines}
-              onResolve={resolveApprovalId}
+                  <div bind:this={approvalElement}>
+                    <ApprovalCard
+                      cardId={pendingApproval.requestId}
+                      title={isRecoveryReview
+                        ? copy.approvalRecoveryReviewTitle
+                        : copy.approvalTitle}
+                      subtitle={[
+                        isRecoveryReview
+                          ? copy.approvalRecoveryReviewSubtitle
+                          : (pendingApproval.displayName ?? ""),
+                        pendingApprovals.length > 1
+                          ? copy.approvalQueuePosition
+                              .replace("{index}", "1")
+                              .replace(
+                                "{total}",
+                                String(pendingApprovals.length),
+                              )
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      reasonLabel={copy.approvalReason}
+                      command={pendingApproval.command}
+                      reason={pendingApproval.reason}
+                      payload={pendingApproval.payload}
+                      options={approvalOptions}
+                      defaultOptionId="approve_once"
+                      submitting={resolvingApprovalId ===
+                        pendingApproval.requestId}
+                      submittingLabel={copy.approvalSubmitting}
+                      waitingLabel={copy.approvalWaiting}
+                      secondsLabel={copy.approvalWaitingSeconds}
+                      minutesLabel={copy.approvalWaitingMinutes}
+                      moreLinesLabel={copy.approvalMoreDiffLines}
+                      onResolve={resolveApprovalId}
+                    />
+                  </div>
+                {/if}
+              </ChatMessagesPane>
+            {/if}
+            <input
+              bind:this={fileInput}
+              type="file"
+              multiple
+              hidden
+              onchange={onFilesPicked}
             />
-          </div>
+            {#if (!draftMode || !selectedAgent) && !memberSessionReadOnly}{@render conversationComposer()}{/if}
+          {/if}
         {/if}
-      </ChatMessagesPane>
-      {/if}
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        hidden
-        onchange={onFilesPicked}
-      />
-      {#if (!draftMode || !selectedAgent) && !memberSessionReadOnly}{@render conversationComposer()}{/if}
+        {#if miniAppActionFeedback}
+          <MiniAppActionToast
+            text={miniAppActionFeedback}
+            card={miniAppActionCard}
+            dismissLabel={copy.miniAppToastDismiss}
+            openLabel={copy.miniAppCardOpen}
+            onOpenLink={openMiniAppDeepLink}
+            onDismiss={dismissMiniAppFeedback}
+          />
+        {/if}
+      </section>
     {/if}
-    {/if}
-    {#if miniAppActionFeedback}
-      <MiniAppActionToast
-        text={miniAppActionFeedback}
-        card={miniAppActionCard}
-        dismissLabel={copy.miniAppToastDismiss}
-        openLabel={copy.miniAppCardOpen}
-        onOpenLink={openMiniAppDeepLink}
-        onDismiss={dismissMiniAppFeedback}
-      />
-    {/if}
-  </section>
-  {/if}
   </div>
 
-  {#if inspectorVisible}
+  {#if inspectorVisible && !inspectorMaximized}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_no_noninteractive_tabindex -->
     <div
       class="files-resizer"
@@ -4825,100 +6934,143 @@
   {/if}
 
   {#if inspectorVisible}
-  <div class="workspace-inspector">
-  {#if artifactPanelVisible}
-    <ArtifactPanel
-      endpoint={connectedEndpoint || serviceEndpoint || ""}
-      projectId={projectPaneActive ? (projectsStore.selectedProjectId ?? "") : ""}
-      projectRootPath={projectPaneActive ? (projectsStore.projects.find((project) => project.id === projectsStore.selectedProjectId)?.rootPath ?? "") : ""}
-      sessionId={projectPaneActive ? (projectsStore.selectedSessionId ?? "") : inspectorSessionId}
-      profileId={projectPaneActive ? "personal" : inspectorProfileId}
-      scope={artifactScope}
-      touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
-      miniApp={inspector?.kind === "artifact" ? (inspector.miniApp ?? "") : ""}
-      miniAppNonce={inspector?.kind === "artifact" ? (inspector.miniAppNonce ?? 0) : 0}
-      miniAppDeepLinkPath={inspector?.kind === "artifact" ? (inspector.miniAppDeepLinkPath ?? "") : ""}
-      openPath={inspector?.kind === "artifact" ? (inspector.openPath ?? "") : ""}
-      openPathNonce={inspector?.kind === "artifact" ? (inspector.openPathNonce ?? 0) : 0}
-      openPathAsDiff={inspector?.kind === "artifact" ? (inspector.openPathAsDiff ?? false) : false}
-      turnFiles={inspector?.kind === "artifact" ? (inspector.turnFiles ?? []) : []}
-      turnFilesNonce={inspector?.kind === "artifact" ? (inspector.turnFilesNonce ?? 0) : 0}
-      turnFileKey={inspector?.kind === "artifact" ? (inspector.turnFileKey ?? "") : ""}
-      {locale}
-      theme={resolvedTheme}
-      {copy}
-      onClose={closeInspector}
-      motionClosing={inspectorClosing}
-      onMotionEnd={finishInspectorClose}
-    />
-  {/if}
-  {#if durablePanelVisible && inspector?.kind === "durable-execution"}
-    <DurableExecutionInspector
-      endpoint={connectedEndpoint}
-      executionId={inspector.executionId}
-      {copy}
-      onClose={closeInspector}
-      motionClosing={inspectorClosing}
-      onMotionEnd={finishInspectorClose}
-      onRequestFeedback={() => { closeInspector(); focusComposerAtEnd(); }}
-      onChanged={() => { void refreshDurableExecutions(); void chatStore.reloadActive(); void projectChatStore.reloadActive(); }}
-    />
+    <div class="workspace-inspector" class:is-maximized={inspectorMaximized}>
+      {#if artifactPanelVisible}
+        <ArtifactPanel
+          endpoint={connectedEndpoint || serviceEndpoint || ""}
+          projectId={projectPaneActive
+            ? (projectsStore.selectedProjectId ?? "")
+            : ""}
+          projectRootPath={projectPaneActive
+            ? (projectsStore.projects.find(
+                (project) => project.id === projectsStore.selectedProjectId,
+              )?.rootPath ?? "")
+            : ""}
+          sessionId={projectPaneActive
+            ? (projectsStore.selectedSessionId ?? "")
+            : inspectorSessionId}
+          profileId={projectPaneActive ? "personal" : inspectorProfileId}
+          scope={artifactScope}
+          touches={projectPaneActive ? $sessionFileTouches : EMPTY_TOUCHES}
+          miniApp={inspector?.kind === "artifact"
+            ? (inspector.miniApp ?? "")
+            : ""}
+          miniAppNonce={inspector?.kind === "artifact"
+            ? (inspector.miniAppNonce ?? 0)
+            : 0}
+          miniAppDeepLinkPath={inspector?.kind === "artifact"
+            ? (inspector.miniAppDeepLinkPath ?? "")
+            : ""}
+          openPath={inspector?.kind === "artifact"
+            ? (inspector.openPath ?? "")
+            : ""}
+          openPathNonce={inspector?.kind === "artifact"
+            ? (inspector.openPathNonce ?? 0)
+            : 0}
+          openPathAsDiff={inspector?.kind === "artifact"
+            ? (inspector.openPathAsDiff ?? false)
+            : false}
+          turnFiles={inspector?.kind === "artifact"
+            ? (inspector.turnFiles ?? [])
+            : []}
+          turnFilesNonce={inspector?.kind === "artifact"
+            ? (inspector.turnFilesNonce ?? 0)
+            : 0}
+          turnFileKey={inspector?.kind === "artifact"
+            ? (inspector.turnFileKey ?? "")
+            : ""}
+          {locale}
+          theme={resolvedTheme}
+          {copy}
+          isMaximized={inspectorMaximized}
+          onToggleMaximize={() => {
+            inspectorMaximized = !inspectorMaximized;
+          }}
+          onClose={() => {
+            inspectorMaximized = false;
+            closeInspector();
+          }}
+          motionClosing={inspectorClosing}
+          onMotionEnd={finishInspectorClose}
+        />
+      {/if}
+      {#if durablePanelVisible && inspector?.kind === "durable-execution"}
+        <DurableExecutionInspector
+          endpoint={connectedEndpoint}
+          executionId={inspector.executionId}
+          {copy}
+          onClose={closeInspector}
+          motionClosing={inspectorClosing}
+          onMotionEnd={finishInspectorClose}
+          onRequestFeedback={() => {
+            closeInspector();
+            focusComposerAtEnd();
+          }}
+          onChanged={() => {
+            void refreshDurableExecutions();
+            void chatStore.reloadActive();
+            void projectChatStore.reloadActive();
+          }}
+        />
+      {/if}
+
+      {#if inspector?.kind === "session-plan"}
+        <SessionPlanInspector
+          {copy}
+          onClose={closeInspector}
+          motionClosing={inspectorClosing}
+          onMotionEnd={finishInspectorClose}
+        />
+      {/if}
+    </div>
   {/if}
 
-  {#if inspector?.kind === "session-plan"}
-    <SessionPlanInspector
-      {copy}
-      onClose={closeInspector}
-      motionClosing={inspectorClosing}
-      onMotionEnd={finishInspectorClose}
-    />
-  {/if}
-
-  </div>
-  {/if}
-
-    <ConversationBrowserDialog
-      endpoint={connectedEndpoint}
-      drawer
-      open={historyDrawerOpen}
-      {locale}
-      agentId={historyDrawerAgentId}
-      activeSessionId={contextSessionId ?? ""}
-      includeArchived={true}
-      onDeleted={() => { void refreshAgentSessions().catch(cause => error = String(cause)); }}
-      onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
-      labels={{
-        search: copy.searchConversations,
-        searchEmpty: copy.searchEmpty,
-        loading: copy.loading,
-        loadMore: copy.loadMore,
-        empty: copy.noConversations,
-        close: copy.closePanel,
-        all: copy.searchScopeAll,
-        web: copy.channelWeb,
-        project: copy.projects,
-        channels: copy.searchScopeChannels,
-        allChannels: copy.searchScopeAllChannels,
-        scopeFilter: copy.searchScopeFilter,
-        clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
-        telegram: copy.channelTelegram,
-        feishu: copy.channelFeishu,
-        qq: copy.channelQq,
-        weixin: copy.channelWeixin,
-        unknownBot: copy.unknownBot
-      }}
-      formatTime={formatListTime}
-      onSelect={(item) => void openSearchResult(item)}
-      onClose={() => historyDrawerOpen = false}
-      onCloseAutoFocus={restoreHistoryFocus}
-    />
+  <ConversationBrowserDialog
+    endpoint={connectedEndpoint}
+    drawer
+    open={historyDrawerOpen}
+    {locale}
+    agentId={historyDrawerAgentId}
+    activeSessionId={contextSessionId ?? ""}
+    includeArchived={true}
+    onDeleted={() => {
+      void refreshAgentSessions().catch((cause) => (error = String(cause)));
+    }}
+    onCopyPath={copySessionPath}
+    onRevealInFinder={revealSessionInFinder}
+    labels={{
+      search: copy.searchConversations,
+      searchEmpty: copy.searchEmpty,
+      loading: copy.loading,
+      loadMore: copy.loadMore,
+      empty: copy.noConversations,
+      close: copy.closePanel,
+      all: copy.searchScopeAll,
+      web: copy.channelWeb,
+      project: copy.projects,
+      channels: copy.searchScopeChannels,
+      allChannels: copy.searchScopeAllChannels,
+      scopeFilter: copy.searchScopeFilter,
+      clearSearch: `${copy.channelQrClear} ${copy.search}`.trim(),
+      telegram: copy.channelTelegram,
+      feishu: copy.channelFeishu,
+      qq: copy.channelQq,
+      weixin: copy.channelWeixin,
+      unknownBot: copy.unknownBot,
+    }}
+    formatTime={formatListTime}
+    onSelect={(item) => void openSearchResult(item)}
+    onClose={() => (historyDrawerOpen = false)}
+    onCloseAutoFocus={restoreHistoryFocus}
+  />
 
   <ConversationBrowserDialog
     endpoint={connectedEndpoint}
     open={browserOpen}
     agentId={historyAgentId}
     includeArchived={true}
-    onCopyPath={copySessionPath} onRevealInFinder={revealSessionInFinder}
+    onCopyPath={copySessionPath}
+    onRevealInFinder={revealSessionInFinder}
     labels={{
       search: copy.searchConversations,
       searchEmpty: copy.searchEmpty,
@@ -4937,7 +7089,7 @@
       feishu: copy.channelFeishu,
       qq: copy.channelQq,
       weixin: copy.channelWeixin,
-      unknownBot: copy.unknownBot
+      unknownBot: copy.unknownBot,
     }}
     formatTime={formatListTime}
     onSelect={(item) => void openSearchResult(item)}
@@ -4945,16 +7097,31 @@
   />
 
   {#if showOnboarding}
-    <div class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+    <div
+      class="onboarding-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+    >
       <div class="onboarding-card">
         <h2 id="onboarding-title">{onboardingTitle}</h2>
         <p class="onboarding-hint">{onboardingHint}</p>
 
         {#if onboardingIsGuided}
-          <p class="onboarding-step-of">{onboardingStepOfText} · {onboardingStepLabels[onboardingStep]}</p>
+          <p class="onboarding-step-of">
+            {onboardingStepOfText} · {onboardingStepLabels[onboardingStep]}
+          </p>
           <ol class="onboarding-steps">
             {#each ONBOARDING_STEPS as step, i (step)}
-              <li class:active={i === onboardingStepIndex} class:done={i < onboardingStepIndex}>{#if i < onboardingStepIndex}<CheckCircle size={14} aria-hidden="true" />{/if}{onboardingStepLabels[step]}</li>
+              <li
+                class:active={i === onboardingStepIndex}
+                class:done={i < onboardingStepIndex}
+              >
+                {#if i < onboardingStepIndex}<CheckCircle
+                    size={14}
+                    aria-hidden="true"
+                  />{/if}{onboardingStepLabels[step]}
+              </li>
             {/each}
           </ol>
 
@@ -4962,76 +7129,194 @@
             <p class="onboarding-hint">{copy.onboardingProviderHint}</p>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderName}</span>
-              <input type="text" bind:value={providerDraft.name} autocomplete="off" placeholder="My Provider…" />
+              <input
+                type="text"
+                bind:value={providerDraft.name}
+                autocomplete="off"
+                placeholder="My Provider…"
+              />
               {#if providerValidation.errors.some((e) => e.field === "name")}
-                <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "name")?.message}</small>
+                <small class="onboarding-error"
+                  >{providerValidation.errors.find((e) => e.field === "name")
+                    ?.message}</small
+                >
               {/if}
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderProtocol}</span>
-              <SelectControl value={providerDraft.protocol} ariaLabel={copy.onboardingProviderProtocol} options={[{ value: "openai-compatible", label: copy.protocolOpenaiCompatible }, { value: "anthropic", label: copy.protocolAnthropic }]} onChange={(value) => providerDraft.protocol = value as typeof providerDraft.protocol} />
+              <SelectControl
+                value={providerDraft.protocol}
+                ariaLabel={copy.onboardingProviderProtocol}
+                options={[
+                  {
+                    value: "openai-compatible",
+                    label: copy.protocolOpenaiCompatible,
+                  },
+                  { value: "anthropic", label: copy.protocolAnthropic },
+                ]}
+                onChange={(value) =>
+                  (providerDraft.protocol =
+                    value as typeof providerDraft.protocol)}
+              />
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderBaseUrl}</span>
-              <input type="text" bind:value={providerDraft.baseUrl} autocomplete="off" spellcheck="false" placeholder="https://api.example.com/v1…" />
+              <input
+                type="text"
+                bind:value={providerDraft.baseUrl}
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="https://api.example.com/v1…"
+              />
               {#if providerValidation.errors.some((e) => e.field === "baseUrl")}
-                <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "baseUrl")?.message}</small>
+                <small class="onboarding-error"
+                  >{providerValidation.errors.find((e) => e.field === "baseUrl")
+                    ?.message}</small
+                >
               {/if}
             </label>
             <div class="onboarding-model-registry">
               <div class="onboarding-model-toolbar">
                 <strong>{copy.providerModelRegistry}</strong>
-                <button type="button" class="secondary-button" disabled={providerSubmitted} onclick={addOnboardingProviderModel}>{copy.providerAddModel}</button>
+                <button
+                  type="button"
+                  class="secondary-button"
+                  disabled={providerSubmitted}
+                  onclick={addOnboardingProviderModel}
+                  >{copy.providerAddModel}</button
+                >
               </div>
               {#each onboardingProviderModels as model, index (index)}
                 <div class="onboarding-model-card">
                   <div class="onboarding-model-fields">
                     <label class="onboarding-field">
                       <span>{copy.providerModelId}</span>
-                      <input type="text" value={model.id} disabled={providerSubmitted} autocomplete="off" spellcheck="false" placeholder="gpt-4o…" oninput={(event) => updateOnboardingProviderModel(index, { id: event.currentTarget.value })} />
+                      <input
+                        type="text"
+                        value={model.id}
+                        disabled={providerSubmitted}
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="gpt-4o…"
+                        oninput={(event) =>
+                          updateOnboardingProviderModel(index, {
+                            id: event.currentTarget.value,
+                          })}
+                      />
                     </label>
                     <label class="onboarding-field onboarding-context-field">
                       <span>{copy.providerModelContext}</span>
-                      <input type="number" min="1" value={model.contextWindow ?? ""} disabled={providerSubmitted} autocomplete="off" placeholder="128000…" oninput={(event) => { const value = Number(event.currentTarget.value); updateOnboardingProviderModel(index, { contextWindow: Number.isFinite(value) && value > 0 ? value : undefined }); }} />
+                      <input
+                        type="number"
+                        min="1"
+                        value={model.contextWindow ?? ""}
+                        disabled={providerSubmitted}
+                        autocomplete="off"
+                        placeholder="128000…"
+                        oninput={(event) => {
+                          const value = Number(event.currentTarget.value);
+                          updateOnboardingProviderModel(index, {
+                            contextWindow:
+                              Number.isFinite(value) && value > 0
+                                ? value
+                                : undefined,
+                          });
+                        }}
+                      />
                     </label>
                   </div>
-                  <div class="onboarding-model-tags" aria-label={copy.providerModelTags}>
+                  <div
+                    class="onboarding-model-tags"
+                    aria-label={copy.providerModelTags}
+                  >
                     {#each onboardingProviderTags as tag (tag)}
-                      <button type="button" class:active={model.tags.includes(tag)} disabled={providerSubmitted} onclick={() => toggleOnboardingProviderTag(index, tag)}>{tag}</button>
+                      <button
+                        type="button"
+                        class:active={model.tags.includes(tag)}
+                        disabled={providerSubmitted}
+                        onclick={() => toggleOnboardingProviderTag(index, tag)}
+                        >{tag}</button
+                      >
                     {/each}
                   </div>
-                  <button type="button" class="onboarding-model-remove" disabled={providerSubmitted} onclick={() => removeOnboardingProviderModel(index)}>{copy.providerModelRemove}</button>
+                  <button
+                    type="button"
+                    class="onboarding-model-remove"
+                    disabled={providerSubmitted}
+                    onclick={() => removeOnboardingProviderModel(index)}
+                    >{copy.providerModelRemove}</button
+                  >
                 </div>
               {/each}
               {#if providerValidation.errors.some((e) => e.field === "model")}
-                <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "model")?.message}</small>
+                <small class="onboarding-error"
+                  >{providerValidation.errors.find((e) => e.field === "model")
+                    ?.message}</small
+                >
               {/if}
             </div>
             <label class="onboarding-field">
               <span>{copy.onboardingProviderApiKey}</span>
-              <input type="password" value={providerApiKeyInput} oninput={onApiKeyInput} placeholder="sk-…" autocomplete="new-password" spellcheck="false" />
-              <small>{providerDraft.apiKeyPresent ? copy.onboardingProviderApiKeyEntered : copy.onboardingProviderApiKeyEmpty}</small>
+              <input
+                type="password"
+                value={providerApiKeyInput}
+                oninput={onApiKeyInput}
+                placeholder="sk-…"
+                autocomplete="new-password"
+                spellcheck="false"
+              />
+              <small
+                >{providerDraft.apiKeyPresent
+                  ? copy.onboardingProviderApiKeyEntered
+                  : copy.onboardingProviderApiKeyEmpty}</small
+              >
               {#if providerValidation.errors.some((e) => e.field === "apiKeyPresent")}
-                <small class="onboarding-error">{providerValidation.errors.find((e) => e.field === "apiKeyPresent")?.message}</small>
+                <small class="onboarding-error"
+                  >{providerValidation.errors.find(
+                    (e) => e.field === "apiKeyPresent",
+                  )?.message}</small
+                >
               {/if}
             </label>
             <div class="onboarding-actions onboarding-provider-actions">
-              <button type="button" class="secondary-button" disabled={!providerValidation.valid || providerSubmitting || providerSubmitted} onclick={saveOnboardingProvider}>
-                {providerSubmitting ? copy.onboardingProviderSaving : providerSubmitted ? copy.onboardingProviderSaved : copy.onboardingProviderSave}
+              <button
+                type="button"
+                class="secondary-button"
+                disabled={!providerValidation.valid ||
+                  providerSubmitting ||
+                  providerSubmitted}
+                onclick={saveOnboardingProvider}
+              >
+                {providerSubmitting
+                  ? copy.onboardingProviderSaving
+                  : providerSubmitted
+                    ? copy.onboardingProviderSaved
+                    : copy.onboardingProviderSave}
               </button>
               {#if providerSubmitted}
-                <button type="button" class="secondary-button" disabled={providerTesting} onclick={testOnboardingProvider}>
-                  {providerTesting ? copy.onboardingProviderTesting : copy.onboardingProviderTest}
+                <button
+                  type="button"
+                  class="secondary-button"
+                  disabled={providerTesting}
+                  onclick={testOnboardingProvider}
+                >
+                  {providerTesting
+                    ? copy.onboardingProviderTesting
+                    : copy.onboardingProviderTest}
                 </button>
               {/if}
             </div>
             {#if providerSubmitError}
-              <p class="onboarding-error">{copy.onboardingProviderSaveError}: {providerSubmitError}</p>
+              <p class="onboarding-error">
+                {copy.onboardingProviderSaveError}: {providerSubmitError}
+              </p>
             {/if}
             {#if providerTestResult === "ok"}
               <p class="health-check-status">{copy.onboardingProviderTestOk}</p>
             {:else if providerTestResult === "fail"}
-              <p class="onboarding-error">{copy.onboardingProviderTestFail}: {providerTestError}</p>
+              <p class="onboarding-error">
+                {copy.onboardingProviderTestFail}: {providerTestError}
+              </p>
             {/if}
           {:else if onboardingStep === "agent"}
             <p class="onboarding-hint">{copy.onboardingAgentHint}</p>
@@ -5042,14 +7327,37 @@
             {:else}
               <label class="onboarding-field">
                 <span>{copy.profile}</span>
-                <SelectControl value={onboardingProfileId} ariaLabel={copy.profile} options={onboardingProfiles.map((profile) => ({ value: profile.id, label: profile.name }))} onChange={changeOnboardingProfile} />
+                <SelectControl
+                  value={onboardingProfileId}
+                  ariaLabel={copy.profile}
+                  options={onboardingProfiles.map((profile) => ({
+                    value: profile.id,
+                    label: profile.name,
+                  }))}
+                  onChange={changeOnboardingProfile}
+                />
               </label>
               <label class="onboarding-field">
                 <span>{copy.onboardingStepAgent}</span>
-                <SelectControl value={onboardingAgentId} ariaLabel={copy.onboardingStepAgent} options={onboardingEnabledAgents.map((agent) => ({ value: agent.id, label: agent.name }))} onChange={changeOnboardingAgent} />
+                <SelectControl
+                  value={onboardingAgentId}
+                  ariaLabel={copy.onboardingStepAgent}
+                  options={onboardingEnabledAgents.map((agent) => ({
+                    value: agent.id,
+                    label: agent.name,
+                  }))}
+                  onChange={changeOnboardingAgent}
+                />
               </label>
-              <button type="button" class="secondary-button" disabled={!onboardingAgentCanConfirm} onclick={confirmOnboardingAgent}>
-                {onboardingAgentSaving ? copy.onboardingAgentSaving : copy.onboardingAgentConfirm}
+              <button
+                type="button"
+                class="secondary-button"
+                disabled={!onboardingAgentCanConfirm}
+                onclick={confirmOnboardingAgent}
+              >
+                {onboardingAgentSaving
+                  ? copy.onboardingAgentSaving
+                  : copy.onboardingAgentConfirm}
               </button>
               {#if onboardingAgentSaved}
                 <p class="health-check-status">{copy.onboardingAgentSaved}</p>
@@ -5061,17 +7369,44 @@
             <p class="onboarding-hint">{copy.onboardingPersonalizationHint}</p>
             <label class="onboarding-field">
               <span>{copy.onboardingUserName}</span>
-              <input type="text" bind:value={onboardingUserName} autocomplete="off" placeholder={copy.onboardingUserNamePlaceholder} />
+              <input
+                type="text"
+                bind:value={onboardingUserName}
+                autocomplete="off"
+                placeholder={copy.onboardingUserNamePlaceholder}
+              />
             </label>
             <label class="onboarding-field">
               <span>{copy.onboardingAiStyle}</span>
-              <SelectControl value={onboardingAiStyle} ariaLabel={copy.onboardingAiStyle} options={[{ value: "concise", label: copy.onboardingAiStyleConcise }, { value: "patient", label: copy.onboardingAiStylePatient }, { value: "rigorous", label: copy.onboardingAiStyleRigorous }, { value: "natural", label: copy.onboardingAiStyleNatural }]} onChange={(value) => onboardingAiStyle = value as typeof onboardingAiStyle} />
+              <SelectControl
+                value={onboardingAiStyle}
+                ariaLabel={copy.onboardingAiStyle}
+                options={[
+                  { value: "concise", label: copy.onboardingAiStyleConcise },
+                  { value: "patient", label: copy.onboardingAiStylePatient },
+                  { value: "rigorous", label: copy.onboardingAiStyleRigorous },
+                  { value: "natural", label: copy.onboardingAiStyleNatural },
+                ]}
+                onChange={(value) =>
+                  (onboardingAiStyle = value as typeof onboardingAiStyle)}
+              />
             </label>
-            <button type="button" class="secondary-button" disabled={onboardingPersonalizationSaving || !onboardingAgentId} onclick={saveOnboardingPersonalization}>
-              {onboardingPersonalizationSaving ? copy.onboardingProviderSaving : onboardingPersonalizationSaved ? copy.onboardingPersonalizationSaved : copy.onboardingPersonalizationSave}
+            <button
+              type="button"
+              class="secondary-button"
+              disabled={onboardingPersonalizationSaving || !onboardingAgentId}
+              onclick={saveOnboardingPersonalization}
+            >
+              {onboardingPersonalizationSaving
+                ? copy.onboardingProviderSaving
+                : onboardingPersonalizationSaved
+                  ? copy.onboardingPersonalizationSaved
+                  : copy.onboardingPersonalizationSave}
             </button>
             {#if onboardingPersonalizationSaved}
-              <p class="health-check-status">{copy.onboardingPersonalizationSaved}</p>
+              <p class="health-check-status">
+                {copy.onboardingPersonalizationSaved}
+              </p>
             {:else if onboardingPersonalizationError}
               <p class="onboarding-error">{onboardingPersonalizationError}</p>
             {/if}
@@ -5094,7 +7429,8 @@
                   try {
                     onboardingLaunchChoice = await setLaunchAtLogin(checked);
                   } catch (cause) {
-                    onboardingLaunchError = cause instanceof Error ? cause.message : String(cause);
+                    onboardingLaunchError =
+                      cause instanceof Error ? cause.message : String(cause);
                     onboardingLaunchTouched = false;
                   } finally {
                     onboardingLaunchChanging = false;
@@ -5102,7 +7438,11 @@
                 }}
               />
             </div>
-            <p class="health-check-status">{onboardingLaunchChoice ? copy.onboardingLaunchEnabled : copy.onboardingLaunchDisabled}</p>
+            <p class="health-check-status">
+              {onboardingLaunchChoice
+                ? copy.onboardingLaunchEnabled
+                : copy.onboardingLaunchDisabled}
+            </p>
             {#if onboardingLaunchError}
               <p class="onboarding-error">{onboardingLaunchError}</p>
             {/if}
@@ -5115,59 +7455,126 @@
                 {#each onboardingChannels.rows as row (row.channel)}
                   <li>
                     <span>{row.channel}</span>
-                    <span class="diag-value">{copy.channelsEnabledOfTotal.replace("{enabled}", String(row.enabled)).replace("{total}", String(row.total))}</span>
+                    <span class="diag-value"
+                      >{copy.channelsEnabledOfTotal
+                        .replace("{enabled}", String(row.enabled))
+                        .replace("{total}", String(row.total))}</span
+                    >
                   </li>
                 {/each}
               </ul>
             {/if}
-            <p class="health-check-status">{copy.onboardingChannelsConnected.replace("{count}", String(onboardingChannels.connectedCount))}</p>
+            <p class="health-check-status">
+              {copy.onboardingChannelsConnected.replace(
+                "{count}",
+                String(onboardingChannels.connectedCount),
+              )}
+            </p>
             <p class="onboarding-deferred">{copy.onboardingChannelsManage}</p>
           {:else if onboardingStep === "diagnostics"}
             <p class="onboarding-hint">{copy.onboardingDiagnosticsHint}</p>
             <ul class="onboarding-channels">
               <li>
                 <span>{copy.onboardingDiagnosticsService}</span>
-                <span class="diag-value">{onboardingDiagnostics.serviceReady ? copy.healthCheckReady : copy.healthCheckNotReady}</span>
+                <span class="diag-value"
+                  >{onboardingDiagnostics.serviceReady
+                    ? copy.healthCheckReady
+                    : copy.healthCheckNotReady}</span
+                >
               </li>
               <li>
                 <span>{copy.runtimeEnv}</span>
-                <span class="diag-value">{copy.onboardingDiagnosticsDeps.replace("{installed}", String(onboardingDiagnostics.depsInstalled)).replace("{total}", String(onboardingDiagnostics.depsTotal))}</span>
+                <span class="diag-value"
+                  >{copy.onboardingDiagnosticsDeps
+                    .replace(
+                      "{installed}",
+                      String(onboardingDiagnostics.depsInstalled),
+                    )
+                    .replace(
+                      "{total}",
+                      String(onboardingDiagnostics.depsTotal),
+                    )}</span
+                >
               </li>
             </ul>
             {#if onboardingDiagnostics.missingDependencyNames.length > 0}
-              <p class="health-check-status">{copy.onboardingDiagnosticsMissing.replace("{names}", onboardingDiagnostics.missingDependencyNames.join(", "))}</p>
+              <p class="health-check-status">
+                {copy.onboardingDiagnosticsMissing.replace(
+                  "{names}",
+                  onboardingDiagnostics.missingDependencyNames.join(", "),
+                )}
+              </p>
             {/if}
-            <p class="onboarding-deferred">{copy.onboardingDiagnosticsManage}</p>
+            <p class="onboarding-deferred">
+              {copy.onboardingDiagnosticsManage}
+            </p>
           {:else}
             <p class="onboarding-hint">{copy.onboardingProviderHint}</p>
-            <p class="onboarding-deferred">{copy.onboardingProviderSubmitDeferred}</p>
+            <p class="onboarding-deferred">
+              {copy.onboardingProviderSubmitDeferred}
+            </p>
           {/if}
         {/if}
 
         {#if onboardingMode === "usable"}
-          <div class="health-check-card" data-ready={onboardingHealthCheck.ready}>
+          <div
+            class="health-check-card"
+            data-ready={onboardingHealthCheck.ready}
+          >
             <ul class="health-check-lines">
               {#each onboardingHealthCheck.lines as line}
                 <li>{line}</li>
               {/each}
             </ul>
-            <p class="health-check-status">{onboardingHealthCheck.ready ? copy.healthCheckReady : copy.healthCheckNotReady}</p>
+            <p class="health-check-status">
+              {onboardingHealthCheck.ready
+                ? copy.healthCheckReady
+                : copy.healthCheckNotReady}
+            </p>
           </div>
         {/if}
 
         <div class="onboarding-actions">
           {#if onboardingIsGuided && onboardingStepIndex > 0}
-            <button type="button" class="secondary-button" onclick={prevOnboardingStep}>{copy.onboardingBack}</button>
+            <button
+              type="button"
+              class="secondary-button"
+              onclick={prevOnboardingStep}>{copy.onboardingBack}</button
+            >
           {/if}
-          <button type="button" class="secondary-button" onclick={() => openSettings()}>{copy.openSettings}</button>
+          <button
+            type="button"
+            class="secondary-button"
+            onclick={() => openSettings()}>{copy.openSettings}</button
+          >
           {#if onboardingMode === "usable"}
-            <button type="button" class="primary-button" onclick={dismissOnboarding}>{copy.onboardingContinue}</button>
+            <button
+              type="button"
+              class="primary-button"
+              onclick={dismissOnboarding}>{copy.onboardingContinue}</button
+            >
           {:else if onboardingIsGuided && onboardingStepIndex < ONBOARDING_STEPS.length - 1}
-            <button type="button" class="primary-button" disabled={(onboardingStep === "provider" && !providerSubmitted) || (onboardingStep === "agent" && !onboardingAgentSaved) || (onboardingStep === "personalization" && !onboardingPersonalizationSaved)} onclick={nextOnboardingStep}>{copy.onboardingNext}</button>
+            <button
+              type="button"
+              class="primary-button"
+              disabled={(onboardingStep === "provider" && !providerSubmitted) ||
+                (onboardingStep === "agent" && !onboardingAgentSaved) ||
+                (onboardingStep === "personalization" &&
+                  !onboardingPersonalizationSaved)}
+              onclick={nextOnboardingStep}>{copy.onboardingNext}</button
+            >
           {:else}
-            <button type="button" class="primary-button" onclick={dismissOnboarding}>{copy.onboardingFinish}</button>
+            <button
+              type="button"
+              class="primary-button"
+              onclick={dismissOnboarding}>{copy.onboardingFinish}</button
+            >
           {/if}
-          <button type="button" class="secondary-button" onclick={dismissOnboarding}>{copy.onboardingDontShowAgain}</button>
+          <button
+            type="button"
+            class="secondary-button"
+            onclick={dismissOnboarding}>{copy.onboardingDontShowAgain}</button
+          >
         </div>
       </div>
     </div>
@@ -5175,11 +7582,17 @@
 </main>
 
 {#if previewFile && previewUrl}
-  <div class="preview-overlay" role="dialog" aria-modal="true" aria-label={previewFile.original}>
+  <div
+    class="preview-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-label={previewFile.original}
+  >
     <div class="preview-card">
       <header>
         <strong title={previewFile.original}>{previewFile.original}</strong>
-        <button type="button" onclick={closePreview}>{copy.closePreview}</button>
+        <button type="button" onclick={closePreview}>{copy.closePreview}</button
+        >
       </header>
       <div class="preview-body">
         {#if previewFile.mediaType === "image"}
@@ -5188,7 +7601,11 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <video src={previewUrl} controls></video>
         {:else if previewFile.mediaType === "audio"}
-          <AudioPlayer src={previewUrl} title={previewFile.original} labels={copy} />
+          <AudioPlayer
+            src={previewUrl}
+            title={previewFile.original}
+            labels={copy}
+          />
         {/if}
       </div>
     </div>
@@ -5200,14 +7617,36 @@
     trace={memoryTrace}
     loading={memoryTraceLoading}
     error={memoryTraceError}
-    copy={copy}
+    {copy}
     recordedMemoryIds={memoryTraceFeedback}
     onClose={closeMemoryTrace}
     onRetry={() => void openMemoryTrace(memoryTraceId)}
-    onFeedback={(memoryId, value) => void submitMemoryTraceFeedback(memoryId, value)}
-    onManageMemory={(memoryId) => { localStorage.setItem("molibot-desktop-memory-focus", memoryId); closeMemoryTrace(); openSettings("memory"); }}
+    onFeedback={(memoryId, value) =>
+      void submitMemoryTraceFeedback(memoryId, value)}
+    onManageMemory={(memoryId) => {
+      localStorage.setItem("molibot-desktop-memory-focus", memoryId);
+      closeMemoryTrace();
+      openSettings("memory");
+    }}
     {onHapticCommit}
   />
 {/if}
 
-<PiExtensionTerminalPanel onAttention={items => piAttentionItems = items} endpoint={connectedEndpoint ?? ""} connected={serviceState === "ready"} {locale} sessionId={projectPaneActive ? activeProjectSessionId ?? "" : viewMode === "external" ? activeExternalSessionId ?? "" : activeSessionId ?? ""} visible={!settingsVisible && workspacePane === "chat" && !draftMode && !agentFilesActive && !agentHistoryActive && !roomPaneActive} />
+<PiExtensionTerminalPanel
+  onAttention={(items) => (piAttentionItems = items)}
+  endpoint={connectedEndpoint ?? ""}
+  connected={serviceState === "ready"}
+  {locale}
+  sessionId={projectPaneActive
+    ? (activeProjectSessionId ?? "")
+    : viewMode === "external"
+      ? (activeExternalSessionId ?? "")
+      : (activeSessionId ?? "")}
+  visible={!settingsVisible &&
+    workspacePane === "chat" &&
+    !draftMode &&
+    !agentFilesActive &&
+    !agentHistoryActive &&
+    !agentNotificationsActive &&
+    !roomPaneActive}
+/>

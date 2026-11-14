@@ -33,6 +33,7 @@ import { sanitizeToolSandboxSettings } from "$lib/server/settings/toolSandbox.js
 import {
   RESERVED_PLUGIN_KEYS,
   sanitizeChannelInstanceDisplaySettings,
+  sanitizeChannelInstanceIdleCompactionSettings,
   sanitizeHookPluginEntries,
   sanitizeImageGenerateSettings as sanitizeImageGenerateConfig,
   sanitizeImageRecognitionSettings,
@@ -119,6 +120,7 @@ interface RawSettings {
       enabled?: boolean | string;
       backend?: string;
       core?: string;
+      idleExtractionMinutes?: number | string;
       reflectionTime?: string;
       reflectionNotifications?: boolean;
       reflectionNotificationTarget?: unknown;
@@ -879,6 +881,7 @@ function sanitizeChannels(
         const credentialsSource = item.credentials && typeof item.credentials === "object"
           ? item.credentials as Record<string, unknown>
           : {};
+        const idleCompaction = sanitizeChannelInstanceIdleCompactionSettings(item.idleCompaction, key);
         return {
           id,
           name: String(item.name ?? "").trim() || id,
@@ -891,7 +894,8 @@ function sanitizeChannels(
           ),
           allowedChatIds: sanitizeList(item.allowedChatIds),
           permissionMode: PERMISSION_MODES.includes(item.permissionMode as PermissionMode) ? (item.permissionMode as PermissionMode) : undefined,
-          display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined
+          display: item.display ? sanitizeChannelInstanceDisplaySettings(item.display) : undefined,
+          ...(idleCompaction ? { idleCompaction } : {})
         };
       })
       .filter(Boolean) as ChannelSettingsMap[string]["instances"];
@@ -1288,6 +1292,7 @@ export class SettingsStore {
         allowed_chat_ids_json TEXT NOT NULL,
         permission_mode TEXT,
         display_json TEXT,
+        idle_compaction_json TEXT,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (channel_key, id)
       );
@@ -1399,6 +1404,11 @@ export class SettingsStore {
     }
     try {
       db.exec("ALTER TABLE settings_channel_instances ADD COLUMN display_json TEXT");
+    } catch {
+      // column already exists
+    }
+    try {
+      db.exec("ALTER TABLE settings_channel_instances ADD COLUMN idle_compaction_json TEXT");
     } catch {
       // column already exists
     }
@@ -1626,7 +1636,7 @@ export class SettingsStore {
       }));
 
       const channelRows = db.prepare(`
-        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, permission_mode, display_json
+        SELECT channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, permission_mode, display_json, idle_compaction_json
         FROM settings_channel_instances
         ORDER BY channel_key ASC, id ASC
       `).all() as Array<{
@@ -1639,9 +1649,14 @@ export class SettingsStore {
         allowed_chat_ids_json: string;
         permission_mode: string | null;
         display_json: string | null;
+        idle_compaction_json: string | null;
       }>;
       const channels: ChannelSettingsMap = {};
       for (const row of channelRows) {
+        const idleCompaction = sanitizeChannelInstanceIdleCompactionSettings(
+          row.idle_compaction_json ? this.parseDynamicValue(row.idle_compaction_json, undefined) : undefined,
+          row.channel_key
+        );
         channels[row.channel_key] = channels[row.channel_key] ?? { instances: [] };
         channels[row.channel_key].instances.push({
           id: row.id,
@@ -1651,7 +1666,8 @@ export class SettingsStore {
           credentials: this.parseDynamicValue(row.credentials_json, {}),
           allowedChatIds: this.parseDynamicValue(row.allowed_chat_ids_json, []),
           permissionMode: PERMISSION_MODES.includes(row.permission_mode as PermissionMode) ? (row.permission_mode as PermissionMode) : undefined,
-          display: row.display_json ? this.parseDynamicValue(row.display_json, undefined) : undefined
+          display: row.display_json ? this.parseDynamicValue(row.display_json, undefined) : undefined,
+          ...(idleCompaction ? { idleCompaction } : {})
         });
       }
 
@@ -1877,11 +1893,12 @@ export class SettingsStore {
         db.exec("DELETE FROM settings_channel_instances");
         const insertChannel = db.prepare(`
           INSERT INTO settings_channel_instances
-            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, permission_mode, display_json, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (channel_key, id, name, enabled, agent_id, credentials_json, allowed_chat_ids_json, permission_mode, display_json, idle_compaction_json, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const [channelKey, channel] of Object.entries(settings.channels ?? {})) {
           for (const instance of channel.instances ?? []) {
+            const idleCompaction = sanitizeChannelInstanceIdleCompactionSettings(instance.idleCompaction, channelKey);
             insertChannel.run(
               channelKey,
               instance.id,
@@ -1892,6 +1909,7 @@ export class SettingsStore {
               JSON.stringify(instance.allowedChatIds ?? []),
               instance.permissionMode ?? null,
               instance.display ? JSON.stringify(instance.display) : null,
+              idleCompaction ? JSON.stringify(idleCompaction) : null,
               now
             );
           }

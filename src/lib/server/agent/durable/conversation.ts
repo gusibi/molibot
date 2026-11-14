@@ -13,6 +13,8 @@ import { storagePaths } from "$lib/server/infra/db/storage.js";
 import type { DurableExecution, PlanBinding } from "./types.js";
 import { publishLiveConversation, type LiveConversationMessage } from "./liveResponse.js";
 import { projectConversationMessages } from "$lib/server/app/conversationProjection.js";
+import type { HomeNotificationStore } from "$lib/server/app/homeNotifications.js";
+import { recordSessionCompletedHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
 import { momWarn } from "$lib/server/agent/common/log.js";
 
 interface LiveResponse {
@@ -48,11 +50,13 @@ function responseActivityKey(executionId: string, round?: number): string {
 export function liveResponseMessage(row: UiMessageMetadata, snapshot = row.liveResponse): LiveConversationMessage {
   const content = snapshot?.text ?? row.content ?? "";
   const thinking = snapshot?.thinking ?? row.thinking;
-  return { ...row, content, thinking, stopReason: "running", resultKind: content ? "partial" : "none", steps: [
-    ...(thinking ? [{ id: `${row.id}-thinking`, kind: "thinking" as const, content: thinking }] : []),
-    ...(row.activities ?? []).map(activity => ({ id: `${row.id}-${activity.key}`, kind: "activity" as const, activity })),
-    ...(content ? [{ id: `${row.id}-text`, kind: "result" as const, content }] : [])
-  ] };
+  return {
+    ...row, content, thinking, stopReason: "running", resultKind: content ? "partial" : "none", steps: [
+      ...(thinking ? [{ id: `${row.id}-thinking`, kind: "thinking" as const, content: thinking }] : []),
+      ...(row.activities ?? []).map(activity => ({ id: `${row.id}-${activity.key}`, kind: "activity" as const, activity })),
+      ...(content ? [{ id: `${row.id}-text`, kind: "result" as const, content }] : [])
+    ]
+  };
 }
 
 export function currentLiveConversationMessages(sessionId?: string): LiveConversationMessage[] {
@@ -172,7 +176,8 @@ export function persistDurableConversationInput(store: MomRuntimeStore, sessions
 /** A committed result can be delivered again after a crash without duplicating the answer. */
 export function deliverDurableAttempt(
   sessions: SessionStore,
-  input: DurableAttemptDelivery
+  input: DurableAttemptDelivery,
+  homeNotifications?: HomeNotificationStore
 ): void {
   const id = input.sessionId;
   const project = sessions.getConversationProjectId(id);
@@ -192,12 +197,12 @@ export function deliverDurableAttempt(
     const rawUsage = input.meta?.usage;
     const persistedUsage = rawUsage
       ? {
-          input: rawUsage.inputTokens,
-          output: rawUsage.outputTokens,
-          cacheRead: rawUsage.cacheReadTokens,
-          cacheWrite: rawUsage.cacheWriteTokens,
-          totalTokens: rawUsage.totalTokens
-        }
+        input: rawUsage.inputTokens,
+        output: rawUsage.outputTokens,
+        cacheRead: rawUsage.cacheReadTokens,
+        cacheWrite: rawUsage.cacheWriteTokens,
+        totalTokens: rawUsage.totalTokens
+      }
       : zeroAssistantUsage();
     store.appendContextMessage(chatId, {
       role: "assistant",
@@ -240,4 +245,20 @@ export function deliverDurableAttempt(
     const message = projected.messages.find(message => message.id === response.id);
     if (message) publishLiveConversation(message);
   } else sessions.appendMessage(id, "assistant", input.text, { sourceEntryId, contextBacked: true, retention });
+  if (homeNotifications) {
+    try {
+      const sessionTitle = (target.title || input.execution.goal || "").replace(/\s+/g, " ").trim().slice(0, 100);
+      recordSessionCompletedHomeNotification(homeNotifications, {
+        sessionId: id,
+        title: sessionTitle,
+        preview: input.text,
+        agentId: target.agentId ?? "default",
+        botId: input.execution.botId,
+        projectId: project || undefined,
+        channel: target.channel || "web"
+      });
+    } catch {
+      // Notification recording must not fail durable attempt delivery.
+    }
+  }
 }

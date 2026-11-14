@@ -419,3 +419,123 @@ test("one unreadable Session fails without preventing extraction of its siblings
   assert.equal(h.store.get("session-1")?.processedThroughId, "");
   assert.equal(h.store.get("session-2")?.processedThroughId, "a");
 });
+
+test("daily sweep aggregates daytime idle extractions within 24 hours alongside fallback extractions and ignores older idle history", async () => {
+  let clock = new Date("2026-10-24T12:00:00.000Z");
+  const sessions = [
+    session({ conversationId: "old-idle", lastActivityAt: "2026-10-24T11:58:00.000Z", updatedAt: "2026-10-24T11:58:00.000Z" }),
+    session({ conversationId: "day-idle", lastActivityAt: "2026-10-25T10:00:00.000Z", updatedAt: "2026-10-25T10:00:00.000Z" }),
+    session({ conversationId: "both-idle-and-fallback", lastActivityAt: "2026-10-25T14:00:00.000Z", updatedAt: "2026-10-25T14:00:00.000Z" }),
+    session({ conversationId: "fallback-only", lastActivityAt: "2026-10-26T02:50:00.000Z", updatedAt: "2026-10-26T02:50:00.000Z" })
+  ];
+  const transcripts: Record<string, ReturnType<typeof message>[]> = {
+    "old-idle": [
+      message("o1", "user", "2026-10-24T11:57:00.000Z", "昨天的内容"),
+      message("o2", "assistant", "2026-10-24T11:58:00.000Z", "好的")
+    ],
+    "day-idle": [
+      message("d1", "user", "2026-10-25T09:59:00.000Z", "今天白天对话一"),
+      message("d2", "assistant", "2026-10-25T10:00:00.000Z", "收到")
+    ],
+    "both-idle-and-fallback": [
+      message("b1", "user", "2026-10-25T13:59:00.000Z", "下午聊了一段"),
+      message("b2", "assistant", "2026-10-25T14:00:00.000Z", "记下了")
+    ],
+    "fallback-only": [
+      message("f1", "user", "2026-10-26T02:49:00.000Z", "凌晨刚聊的"),
+      message("f2", "assistant", "2026-10-26T02:50:00.000Z", "明白")
+    ]
+  };
+  const store = statePort();
+  let writeSeq = 0;
+  const service = new MemoryExtractionService({
+    listSessions: () => ({ items: sessions, total: sessions.length }),
+    listMessages: (id) => transcripts[id] ?? [],
+    store,
+    writer: {
+      write: async (scope) => {
+        writeSeq += 1;
+        if (scope.conversationId === "day-idle") {
+          return { committed: [`c-${writeSeq}`], proposals: [`p-${writeSeq}`], skipped: 0, failures: [] };
+        }
+        return { committed: [`c-${writeSeq}`], proposals: [], skipped: 0, failures: [] };
+      }
+    },
+    extractor: async () => ({
+      memories: [{ domain: "owner", type: "user_fact", subject: `fact.${writeSeq}`, value: "测试事实" }]
+    }),
+    now: () => clock
+  });
+
+  // >24h ago idle sweep on old-idle
+  await service.runSweep({ conversationId: "old-idle", force: true });
+
+  // Within 24h daytime idle sweeps on day-idle and both-idle-and-fallback
+  clock = new Date("2026-10-25T10:05:00.000Z");
+  await service.runSweep({ conversationId: "day-idle", force: true });
+  clock = new Date("2026-10-25T14:05:00.000Z");
+  await service.runSweep({ conversationId: "both-idle-and-fallback", force: true });
+
+  // New messages arrive on both-idle-and-fallback before daily reflection
+  transcripts["both-idle-and-fallback"].push(
+    message("b3", "user", "2026-10-26T02:59:00.000Z", "睡前补充"),
+    message("b4", "assistant", "2026-10-26T02:59:30.000Z", "收到")
+  );
+  sessions[2].lastActivityAt = "2026-10-26T02:59:30.000Z";
+
+  // Daily reflection runs at 03:01 on 2026-10-26 (window starts 2026-10-25T03:01:00Z)
+  clock = new Date("2026-10-26T03:01:00.000Z");
+  const daily = await service.runSweep({ mode: "daily" });
+  assert.equal(daily.scanned, 4);
+  assert.equal(daily.idleConversations, 2);
+  assert.equal(daily.idleScannedMessages, 4);
+  assert.equal(daily.idleCommitted, 2);
+  assert.equal(daily.idleProposals, 1);
+  assert.equal(daily.processedConversations, 2);
+  assert.equal(daily.scannedMessages, 4);
+  assert.equal(daily.committed, 2);
+  assert.equal(daily.proposals, 0);
+  // day-idle + both-idle-and-fallback + fallback-only = 3 unique conversations
+  assert.equal(daily.dailyConversations, 3);
+});
+
+test("dynamic minIdleMs getter applies updated extraction delay on the next sweep", async () => {
+  let configuredIdleMs = 120_000;
+  const currentTime = new Date("2026-10-25T10:00:00.000Z");
+  const idleSince = "2026-10-25T09:58:45.000Z";
+  const targetSession = session({
+    conversationId: "dynamic-idle-session",
+    lastActivityAt: idleSince,
+    updatedAt: idleSince
+  });
+  const transcripts: Record<string, ReturnType<typeof message>[]> = {
+    "dynamic-idle-session": [
+      message("d1", "user", "2026-10-25T09:58:10.000Z", "我每周三晚上打羽毛球"),
+      message("d2", "assistant", idleSince, "记下了，每周三晚上。")
+    ]
+  };
+  const service = new MemoryExtractionService({
+    listSessions: () => ({ items: [targetSession], total: 1 }),
+    listMessages: (id) => transcripts[id] ?? [],
+    store: statePort(),
+    writer: {
+      write: async () => ({ committed: ["mem-1"], proposals: [], skipped: 0, failures: [] })
+    },
+    extractor: async () => ({
+      memories: [{ domain: "owner", type: "user_fact", subject: "hobby.badminton", value: "用户每周三晚上打羽毛球" }]
+    }),
+    minIdleMs: () => configuredIdleMs,
+    now: () => currentTime
+  });
+
+  // Idle for 75 seconds while configured threshold is 2 minutes (120s) -> skipped.
+  const waiting = await service.runSweep();
+  assert.equal(waiting.attempted, 0);
+  assert.equal(waiting.committed, 0);
+
+  // Lower threshold dynamically to 1 minute (60s) -> extracted on the next sweep.
+  configuredIdleMs = 60_000;
+  const extracted = await service.runSweep();
+  assert.equal(extracted.attempted, 1);
+  assert.equal(extracted.committed, 1);
+});

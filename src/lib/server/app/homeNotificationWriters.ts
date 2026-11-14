@@ -66,6 +66,44 @@ export function recordTaskHomeNotification(store: HomeNotificationStore, input: 
   });
 }
 
+export interface SessionCompletedNotificationInput {
+  sessionId: string;
+  title?: string;
+  preview?: string;
+  agentId?: string;
+  botId?: string;
+  projectId?: string;
+  channel?: string;
+  completedAt?: string;
+}
+
+export function recordSessionCompletedHomeNotification(
+  store: HomeNotificationStore,
+  input: SessionCompletedNotificationInput
+): void {
+  const sessionId = input.sessionId.trim();
+  if (!sessionId) return;
+  const completedAt = input.completedAt || new Date().toISOString();
+  const preview = input.preview?.replace(/\s+/g, " ").trim().slice(0, 180) || "";
+  const title = input.title?.replace(/\s+/g, " ").trim().slice(0, 100) || "";
+  store.record({
+    type: "session-completed",
+    dedupeKey: `session-completed:${sessionId}`,
+    refId: sessionId,
+    ...(input.botId || input.agentId ? { botId: input.botId || input.agentId } : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
+    payload: {
+      sessionId,
+      completedAt,
+      ...(title ? { title } : {}),
+      ...(preview ? { preview } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.channel ? { channel: input.channel } : {})
+    }
+  });
+}
+
 /**
  * Reconcile the memory-review notification so the inbox lists pending
  * candidates the moment they exist, whatever produced them (backfill,

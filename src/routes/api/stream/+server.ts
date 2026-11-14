@@ -7,6 +7,7 @@ import { ensureSessionPlanRecord } from "$lib/server/agent/plans/sessionIntegrat
 import { PlanService } from "$lib/server/agent/plans/service.js";
 import type { RequestHandler } from "@sveltejs/kit";
 import { getRuntime } from "$lib/server/app/runtime";
+import { recordSessionCompletedHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
 import { ConversationActivityCollector } from "$lib/server/app/conversationActivity";
 import { buildSubagentDiagnostic } from "$lib/server/agent/subagentProgress";
 import type { ChannelInboundMessage, FileAttachment, RunnerUiEvent } from "$lib/server/agent/core/types";
@@ -664,6 +665,21 @@ export const POST: RequestHandler = async ({ request }) => {
               retention: turnRetention
             });
             assistantPersisted = true;
+            if (result.stopReason !== "aborted" && runtime.homeNotifications) {
+              const latestConversation = project
+                ? runtime.sessions.getProjectConversation(project.id, conversation.id)
+                : runtime.sessions.getConversationById(conversation.id, "web", externalUserId);
+              const sessionTitle = (latestConversation?.title || conversation.title || inboundText).replace(/\s+/g, " ").trim().slice(0, 100);
+              recordSessionCompletedHomeNotification(runtime.homeNotifications, {
+                sessionId: conversation.id,
+                title: sessionTitle,
+                preview: assistantText,
+                agentId: conversation.agentId ?? "default",
+                botId: profileId,
+                projectId: project?.id,
+                channel: "web"
+              });
+            }
           }
           writeEvent(controller, encoder, "done", {
             ok: true,

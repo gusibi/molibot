@@ -1,6 +1,6 @@
 // External channel (bot instance) settings — state + orchestration.
 import { deleteDesktopChannel, loadDesktopBotFiles, loadDesktopChannels, saveDesktopBotFiles, saveDesktopChannel, testDesktopChannel } from "../api";
-import type { DesktopChannelDisplaySettings, DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel } from "@molibot/desktop-contract";
+import type { DesktopChannelDisplaySettings, DesktopChannelIdleCompactionSettings, DesktopChannelSaveRequest, DesktopChannelsSummary, DesktopExternalChannel } from "@molibot/desktop-contract";
 import type { Locale } from "../i18n";
 import { emptyProfileFiles } from "../settings/profileFiles";
 import { session, setError } from "./session.svelte";
@@ -17,10 +17,19 @@ export const CHANNEL_FIELD_CONFIG: Record<DesktopExternalChannel, { visible: str
   web: { visible: [], secret: [] }
 };
 
+export function defaultChannelIdleCompaction(channel: string): DesktopChannelIdleCompactionSettings {
+  return {
+    enabled: channel === "feishu" || channel === "weixin",
+    idleMinutes: 60,
+    minContextTokens: 4000
+  };
+}
+
 // The editor always carries a display object (empty = follow global), while the
 // wire request keeps it optional/null so absent clears every override.
-export type ChannelEditor = Omit<DesktopChannelSaveRequest, "display"> & {
+export type ChannelEditor = Omit<DesktopChannelSaveRequest, "display" | "idleCompaction"> & {
   display: DesktopChannelDisplaySettings;
+  idleCompaction: DesktopChannelIdleCompactionSettings;
   isNew: boolean;
   files: Record<string, string>;
 };
@@ -86,6 +95,7 @@ export function beginNewChannel(channel: DesktopExternalChannel): void {
     fields: channel === "weixin" ? { baseUrl: "https://ilinkai.weixin.qq.com" } : channel === "telegram" || channel === "feishu" ? { streamOutput: "true" } : {},    secretValues: {},
     clearSecrets: [],
     display: {} as DesktopChannelDisplaySettings,
+    idleCompaction: defaultChannelIdleCompaction(channel),
     files: emptyProfileFiles()
   };
   channelsStore.actionMessage = "";
@@ -111,6 +121,14 @@ export async function beginChannelEdit(channel: DesktopExternalChannel, instance
       secretValues: {},
       clearSecrets: [],
       display: { ...(instance.display ?? {}) },
+      idleCompaction: (() => {
+        const fallback = defaultChannelIdleCompaction(channel);
+        return {
+          enabled: instance.idleCompaction?.enabled ?? fallback.enabled,
+          idleMinutes: instance.idleCompaction?.idleMinutes ?? fallback.idleMinutes,
+          minContextTokens: instance.idleCompaction?.minContextTokens ?? fallback.minContextTokens
+        };
+      })(),
       files: { ...emptyProfileFiles(), ...(await loadDesktopBotFiles(endpoint, channel, instance.id)) }
     };
     channelsStore.actionMessage = "";
@@ -153,7 +171,14 @@ export async function saveChannelEditor(): Promise<void> {
       fields: channelEdit.fields,
       secretValues: channelEdit.secretValues,
       clearSecrets: channelEdit.clearSecrets,
-      display: channelEdit.display
+      display: channelEdit.display,
+      idleCompaction: channelEdit.channel === "web"
+        ? undefined
+        : {
+            enabled: Boolean(channelEdit.idleCompaction.enabled),
+            idleMinutes: Math.max(5, Math.min(10080, Math.round(Number(channelEdit.idleCompaction.idleMinutes) || 60))),
+            minContextTokens: Math.max(500, Math.min(200000, Math.round(Number(channelEdit.idleCompaction.minContextTokens) || 4000)))
+          }
     });
     await saveDesktopBotFiles(endpoint, channelEdit.channel, channelEdit.id.trim(), channelEdit.files);
     channelsStore.channelEdit = null;

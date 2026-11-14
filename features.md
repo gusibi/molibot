@@ -1,3 +1,31 @@
+## 2026-11-14 — 外部会话可归档/删除（生命周期行接管，转录投影保持只读）
+
+修复外部渠道会话（飞书/TG/QQ/微信镜像）在桌面「多选」归档/删除时报 `external sessions are read-only` 被一律跳过的问题。此前 `SessionLifecycleService.authorizedRow` 对外部会话一刀切 skip，但生命周期行本就独立于只读的 `contexts/` 投影（删除 Agent 时 `archiveAgentHistory` 已在单独改这些行），同一会话能被系统归档却不能被用户删除，语义不自洽：
+
+- **生命周期放行**：外部会话的 archive / trash / restoreTrashed / setRetain 改为走生命周期行（`ensureRow` + `updateWithVersion`），转录投影零改动；搜索投影增删对外部会话天然跳过（本就不在索引内）。外部会话删除与 Web 会话语义一致：进回收站 30 天可恢复；`archiveAgentHistory` 简化为直接复用 `archive()`。
+- **purge 闭环补全**：`SessionTrashCleanupPorts` 新增必填 `deleteExternalProjection`，`purgeOne` 新增 `external` 步骤；生产接线落到新导出的 `deleteExternalContextFromContexts()`（删除 `contexts/<sessionId>.jsonl`/`.json`/`.meta.json`，missing 即成功、幂等）。若无此步，外部会话 purge 完 `deleteRow` 后会以「缺行=active」复活。
+- **验证**：定向 55 项通过（sessionServiceAssembly / sessionTrashCleanup / sessionBulkService / sessionLifecycleService / externalSessionsFromContexts，含改写后的外部会话生命周期回归、trash→purge 不复活闭环、真实文件删除与幂等）；根 `pnpm check` 0 错误。新增守卫：外部会话归档/删除/恢复/retain 走生命周期行、已消失外部 id 报 `not_found`、purge 后行删除且列表不复活。未运行全量 `pnpm verify:feature`、桌面 Playwright 套件与真实渠道；服务端改动需 `pnpm build` + 重启后生效（已构建）。
+
+## 2026-11-14 — 通知中心全区入口、多会话完成提醒与图标化改版
+
+围绕“通知历史回看、多会话并发完成提醒、全局左上角固定入口与图标优先视觉收敛”对通知系统与桌面外壳完成升级：
+
+- **多会话完成提醒（`session-completed`）**：`DesktopHomeNotificationType` / `HomeNotificationType` 新增 `session-completed`，新增 `recordSessionCompletedHomeNotification()` 写入器（以 `session-completed:<sessionId>` 去重并在新一轮完成时重开未读态，附带标题、回复摘要、`agentId`、`botId`、`projectId`、`channel` 与完成时间）。已在 Web 流式对话 `/api/stream`、同步对话 `/api/chat` 与后台持久化投递 `deliverDurableAttempt()` 收尾挂载；首页交接工作区（`AgentHomeInbox`）自动过滤 `session-completed` 以保持交付聚焦，打开或跳转至对应会话（Web / 项目 / 外部镜像）时自动消除该会话的未读完成提醒。
+- **左上角全局通知入口与未读红点**：将 `Bell` 双色按钮与实时未读圆点（`notification-bell-dot`）从首页右上角顶栏移至左上角固定 `.titlebar-cluster`（紧邻折叠侧栏与搜索/新建对话按钮），全应用任一工作区均可一键开关通知中心并在关闭时恢复原页面/会话快照，并随回合结束、后台轮询与状态点变化同步未读数量；`AgentHomeInbox` 标题栏保留紧凑 `Bell` 图标捷径（替代纯文字按钮）。
+- **通知中心图标化界面重构**：重构 [AgentNotificationsPage.svelte](apps/desktop/src/lib/chat/AgentNotificationsPage.svelte) 与 [styles.css](apps/desktop/src/styles.css)，以图标优先工具栏（返回 `ArrowLeft`、全部已阅 `Check`、刷新 `Refresh`）、带图标的分类分段（新增「对话」分类筛选）及三列编辑式通知卡片（`36×36` 语义双色图标块 + 未读角标点、可点击定位标题 + 类型标签 + `.tnum` 时间戳 + 两行摘要、右侧 `Eye` / `ArrowUpRight` / `Check` 图标操作栏）替代原有文本堆叠排版；同步更新 [desktop-pages.md](docs/guides/ui/desktop-pages.md)。
+
+验证：`node --import ./scripts/register-loader.js --import tsx --test src/lib/server/app/homeNotifications.test.ts src/routes/api/chat/durableConversation.test.ts src/routes/api/stream/sessionTitle.test.ts src/lib/server/app/desktopHandover.test.ts`（47/47 通过）、桌面端定向单测与静态守卫（`homeNotificationView.test.ts`、`api.test.ts`、`reactive-statement-guard.test.mjs`、`runes-store-reactivity-guard.test.mjs`、`numeric-typography.test.mjs`、`api-transport-guard.test.mjs`、`http-scope.test.mjs` 共 131/131 通过）、`--test-name-pattern="notification|handover|title-bar cluster" src/chat-ui.test.mjs`（4/4 通过）及 `pnpm check && pnpm desktop:check`（0 错误、0 警告）均已通过。未验证：运行中桌面实例冷启动 UI 走查、全量 `chat-ui.test.mjs`、完整 Playwright UI 套件、`pnpm verify:feature` 及原生 Tauri 套件。
+
+## 2026-11-14 — 默认 Agent 首页通知记录二级页与事件直达
+
+默认 Agent 首页近期工作区此前仅读取 `status = 'unread'` 通知，点击或已阅后即从首页消失；现基于已保留的 `home_notifications` 表补齐独立通知记录二级页与全量历史检索能力。
+
+- **服务端历史查询与接口扩展**：`HomeNotificationStore.list({ status, type, limit })` 支持 `all`、`unread` 与 `read`（合并 `read` 与 `resolved`，按时间倒序、条数上限 clamp 至 `1..200`）；`GET/POST /api/desktop/notifications` 支持按 `status` / `type` / `limit` 拉取并在已读回执后返回同视图筛选结果，默认不传参仍保持返回 `unread`。Desktop `api.ts` 同步增加对应可选查询参数。
+- **共享通知视图与历史跳转**：抽取 `apps/desktop/src/lib/chat/homeNotificationView.ts` 共用文案、载荷解析、分类映射与目标解析逻辑；`action-required` 通知在实时待处理项已消退后仍可依据载荷字段定位到关联计划或来源对话，`plan-completed` 标题支持直接点击进入计划面板。
+- **入口与二级页交互**：在 `AgentHomeInbox` 标题栏新增「通知记录」文字按钮、并在默认 Agent 首页 `ChatHeader` 顶栏右侧新增 `Bell` 双色图标入口，于主内容区打开 `AgentNotificationsPage`（带「返回 Agent 首页」、刷新、全部已阅、状态分段筛选 `全部 / 未读 / 已读`、类型分段筛选 `全部类型 / 计划 / 记忆 / 任务 / 待处理 / 渠道`）。每条通知支持按类型直达计划、记忆中心、内嵌展开任务成果（`HomeTaskResult`）或打开自动任务、文件与附件、渠道历史及来源对话，并在切换会话、Room、Project、历史或文件页时自动收起通知页；同步补充桌面页面规范 [desktop-pages.md](docs/guides/ui/desktop-pages.md)。
+
+验证：`node --import tsx --test src/lib/server/app/homeNotifications.test.ts`（13/13 通过）、桌面端定向单测与静态守卫（`homeNotificationView.test.ts`、`api.test.ts`、`reactive-statement-guard.test.mjs`、`runes-store-reactivity-guard.test.mjs`、`numeric-typography.test.mjs`、`api-transport-guard.test.mjs`、`http-scope.test.mjs` 共 130/130 通过）、`--test-name-pattern="notification|handover" src/chat-ui.test.mjs`（2/2 通过）及 `pnpm check && pnpm desktop:check`（0 错误、0 警告）均已通过。未验证：运行中桌面实例冷启动 UI 走查、全量 `chat-ui.test.mjs`、完整 Playwright UI 套件、`pnpm verify:feature` 及原生 Tauri 套件。
+
 ## 2026-11-13 — 技能维护死路与跨页试用后的空对话
 
 **备份清理被无关目录问题卡死**：维护扫描把「配置根其实是文件」也当成扫描不完整，并把任何警告全局写进删除预检，导致清理按钮永久禁用且没有出口。现在配置根不是目录（macOS alias / 普通文件）直接跳过——它藏不了技能，平台页仍把该根标为配置问题；只有真正读不到的目录或截断扫描才标记 `scanIncomplete`，同一路径只报一次。警告改为 `{ code, path, message }`，界面用本地化原因加路径呈现，原始英文只留作提示。删除备份在扫描不完整时不再一刀切禁用：确认框列出未读目录，提供「我已核对，仍要删除」重新预检，`acknowledgeScan` 绑定进请求与 token；整理、恢复和移除断链仍然硬阻塞。确认按钮改为动作名（清理此备份 / 恢复此备份 / 移除断链 / 执行整理），并删除标题下的说明标语。

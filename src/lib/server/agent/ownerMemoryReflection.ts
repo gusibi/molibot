@@ -2,14 +2,21 @@ import { formatMemoryReflectionSummary } from "$lib/shared/memoryReflection.js";
 
 export interface OwnerMemoryReflectionResult {
   completedTargets: number;
+  totalConversations?: number;
   scannedConversations: number;
+  idleExtractedConversations?: number;
+  fallbackExtractedConversations?: number;
   scannedMessages: number;
+  idleScannedMessages?: number;
+  fallbackScannedMessages?: number;
   createdCandidates: number;
   pendingReviewCandidateIds: string[];
   localDate: string;
   failedTargets: number;
   failedSessions?: number;
   committedMemories?: number;
+  idleCommittedMemories?: number;
+  fallbackCommittedMemories?: number;
 }
 
 export function formatOwnerMemoryReflectionNotification(

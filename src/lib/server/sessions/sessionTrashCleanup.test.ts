@@ -56,6 +56,7 @@ function setup(): Fixture {
   const failStep: { value: "search" | "ui" | "agent" | null } = { value: null };
   const cleanup = new SessionTrashCleanupService({
     deleteNativeContext: () => {},
+    deleteExternalProjection: () => {},
     lifecycle,
     clock,
     deleteUiConversation: (conversationId) => {
@@ -232,6 +233,7 @@ test("restart reopens intents and reconciles them", (t) => {
   assert.deepEqual(reopened.listCleanupIntents().map((intent) => intent.conversationId), [id]);
   const cleanup = new SessionTrashCleanupService({
     deleteNativeContext: () => {},
+    deleteExternalProjection: () => {},
     lifecycle: reopened,
     deleteUiConversation: (conversationId) => {
       const owner = fx.sessions.getWebConversationOwner(conversationId);
@@ -254,6 +256,7 @@ test("unauthorized purge requests are skipped without touching trash", (t) => {
   const guarded = new SessionTrashCleanupService({
     lifecycle: fx.lifecycle,
     deleteNativeContext: () => { throw new Error("must not run"); },
+    deleteExternalProjection: () => { throw new Error("must not run"); },
     deleteUiConversation: () => { throw new Error("must not run"); },
     listAgentChatIds: () => [],
     deleteAgentSession: () => { throw new Error("must not run"); },
@@ -291,6 +294,7 @@ test("native cleanup failure keeps the UI and a recoverable purge intent", (t) =
   const cleanup=new SessionTrashCleanupService({
     lifecycle:fx.lifecycle,
     deleteNativeContext:()=>{if(busy) throw new Error("Native writer is active");deleted=true;},
+    deleteExternalProjection:()=>{},
     deleteUiConversation:()=>fx.sessions.deleteConversation(id,"web",OWNER),
     listAgentChatIds:()=>[],deleteAgentSession:()=>{},finalizeSearchConversation:()=>{}
   });

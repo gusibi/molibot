@@ -4,7 +4,7 @@ import type { ConversationMessage } from "$lib/shared/types/message.js";
 import type { MemoryScope } from "./types.js";
 import type { ExtractedMemoryItem, MemoryWriterPort } from "./memoryWriter.js";
 import { normalizeSubject } from "./memoryWriter.js";
-import type { MemoryExtractionState, MemoryExtractionStatePort } from "./memoryExtractionStore.js";
+import type { MemoryExtractionActivity, MemoryExtractionState, MemoryExtractionStatePort } from "./memoryExtractionStore.js";
 
 export interface MemoryExtractionTarget {
   ownerId: string;
@@ -15,6 +15,8 @@ export interface MemoryExtractionTarget {
 
 const MAX_TAIL_MESSAGES = 80;
 const MAX_TAIL_CHARS = 24_000;
+const DAILY_LOOKBACK_MS = 24 * 60 * 60_000;
+const EXTRACTION_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const DOMAINS = new Set(["owner", "project", "agent_self"]);
 const TYPES = new Set(["user_preference", "user_fact", "skill", "event", "task", "world_knowledge"]);
 
@@ -41,9 +43,48 @@ export interface MemoryExtractionMessage {
   createdAt: string;
 }
 
+export interface ExtractionModelMeta {
+  provider?: string;
+  model?: string;
+  api?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+}
+
 export interface MemoryExtractionOutput {
   noUsefulInformation?: boolean;
   memories?: ExtractedMemoryItem[];
+  meta?: ExtractionModelMeta;
+}
+
+export interface MemoryExtractionTraceEvent {
+  trigger: "idle" | "long_session" | "daily" | "manual";
+  conversationId: string;
+  channel: string;
+  botId: string;
+  projectId: string | null;
+  agentId: string | null;
+  ownerExternalUserId: string | null;
+  status: "success" | "error";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  scannedMessages: number;
+  committedMemories: number;
+  createdCandidates: number;
+  skippedMemories: number;
+  provider?: string;
+  model?: string;
+  api?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  error?: string;
 }
 
 export type MemoryExtractionExtractor = (input: {
@@ -66,6 +107,12 @@ export interface MemoryExtractionSweepResult {
   skipped: number;
   failed: number;
   skippedBecauseInFlight: boolean;
+  processedConversations: number;
+  idleConversations: number;
+  idleScannedMessages: number;
+  idleCommitted: number;
+  idleProposals: number;
+  dailyConversations: number;
 }
 
 export interface MemoryExtractionServiceDeps {
@@ -91,13 +138,14 @@ export interface MemoryExtractionServiceDeps {
   ownerId?: string;
   botId?: string;
   /** A Session must be quiet this long before its tail is extracted. */
-  minIdleMs?: number;
+  minIdleMs?: number | (() => number);
   /** Bound idle model calls per sweep; daily runs drain the selected backlog. */
   maxSessionsPerSweep?: number;
   /** Idle discovery lookback; daily catch-up also visits older Sessions. */
   maxLookbackMs?: number;
   now?: () => Date;
   log?: (line: string) => void;
+  onTrace?: (event: MemoryExtractionTraceEvent) => void;
 }
 
 /**
@@ -110,18 +158,26 @@ export class MemoryExtractionService {
   private inFlight: Promise<void> | null = null;
   private readonly ownerId: string;
   private readonly botId: string;
-  private readonly minIdleMs: number;
+  private readonly minIdleMsOption: number | (() => number);
   private readonly maxSessionsPerSweep: number;
-  private readonly maxLookbackMs: number;
+  private readonly configuredMaxLookbackMs: number;
   private readonly now: () => Date;
 
   constructor(private readonly deps: MemoryExtractionServiceDeps) {
     this.ownerId = deps.ownerId ?? "owner";
     this.botId = deps.botId ?? "web";
-    this.minIdleMs = Math.max(0, deps.minIdleMs ?? 90_000);
+    this.minIdleMsOption = deps.minIdleMs ?? 90_000;
     this.maxSessionsPerSweep = Math.max(1, deps.maxSessionsPerSweep ?? 3);
-    this.maxLookbackMs = Math.max(this.minIdleMs, deps.maxLookbackMs ?? 7 * 86_400_000);
+    this.configuredMaxLookbackMs = deps.maxLookbackMs ?? 7 * 86_400_000;
     this.now = deps.now ?? (() => new Date());
+  }
+
+  private resolveMinIdleMs(): number {
+    const raw = typeof this.minIdleMsOption === "function"
+      ? this.minIdleMsOption()
+      : this.minIdleMsOption;
+    if (!Number.isFinite(raw)) return 90_000;
+    return Math.max(0, Math.round(raw));
   }
 
   async runSweep(options: {
@@ -133,7 +189,9 @@ export class MemoryExtractionService {
   } = {}): Promise<MemoryExtractionSweepResult> {
     const empty = (skippedBecauseInFlight = false): MemoryExtractionSweepResult => ({
       scanned: 0, scannedMessages: 0, pendingReviewCandidateIds: [], attempted: 0,
-      committed: 0, proposals: 0, skipped: 0, failed: 0, skippedBecauseInFlight
+      committed: 0, proposals: 0, skipped: 0, failed: 0, skippedBecauseInFlight,
+      processedConversations: 0, idleConversations: 0, idleScannedMessages: 0,
+      idleCommitted: 0, idleProposals: 0, dailyConversations: 0
     });
     while (this.inFlight) {
       if (options.mode !== "daily") return empty(true);
@@ -146,9 +204,14 @@ export class MemoryExtractionService {
     const result = empty();
     const daily = options.mode === "daily";
     const pending = new Set<string>();
+    const processedSessionIds = new Set<string>();
+    const idleSessionIds = new Set<string>();
     try {
       const now = this.now();
       const nowMs = now.getTime();
+      const minIdleMs = this.resolveMinIdleMs();
+      const maxLookbackMs = Math.max(minIdleMs, this.configuredMaxLookbackMs);
+      const windowStartMs = nowMs - DAILY_LOOKBACK_MS;
       const sessions = this.collectSessions(options.mode).filter((session) =>
         (!this.deps.eligible || this.deps.eligible(session))
         && (!options.conversationId || session.conversationId === options.conversationId)
@@ -161,10 +224,32 @@ export class MemoryExtractionService {
       for (const session of sessions) {
         options.signal?.throwIfAborted();
         if (!daily && result.attempted >= this.maxSessionsPerSweep) break;
+        let state = this.deps.store.get(session.conversationId);
+        if (daily) {
+          if (Array.isArray(state?.recentExtractions)) {
+            const recentIdle = state.recentExtractions.filter(
+              (entry) => entry.mode === "idle" && Date.parse(entry.at) >= windowStartMs
+            );
+            if (recentIdle.length > 0) {
+              idleSessionIds.add(session.conversationId);
+              for (const entry of recentIdle) {
+                result.idleScannedMessages += entry.scannedMessages;
+                result.idleCommitted += entry.committed;
+                result.idleProposals += entry.proposals;
+              }
+            }
+          } else if (
+            state
+            && state.attempts === 0
+            && state.processedThroughId
+            && Date.parse(state.updatedAt) >= windowStartMs
+          ) {
+            idleSessionIds.add(session.conversationId);
+          }
+        }
         const activity = Date.parse(session.lastActivityAt ?? session.updatedAt ?? "");
         if (!Number.isFinite(activity)) continue;
-        let state = this.deps.store.get(session.conversationId);
-        if (!daily && nowMs - activity > this.maxLookbackMs) continue;
+        if (!daily && nowMs - activity > maxLookbackMs) continue;
         if (state?.retryAfter && Date.parse(state.retryAfter) > nowMs) {
           if (daily) result.failed += 1;
           continue;
@@ -173,7 +258,7 @@ export class MemoryExtractionService {
         const lastExtraction = state ? Date.parse(state.updatedAt) : 0;
         const longSessionDue = turns >= 20
           && (!state || (Number.isFinite(lastExtraction) && nowMs - lastExtraction >= 10 * 60_000));
-        if (!daily && !options.force && !longSessionDue && nowMs - activity < this.minIdleMs) continue;
+        if (!daily && !options.force && !longSessionDue && nowMs - activity < minIdleMs) continue;
         let messages: MemoryExtractionMessage[];
         try {
           messages = this.eligibleMessages(session.conversationId);
@@ -182,7 +267,7 @@ export class MemoryExtractionService {
           const legacyIndex = messages.findLastIndex((message) => legacy.has(`${message.createdAt}:${message.id}`));
           const currentIndex = messages.findIndex((message) => message.id === state?.processedThroughId);
           if (legacyIndex > currentIndex) {
-            state = succeeded(messages[legacyIndex].id, messages, now);
+            state = succeeded(messages[legacyIndex].id, messages, now, state?.recentExtractions);
             this.deps.store.set(session.conversationId, state);
           }
         } catch (error) {
@@ -190,12 +275,24 @@ export class MemoryExtractionService {
           result.failed += 1;
           continue;
         }
+        const trigger: MemoryExtractionTraceEvent["trigger"] = daily
+          ? "daily"
+          : options.force
+            ? "manual"
+            : (longSessionDue && nowMs - activity < minIdleMs)
+              ? "long_session"
+              : "idle";
         do {
           const tail = tailAfter(messages, state?.processedThroughId);
           const last = tail.at(-1);
           if (!last) break;
           result.attempted += 1;
           result.scannedMessages += tail.length;
+          const batchStartedMs = Date.now();
+          let outputMeta: ExtractionModelMeta | undefined;
+          let batchCommitted = 0;
+          let batchProposals = 0;
+          let batchSkipped = 0;
           try {
             const scope = this.scopeFor(session);
             const relatedMemories = await this.deps.relatedMemories?.(scope, tail) ?? [];
@@ -209,6 +306,7 @@ export class MemoryExtractionService {
               relatedMemories
             });
             options.signal?.throwIfAborted();
+            outputMeta = output?.meta;
             const relatedSubjects = new Set(relatedMemories.map((memory) => normalizeSubject(memory.subject)));
             const items = normalizeOutput(output).map((item) => {
               const target = item.supersedesSubject ? normalizeSubject(item.supersedesSubject) : "";
@@ -223,18 +321,52 @@ export class MemoryExtractionService {
                 })),
                 `extract:${session.conversationId}:${last.id}`
               );
-              result.committed += write.committed.length;
-              result.proposals += write.proposals.length;
+              batchCommitted = write.committed.length;
+              batchProposals = write.proposals.length;
+              batchSkipped = write.skipped;
+              result.committed += batchCommitted;
+              result.proposals += batchProposals;
               result.skipped += write.skipped;
               for (const id of write.proposals) pending.add(id);
               if (write.failures.length > 0) throw new Error(write.failures.join("；"));
             }
             options.signal?.throwIfAborted();
-            state = succeeded(last.id, messages, now);
+            processedSessionIds.add(session.conversationId);
+            state = succeeded(last.id, messages, now, state?.recentExtractions, {
+              at: now.toISOString(),
+              mode: daily ? "daily" : "idle",
+              scannedMessages: tail.length,
+              committed: batchCommitted,
+              proposals: batchProposals
+            });
             this.deps.store.set(session.conversationId, state);
+            this.emitBatchTrace({
+              trigger,
+              session,
+              startedAtMs: batchStartedMs,
+              scannedMessages: tail.length,
+              committedMemories: batchCommitted,
+              createdCandidates: batchCommitted + batchProposals,
+              skippedMemories: batchSkipped,
+              status: "success",
+              meta: outputMeta
+            });
           } catch (error) {
             options.signal?.throwIfAborted();
-            this.deps.store.set(session.conversationId, failed(state, messages, now, error instanceof Error ? error.message : String(error)));
+            const message = error instanceof Error ? error.message : String(error);
+            this.deps.store.set(session.conversationId, failed(state, messages, now, message));
+            this.emitBatchTrace({
+              trigger,
+              session,
+              startedAtMs: batchStartedMs,
+              scannedMessages: tail.length,
+              committedMemories: batchCommitted,
+              createdCandidates: batchCommitted + batchProposals,
+              skippedMemories: batchSkipped,
+              status: "error",
+              meta: outputMeta,
+              error: message
+            });
             result.failed += 1;
             break;
           }
@@ -244,11 +376,53 @@ export class MemoryExtractionService {
       this.inFlight = null;
       release();
     }
+    result.processedConversations = processedSessionIds.size;
+    result.idleConversations = idleSessionIds.size;
+    result.dailyConversations = new Set([...idleSessionIds, ...processedSessionIds]).size;
     result.pendingReviewCandidateIds = [...pending];
     if (result.attempted > 0) {
       this.deps.log?.(`extraction sweep scanned=${result.scanned} attempted=${result.attempted} committed=${result.committed} proposals=${result.proposals} skipped=${result.skipped} failed=${result.failed}`);
     }
     return result;
+  }
+
+  private emitBatchTrace(input: {
+    trigger: MemoryExtractionTraceEvent["trigger"];
+    session: MemoryExtractionSession;
+    startedAtMs: number;
+    scannedMessages: number;
+    committedMemories: number;
+    createdCandidates: number;
+    skippedMemories: number;
+    status: "success" | "error";
+    meta?: ExtractionModelMeta;
+    error?: string;
+  }): void {
+    if (!this.deps.onTrace) return;
+    const finishedMs = Date.now();
+    try {
+      this.deps.onTrace({
+        trigger: input.trigger,
+        conversationId: input.session.conversationId,
+        channel: input.session.channel,
+        botId: input.session.botId || this.botId,
+        projectId: input.session.projectId ?? null,
+        agentId: input.session.agentId ?? null,
+        ownerExternalUserId: input.session.ownerExternalUserId ?? null,
+        status: input.status,
+        startedAt: new Date(input.startedAtMs).toISOString(),
+        finishedAt: new Date(finishedMs).toISOString(),
+        durationMs: Math.max(0, finishedMs - input.startedAtMs),
+        scannedMessages: input.scannedMessages,
+        committedMemories: input.committedMemories,
+        createdCandidates: input.createdCandidates,
+        skippedMemories: input.skippedMemories,
+        ...input.meta,
+        ...(input.error ? { error: input.error } : {})
+      });
+    } catch {
+      // Trace recording is best-effort and must not fail memory extraction.
+    }
   }
 
   private collectSessions(mode?: "idle" | "daily"): MemoryExtractionSession[] {
@@ -333,16 +507,29 @@ function normalizeOutput(output: MemoryExtractionOutput | null | undefined): Ext
   return valid;
 }
 
+function pruneExtractionHistory(
+  existing: MemoryExtractionActivity[] | undefined,
+  now: Date
+): MemoryExtractionActivity[] {
+  const cutoffMs = now.getTime() - EXTRACTION_HISTORY_RETENTION_MS;
+  return (existing ?? []).filter((entry) => Date.parse(entry.at) >= cutoffMs);
+}
+
 function succeeded(
   processedThroughId: string,
   messages: MemoryExtractionMessage[],
-  now: Date
+  now: Date,
+  existingHistory?: MemoryExtractionActivity[],
+  activity?: MemoryExtractionActivity
 ): MemoryExtractionState {
+  const recentExtractions = pruneExtractionHistory(existingHistory, now);
+  if (activity) recentExtractions.push(activity);
   return {
     processedThroughId,
     revision: buildExtractionRevision(messages),
     updatedAt: now.toISOString(),
-    attempts: 0
+    attempts: 0,
+    recentExtractions
   };
 }
 
@@ -354,13 +541,17 @@ function failed(
 ): MemoryExtractionState {
   const attempts = (previous?.attempts ?? 0) + 1;
   const backoffMs = Math.min(60 * 60_000, 2 ** Math.min(attempts, 6) * 60_000);
+  const recentExtractions = previous?.recentExtractions
+    ? pruneExtractionHistory(previous.recentExtractions, now)
+    : undefined;
   return {
     processedThroughId: previous?.processedThroughId ?? "",
     revision: buildExtractionRevision(messages),
     updatedAt: now.toISOString(),
     attempts,
     lastError: error.slice(0, 500),
-    retryAfter: new Date(now.getTime() + backoffMs).toISOString()
+    retryAfter: new Date(now.getTime() + backoffMs).toISOString(),
+    ...(recentExtractions ? { recentExtractions } : {})
   };
 }
 

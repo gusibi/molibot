@@ -13,6 +13,7 @@ import { resolveModelSelection } from "$lib/server/agent/routing/modelRouting.js
 import { decideVisionRouting } from "$lib/server/agent/routing/mediaFallback.js";
 import { RunnerPool, snapshotAllRuntimeRuns } from "$lib/server/agent/core/runnerPool.js";
 import { PiPreparationRecoveryError } from "$lib/server/agent/durable/piPreparationEffects.js";
+import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 
 const nativeTestLifecycle = {
   messagesAddedSince: function(this: { state: { messages: unknown[] } }, checkpoint: unknown[]) { return this.state.messages.slice(checkpoint.length); },
@@ -586,6 +587,17 @@ test("manual compact reloads the latest persisted session before summarizing", a
   assert.equal(appended[0]?.summarizedMessages, 1);
   assert.equal(appended[0]?.keptMessages, 1);
   assert.match(appended[0]?.summary ?? "", /Earlier conversation was compacted|## Summary/);
+
+  const traceStore = new SqliteTraceStore();
+  try {
+    const compactionFacts = traceStore.listRecentFacts(50).filter(f => f.sessionId === testSessionId && f.factType === "compaction");
+    assert.equal(compactionFacts.length, 1);
+    assert.equal(compactionFacts[0].status, "success");
+    assert.equal(compactionFacts[0].name, "manual");
+    assert.equal(compactionFacts[0].payload.compactionTrigger, "manual");
+  } finally {
+    traceStore.close();
+  }
 });
 
 test("host bash approval is forwarded to runner event sink but does not abort execution", async () => {

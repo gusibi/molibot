@@ -2,6 +2,7 @@ import type { KnownProvider } from "@earendil-works/pi-ai";
 import {
   type AgentSettings,
   DEFAULT_AGENT_ID,
+  DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
   defaultAgentSettings,
   isKnownProvider,
   normalizePiProviderId,
@@ -551,6 +552,7 @@ export const defaultRuntimeSettings: RuntimeSettings = {
       backend: (process.env.MEMORY_BACKEND ?? process.env.MEMORY_CORE ?? "mory").trim() || "mory",
       embeddingModels: [],
       activeEmbeddingModelId: "",
+      idleExtractionMinutes: DEFAULT_MEMORY_IDLE_EXTRACTION_MINUTES,
       reflectionTime: String(process.env.MEMORY_REFLECTION_TIME ?? "03:00").trim() || "03:00",
       reflectionNotifications: String(process.env.MEMORY_REFLECTION_NOTIFICATIONS ?? "true").toLowerCase() !== "false",
       reflectionNotificationTarget: null,

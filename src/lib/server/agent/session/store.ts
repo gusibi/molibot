@@ -42,7 +42,7 @@ import {
   resolveMemoryRootFromWorkspacePath,
   resolveWorkspaceRelativeFromWorkspacePath
 } from "$lib/server/agent/session/workspace.js";
-import { estimateContextTokens } from "$lib/server/agent/session/compaction.js";
+import { estimateContextTokens, resolveContextTokens } from "$lib/server/agent/session/compaction.js";
 import {
   deriveSessionDisplayMetadata,
   readSessionOriginMetadata,
@@ -94,6 +94,13 @@ export interface SessionContextCheckpoint {
   bodyEntryCount: number;
 }
 
+export interface IdleCompactionCandidateInfo {
+  exists: boolean;
+  lastActivityMs: number;
+  messagesSinceCompaction: number;
+  estimatedContextTokens: number;
+}
+
 export type { SessionOriginMetadata } from "$lib/server/agent/session/metadata.js";
 
 export function taskArchiveSessionId(taskId: string): string | undefined {
@@ -125,7 +132,7 @@ export class MomRuntimeStore {
     return /\/moli-[^/]+\/bots\/[^/]+$/.test(normalized);
   }
 
-  private getDataRoot(): string {
+  getDataRoot(): string {
     return resolveDataRootFromWorkspacePath(this.workspaceDir);
   }
 
@@ -1499,6 +1506,130 @@ export class MomRuntimeStore {
 
   listRunSummaries(chatId: string, limit = 20): Array<Record<string, unknown>> {
     return this.readRunSummaries(chatId).slice(0, Math.max(1, Math.min(100, Math.floor(limit) || 20)));
+  }
+
+  inspectIdleCompactionCandidate(chatId: string, sessionId: string): IdleCompactionCandidateInfo {
+    const id = this.sanitizeSessionId(sessionId);
+    const contextsDir = this.contextsDirPath(chatId, id);
+    const entriesFile = join(contextsDir, `${id}.jsonl`);
+    const legacyFile = join(contextsDir, `${id}.json`);
+    const hasEntriesFile = existsSync(entriesFile);
+    const hasLegacyFile = existsSync(legacyFile);
+    if (!hasEntriesFile && !hasLegacyFile) {
+      return {
+        exists: false,
+        lastActivityMs: 0,
+        messagesSinceCompaction: 0,
+        estimatedContextTokens: 0
+      };
+    }
+
+    if (!hasEntriesFile && hasLegacyFile) {
+      try {
+        const legacy = JSON.parse(readFileSync(legacyFile, "utf8"));
+        if (Array.isArray(legacy) && legacy.length > 0) {
+          let lastActivityMs = 0;
+          for (const item of legacy) {
+            const msgTs = Number((item as { timestamp?: unknown })?.timestamp ?? 0);
+            if (Number.isFinite(msgTs) && msgTs > lastActivityMs) {
+              lastActivityMs = msgTs;
+            }
+          }
+          if (lastActivityMs <= 0) {
+            try {
+              lastActivityMs = statSync(legacyFile).mtimeMs;
+            } catch {
+              lastActivityMs = 0;
+            }
+          }
+          const estimatedContextTokens = resolveContextTokens(legacy as AgentMessage[]).tokens;
+          return {
+            exists: true,
+            lastActivityMs,
+            messagesSinceCompaction: legacy.length,
+            estimatedContextTokens
+          };
+        }
+      } catch {
+        // ignore corrupt legacy snapshot
+      }
+      return {
+        exists: false,
+        lastActivityMs: 0,
+        messagesSinceCompaction: 0,
+        estimatedContextTokens: 0
+      };
+    }
+
+    let entries: SessionFileEntry[] = [];
+    try {
+      entries = parseSessionEntries(readFileSync(entriesFile, "utf8"));
+    } catch {
+      return {
+        exists: false,
+        lastActivityMs: 0,
+        messagesSinceCompaction: 0,
+        estimatedContextTokens: 0
+      };
+    }
+
+    let lastCompactionIndex = -1;
+    let lastActivityMs = 0;
+    for (let i = 0; i < entries.length; i += 1) {
+      const entry = entries[i];
+      if (!entry) continue;
+      if (entry.type === "compaction") {
+        lastCompactionIndex = i;
+      }
+      if (entry.type === "message") {
+        const msgTs = Number((entry.message as { timestamp?: unknown })?.timestamp ?? 0);
+        const parsedTs = Date.parse(String(entry.timestamp ?? ""));
+        const activityTs = Number.isFinite(msgTs) && msgTs > 0
+          ? msgTs
+          : (Number.isFinite(parsedTs) ? parsedTs : 0);
+        if (activityTs > lastActivityMs) {
+          lastActivityMs = activityTs;
+        }
+      } else if (entry.type === "compaction") {
+        const parsedTs = Date.parse(String(entry.timestamp ?? ""));
+        if (Number.isFinite(parsedTs) && parsedTs > lastActivityMs) {
+          lastActivityMs = parsedTs;
+        }
+      }
+    }
+
+    let messagesSinceCompaction = 0;
+    for (let i = lastCompactionIndex + 1; i < entries.length; i += 1) {
+      if (entries[i]?.type === "message") {
+        messagesSinceCompaction += 1;
+      }
+    }
+
+    if (lastActivityMs <= 0) {
+      try {
+        lastActivityMs = statSync(entriesFile).mtimeMs;
+      } catch {
+        lastActivityMs = 0;
+      }
+    }
+
+    if (messagesSinceCompaction < 2) {
+      return {
+        exists: true,
+        lastActivityMs,
+        messagesSinceCompaction,
+        estimatedContextTokens: 0
+      };
+    }
+
+    const built = buildMessagesFromSessionEntries(entries);
+    const estimatedContextTokens = resolveContextTokens(built.messages).tokens;
+    return {
+      exists: true,
+      lastActivityMs,
+      messagesSinceCompaction,
+      estimatedContextTokens
+    };
   }
 
   getSessionStatusSnapshot(chatId: string, sessionId?: string): SessionStatusSnapshot {

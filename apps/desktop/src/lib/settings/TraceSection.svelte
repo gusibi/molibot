@@ -109,7 +109,58 @@
     if (value === "subagent_task") return session.text.traceFact_subagent_task;
     if (value === "runtime_notice") return session.text.traceFact_runtime_notice;
     if (value === "approval") return session.text.traceFact_approval;
+    if (value === "memory_extraction") return session.text.traceFact_memory_extraction;
+    if (value === "compaction") return session.text.traceFact_compaction;
     return session.text.traceFact_input_enrichment;
+  }
+
+  function compactionTriggerLabel(fact: DesktopTraceFact): string {
+    const trigger = fact.compactionTrigger ?? fact.name;
+    if (trigger === "threshold") return session.text.traceCompactionTrigger_threshold;
+    if (trigger === "manual") return session.text.traceCompactionTrigger_manual;
+    if (trigger === "overflow") return session.text.traceCompactionTrigger_overflow;
+    if (trigger === "preflight") return session.text.traceCompactionTrigger_preflight;
+    return trigger ? humanizeTechnicalName(trigger) : session.text.traceFact_compaction;
+  }
+
+  function compactionOutcomeSummary(fact: DesktopTraceFact): string {
+    return session.text.traceCompactionSummaryItem
+      .replace("{before}", String(fact.beforeTokens ?? 0))
+      .replace("{after}", String(fact.afterTokens ?? 0))
+      .replace("{summarized}", String(fact.summarizedMessages ?? 0))
+      .replace("{kept}", String(fact.keptMessages ?? 0));
+  }
+
+  function memoryTriggerLabel(fact: DesktopTraceFact): string {
+    const trigger = fact.memoryTrigger ?? fact.name;
+    if (trigger === "idle") return session.text.traceMemoryTrigger_idle;
+    if (trigger === "long_session") return session.text.traceMemoryTrigger_long_session;
+    if (trigger === "daily") return session.text.traceMemoryTrigger_daily;
+    if (trigger === "daily_reflection") return session.text.traceMemoryTrigger_daily_reflection;
+    if (trigger === "manual") return session.text.traceMemoryTrigger_manual;
+    return trigger ? humanizeTechnicalName(trigger) : session.text.traceFact_memory_extraction;
+  }
+
+  function memoryOutcomeSummary(fact: DesktopTraceFact): string {
+    const trigger = fact.memoryTrigger ?? fact.name;
+    if (trigger === "daily_reflection") {
+      return session.text.traceMemorySummaryDaily
+        .replace("{conversations}", String(fact.scannedConversations ?? 0))
+        .replace("{idle}", String(fact.idleExtractedConversations ?? 0))
+        .replace("{fallback}", String(fact.fallbackExtractedConversations ?? 0))
+        .replace("{messages}", String(fact.scannedMessages ?? 0))
+        .replace("{committed}", String(fact.committedMemories ?? 0));
+    }
+    return session.text.traceMemorySummaryItem
+      .replace("{messages}", String(fact.scannedMessages ?? 0))
+      .replace("{committed}", String(fact.committedMemories ?? 0))
+      .replace("{candidates}", String(fact.createdCandidates ?? 0));
+  }
+
+  function toggleMemoryFilter(): void {
+    const next: DesktopTraceFactType = traceStore.query.factType === "memory_extraction" ? "all" : "memory_extraction";
+    factType = next;
+    updateTraceQuery({ factType: next });
   }
 
   function statusLabel(value: DesktopTraceStatus): string {
@@ -131,6 +182,8 @@
   }
 
   function factName(fact: DesktopTraceFact): string {
+    if (fact.factType === "compaction") return compactionTriggerLabel(fact);
+    if (fact.factType === "memory_extraction") return memoryTriggerLabel(fact);
     if (fact.factType === "model_call") return humanizeModelOption(`${fact.provider}/${fact.model}`, `${fact.provider}::${fact.model}`).label;
     if (fact.name) return humanizeTechnicalName(fact.name);
     return factTypeLabel(fact.factType);
@@ -174,6 +227,7 @@
   const channelRows = $derived(trace?.rankings.channels.filter(row => row.modelCalls > 0).map(row => ({ id: row.id, label: row.label, secondary: `${row.outcomes.success} ${session.text.traceSucceeded} · ${row.outcomes.error} ${session.text.traceFailed}`, value: row.modelCalls })) ?? []);
   const toolRows = $derived(trace?.rankings.tools.map(row => ({ id: row.name, label: humanizeTechnicalName(row.name), secondary: `${row.success} ${session.text.traceSucceeded} · ${row.error} ${session.text.traceFailed}`, value: row.calls })) ?? []);
   const skillRows = $derived(trace?.rankings.skills.map(row => ({ id: row.name, label: row.name, secondary: `${row.executed} ${session.text.traceExecuted}`, value: row.calls })) ?? []);
+  const memoryExtractions = $derived(trace?.memoryExtractions ?? []);
   const totalPages = $derived(trace ? Math.max(1, Math.ceil(trace.facts.total / trace.facts.pageSize)) : 1);
   const advancedFilterCount = $derived([botId, chatId, sessionId, runId].filter(value => value.trim()).length + (factType === "all" ? 0 : 1));
   const rankingTabs = $derived([
@@ -245,6 +299,18 @@
     <AnalyticsRanking title={session.text.analyticsTraceBots} rows={botRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { botId = value; updateTraceQuery({ botId: value }); }} />
     <AnalyticsRanking title={session.text.analyticsTraceChannels} rows={channelRows} total={trace.totals.modelCalls} unit={session.text.traceRequests} onselect={value => { channel = value; updateTraceQuery({ channel: value }); }} />
     {#if toolRows.length > 0 || skillRows.length > 0}<div class="analytics-ranking-grid"><AnalyticsRanking title={session.text.traceRankTools} rows={toolRows} total={trace.totals.toolCalls} unit={session.text.traceCalls} /><AnalyticsRanking title={session.text.traceRankSkills} rows={skillRows} total={trace.totals.skillUsages} unit={session.text.traceCalls} /></div>{/if}
+    <section class="settings-card observatory-data-card" aria-label={session.text.traceMemoryExtractions}>
+      <div class="observatory-section-head">
+        <div><strong>{session.text.traceMemoryExtractions}</strong><p>{session.text.traceMemoryExtractionsHint}</p></div>
+        <Button onclick={toggleMemoryFilter}>{traceStore.query.factType === "memory_extraction" ? session.text.traceMemoryShowAll : session.text.traceMemoryFilterOnly}</Button>
+      </div>
+      {#if memoryExtractions.length === 0}
+        <EmptyState title={session.text.traceMemoryNoExtractions} icon="list-magnifying-glass" />
+      {:else}
+        <div class="observatory-table-wrap"><table class="observatory-table"><thead><tr><th>{session.text.usageTime}</th><th>{session.text.traceMemoryTrigger}</th><th>{session.text.traceMemoryOutcome}</th><th>{session.text.traceStatus}</th><th>{session.text.usageChannel}</th><th>{session.text.usageBot}</th><th>{session.text.traceSessionId}</th><th>{session.text.traceDurations}</th><th>{session.text.traceTokens}</th></tr></thead><tbody>{#each memoryExtractions as item (item.id)}<tr><td>{formatNaturalDateTime(item.updatedAt, session.locale)}</td><td><strong>{memoryTriggerLabel(item)}</strong>{#if item.model}<small>{item.provider ? `${item.provider} · ` : ""}{item.model}</small>{/if}</td><td>{memoryOutcomeSummary(item)}</td><td><StatusBadge label={statusLabel(item.status)} state={statusState(item.status)} /></td><td>{item.channel}</td><td class="observatory-id" title={item.botId}>{shortId(item.botId)}</td><td class="observatory-id" title={item.sessionId}>{shortId(item.sessionId)}</td><td>{item.durationMs ? formatDurationMs(item.durationMs) : "—"}</td><td>{item.totalTokens ? formatTokenCount(item.totalTokens) : "—"}</td></tr>{/each}</tbody></table></div>
+        <div class="observatory-mobile-list">{#each memoryExtractions as item (item.id)}<article><header><strong>{memoryTriggerLabel(item)}</strong><StatusBadge label={statusLabel(item.status)} state={statusState(item.status)} /></header><p>{formatNaturalDateTime(item.updatedAt, session.locale)} · {item.channel} · {shortId(item.botId)}</p><p>{memoryOutcomeSummary(item)}</p><dl><div><dt>{session.text.traceSessionId}</dt><dd title={item.sessionId}>{shortId(item.sessionId)}</dd></div><div><dt>{session.text.traceDurations}</dt><dd>{item.durationMs ? formatDurationMs(item.durationMs) : "—"}</dd></div><div><dt>{session.text.traceTokens}</dt><dd>{item.totalTokens ? formatTokenCount(item.totalTokens) : "—"}</dd></div></dl></article>{/each}</div>
+      {/if}
+    </section>
     <p class="analytics-caption analytics-window-note">{session.text.analyticsFullWindow}</p>
     <details class="analytics-details"><summary>{session.text.analyticsDiagnostics}</summary><div class="analytics-detail-content">
   <div class="settings-card observatory-data-card" id="trace-ranking-panel" role="tabpanel" aria-labelledby={`trace-ranking-tab-${rankingView}`}>
@@ -267,8 +333,8 @@
   <div class="settings-card observatory-data-card">
     <div class="observatory-section-head"><div><strong>{session.text.traceRecentFacts}</strong><p>{session.text.traceRecentFactsHint}</p></div></div>
     {#if trace.facts.items.length === 0}<EmptyState title={session.text.traceNoFacts} icon="list-magnifying-glass" />{:else}
-      <div class="observatory-table-wrap"><table class="observatory-table"><thead><tr><th>{session.text.usageTime}</th><th>{session.text.traceType}</th><th>{session.text.traceName}</th><th>{session.text.traceStatus}</th><th>{session.text.usageChannel}</th><th>{session.text.usageBot}</th><th>{session.text.traceRunId}</th><th>{session.text.traceSessionId}</th><th>{session.text.traceDurations}</th><th>{session.text.traceTokens}</th></tr></thead><tbody>{#each trace.facts.items as fact (fact.id)}<tr><td>{formatNaturalDateTime(fact.updatedAt, session.locale)}</td><td>{factTypeLabel(fact.factType)}</td><td><strong>{factName(fact)}</strong>{#if fact.api}<small>{fact.provider} · {fact.api}</small>{/if}</td><td><StatusBadge label={statusLabel(fact.status)} state={statusState(fact.status)} /></td><td>{fact.channel}</td><td class="observatory-id" title={fact.botId}>{shortId(fact.botId)}</td><td class="observatory-id" title={fact.runId}>{shortId(fact.runId)}</td><td class="observatory-id" title={fact.sessionId}>{shortId(fact.sessionId)}</td><td>{fact.durationMs ? formatDurationMs(fact.durationMs) : "—"}</td><td>{fact.totalTokens ? formatTokenCount(fact.totalTokens) : "—"}</td></tr>{/each}</tbody></table></div>
-      <div class="observatory-mobile-list">{#each trace.facts.items as fact (fact.id)}<article><header><strong>{factName(fact)}</strong><StatusBadge label={statusLabel(fact.status)} state={statusState(fact.status)} /></header><p>{formatNaturalDateTime(fact.updatedAt, session.locale)} · {factTypeLabel(fact.factType)} · {fact.channel}</p><dl><div><dt>{session.text.usageBot}</dt><dd title={fact.botId}>{shortId(fact.botId)}</dd></div><div><dt>{session.text.traceRunId}</dt><dd title={fact.runId}>{shortId(fact.runId)}</dd></div><div><dt>{session.text.traceDurations}</dt><dd>{fact.durationMs ? formatDurationMs(fact.durationMs) : "—"}</dd></div><div><dt>{session.text.traceTokens}</dt><dd>{fact.totalTokens ? formatTokenCount(fact.totalTokens) : "—"}</dd></div></dl></article>{/each}</div>
+      <div class="observatory-table-wrap"><table class="observatory-table"><thead><tr><th>{session.text.usageTime}</th><th>{session.text.traceType}</th><th>{session.text.traceName}</th><th>{session.text.traceStatus}</th><th>{session.text.usageChannel}</th><th>{session.text.usageBot}</th><th>{session.text.traceRunId}</th><th>{session.text.traceSessionId}</th><th>{session.text.traceDurations}</th><th>{session.text.traceTokens}</th></tr></thead><tbody>{#each trace.facts.items as fact (fact.id)}<tr><td>{formatNaturalDateTime(fact.updatedAt, session.locale)}</td><td>{factTypeLabel(fact.factType)}</td><td><strong>{factName(fact)}</strong>{#if fact.factType === "memory_extraction"}<small>{memoryOutcomeSummary(fact)}</small>{:else if fact.factType === "compaction"}<small>{compactionOutcomeSummary(fact)}</small>{:else if fact.api}<small>{fact.provider} · {fact.api}</small>{/if}</td><td><StatusBadge label={statusLabel(fact.status)} state={statusState(fact.status)} /></td><td>{fact.channel}</td><td class="observatory-id" title={fact.botId}>{shortId(fact.botId)}</td><td class="observatory-id" title={fact.runId}>{shortId(fact.runId)}</td><td class="observatory-id" title={fact.sessionId}>{shortId(fact.sessionId)}</td><td>{fact.durationMs ? formatDurationMs(fact.durationMs) : "—"}</td><td>{fact.totalTokens ? formatTokenCount(fact.totalTokens) : "—"}</td></tr>{/each}</tbody></table></div>
+      <div class="observatory-mobile-list">{#each trace.facts.items as fact (fact.id)}<article><header><strong>{factName(fact)}</strong><StatusBadge label={statusLabel(fact.status)} state={statusState(fact.status)} /></header><p>{formatNaturalDateTime(fact.updatedAt, session.locale)} · {factTypeLabel(fact.factType)} · {fact.channel}</p>{#if fact.factType === "memory_extraction"}<p>{memoryOutcomeSummary(fact)}</p>{:else if fact.factType === "compaction"}<p>{compactionOutcomeSummary(fact)}</p>{/if}<dl><div><dt>{session.text.usageBot}</dt><dd title={fact.botId}>{shortId(fact.botId)}</dd></div><div><dt>{session.text.traceRunId}</dt><dd title={fact.runId}>{shortId(fact.runId)}</dd></div><div><dt>{session.text.traceDurations}</dt><dd>{fact.durationMs ? formatDurationMs(fact.durationMs) : "—"}</dd></div><div><dt>{session.text.traceTokens}</dt><dd>{fact.totalTokens ? formatTokenCount(fact.totalTokens) : "—"}</dd></div></dl></article>{/each}</div>
     {/if}
     <div class="observatory-pagination"><span>{session.text.tracePage.replace("{page}", String(trace.facts.page)).replace("{pages}", String(totalPages)).replace("{total}", String(trace.facts.total))}</span><div><label>{session.text.usagePageSize}<SelectControl value={String(traceStore.query.pageSize)} ariaLabel={session.text.usagePageSize} options={[10, 20, 50, 100].map((value) => ({ value: String(value), label: String(value) }))} onChange={(value) => updateTraceQuery({ pageSize: Number(value) })} /></label><button class="secondary-button" type="button" disabled={trace.facts.page <= 1 || traceStore.refreshing} onclick={() => updateTraceQuery({ page: trace.facts.page - 1 }, false)}>{session.text.usagePrevious}</button><button class="secondary-button" type="button" disabled={trace.facts.page >= totalPages || traceStore.refreshing} onclick={() => updateTraceQuery({ page: trace.facts.page + 1 }, false)}>{session.text.usageNext}</button></div></div>
   </div>    </div></details>

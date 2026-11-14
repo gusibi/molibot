@@ -17,7 +17,7 @@ import {
 } from "./desktopTrace";
 import type { RuntimeSettings } from "$lib/server/settings/schema";
 import { buildDesktopActiveRuns } from "./desktopActiveRuns";
-import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
+import { recordCompactionTraceFact, recordMemoryExtractionTraceFact, SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";
 
 const ordinarySessions = { getConversationProjectId: (_id: string): string | null => null };
 
@@ -452,5 +452,153 @@ test("Agent activity excludes Project runs and preserves ordinary runs of the sa
   } finally {
     Object.assign(storagePaths, original);
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("memory extraction trace facts project triggers and counts into summary without leaking previews", () => {
+  const store = new SqliteTraceStore(":memory:");
+  const today = new Date().toISOString().slice(0, 10);
+  try {
+    recordMemoryExtractionTraceFact({
+      trigger: "idle",
+      status: "success",
+      conversationId: "conv-idle",
+      channel: "web",
+      botId: "default",
+      agentId: "agent-a",
+      startedAt: `${today}T02:00:00.000Z`,
+      finishedAt: `${today}T02:00:01.200Z`,
+      scannedMessages: 6,
+      committedMemories: 2,
+      createdCandidates: 2,
+      provider: "openai",
+      model: "gpt-4o-mini",
+      api: "openai-completions",
+      inputTokens: 120,
+      outputTokens: 40,
+      totalTokens: 160
+    }, store);
+    recordMemoryExtractionTraceFact({
+      trigger: "daily_reflection",
+      status: "success",
+      conversationId: "memory-reflection.json",
+      channel: "internal",
+      botId: "system",
+      startedAt: `${today}T03:01:00.000Z`,
+      finishedAt: `${today}T03:01:03.000Z`,
+      scannedMessages: 10,
+      committedMemories: 3,
+      createdCandidates: 4,
+      scannedConversations: 5,
+      idleExtractedConversations: 4,
+      fallbackExtractedConversations: 1
+    }, store);
+
+    const facts = store.listAnalyticsFacts(today, today, "UTC");
+    const summary = buildDesktopTraceSummary("UTC", { range: "today", factType: "memory_extraction" }, facts);
+    assert.equal(summary.facts.total, 2);
+    assert.equal(summary.memoryExtractions?.length, 2);
+
+    const reflection = summary.memoryExtractions?.find(item => item.memoryTrigger === "daily_reflection");
+    assert.equal(reflection?.scannedConversations, 5);
+    assert.equal(reflection?.idleExtractedConversations, 4);
+    assert.equal(reflection?.fallbackExtractedConversations, 1);
+    assert.equal(reflection?.committedMemories, 3);
+    assert.equal(reflection?.durationMs, 3000);
+
+    const idle = summary.memoryExtractions?.find(item => item.memoryTrigger === "idle");
+    assert.equal(idle?.agentId, "agent-a");
+    assert.equal(idle?.scannedMessages, 6);
+    assert.equal(idle?.committedMemories, 2);
+    assert.equal(idle?.createdCandidates, 2);
+    assert.equal(idle?.totalTokens, 160);
+    assert.equal(idle?.durationMs, 1200);
+
+    // Scope filtering on tool_call still preserves window-scoped memoryExtractions for the section card.
+    const toolFiltered = buildDesktopTraceSummary("UTC", { range: "today", factType: "tool_call" }, facts);
+    assert.equal(toolFiltered.facts.total, 0);
+    assert.equal(toolFiltered.memoryExtractions?.length, 2);
+
+    const serialized = JSON.stringify(summary);
+    for (const forbidden of ["argsPreview", "resultPreview", "errorPreview", '"payload"', "blockedBy"]) {
+      assert.equal(serialized.includes(forbidden), false, forbidden);
+    }
+  } finally {
+    store.close();
+  }
+});
+
+test("context compaction trace facts project triggers and token counts into summary without leaking previews", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "molibot-desktop-compaction-trace-"));
+  const dbFile = path.join(directory, "traces.db");
+  const store = new SqliteTraceStore(dbFile);
+
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    recordCompactionTraceFact({
+      trigger: "threshold",
+      status: "success",
+      conversationId: "conv-compact-1",
+      channel: "web",
+      botId: "bot-default",
+      agentId: "agent-a",
+      startedAt: `${today}T01:00:00.000Z`,
+      finishedAt: `${today}T01:00:02.500Z`,
+      beforeTokens: 50000,
+      afterTokens: 12000,
+      summarizedMessages: 24,
+      keptMessages: 6,
+      provider: "anthropic",
+      model: "claude-3-5-sonnet",
+      inputTokens: 38000,
+      outputTokens: 800,
+      totalTokens: 38800
+    }, store);
+
+    recordCompactionTraceFact({
+      trigger: "overflow",
+      status: "success",
+      conversationId: "conv-compact-2",
+      channel: "feishu",
+      botId: "bot-feishu",
+      startedAt: `${today}T02:30:00.000Z`,
+      finishedAt: `${today}T02:30:01.800Z`,
+      beforeTokens: 128000,
+      afterTokens: 40000,
+      summarizedMessages: 40,
+      keptMessages: 10,
+      provider: "openai",
+      model: "gpt-4o",
+      totalTokens: 90000
+    }, store);
+
+    const facts = store.listAnalyticsFacts(today, today, "UTC");
+    const summary = buildDesktopTraceSummary("UTC", { range: "today", factType: "compaction" }, facts);
+    assert.equal(summary.facts.total, 2);
+    assert.equal(summary.compactions?.length, 2);
+
+    const threshold = summary.compactions?.find(item => item.compactionTrigger === "threshold");
+    assert.equal(threshold?.agentId, "agent-a");
+    assert.equal(threshold?.beforeTokens, 50000);
+    assert.equal(threshold?.afterTokens, 12000);
+    assert.equal(threshold?.summarizedMessages, 24);
+    assert.equal(threshold?.keptMessages, 6);
+    assert.equal(threshold?.durationMs, 2500);
+    assert.equal(threshold?.totalTokens, 38800);
+
+    const overflow = summary.compactions?.find(item => item.compactionTrigger === "overflow");
+    assert.equal(overflow?.beforeTokens, 128000);
+    assert.equal(overflow?.afterTokens, 40000);
+    assert.equal(overflow?.summarizedMessages, 40);
+    assert.equal(overflow?.keptMessages, 10);
+    assert.equal(overflow?.durationMs, 1800);
+
+    const serialized = JSON.stringify(summary);
+    for (const forbidden of ["argsPreview", "resultPreview", "errorPreview", '"payload"']) {
+      assert.equal(serialized.includes(forbidden), false, forbidden);
+    }
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

@@ -325,6 +325,6 @@ test("Agent deletion archives local and external history idempotently while Proj
     const version = h.lifecycle.get(external.id)?.version;
     service.archiveAgentHistory("researcher");
     assert.equal(h.lifecycle.get(external.id)?.version, version);
-    assert.equal(service.archive({ conversationId: external.id }).status, "skipped");
+    assert.equal(service.archive({ conversationId: external.id }).status, "succeeded");
   } finally { h.cleanup(); }
 });

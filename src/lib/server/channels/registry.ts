@@ -29,6 +29,7 @@ export interface ChannelManager {
   readDurableRunDetail?(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[];
   sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;
   sendMemoryReviewItem?(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null>;
+  runIdleCompactionSweep?(nowMs?: number): Promise<{ scanned: number; compacted: number }>;
 }
 
 export interface ChannelRuntimeDeps {
