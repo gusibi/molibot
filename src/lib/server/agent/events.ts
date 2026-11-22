@@ -102,10 +102,6 @@ export interface ImmediateEvent {
   type: "immediate";
 }
 
-export interface TodoEvent {
-  type: "todo";
-}
-
 export interface OneShotEvent {
   type: "one-shot";
   at: string;
@@ -117,7 +113,7 @@ export interface PeriodicEvent {
   timezone: string;
 }
 
-export type MomEvent = (TodoEvent | ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
+export type MomEvent = (ImmediateEvent | OneShotEvent | PeriodicEvent) & EventBase;
 
 export function markOneShotReminderReadFile(filePath: string): void {
   const current = JSON.parse(readFileSync(filePath, "utf8")) as MomEvent;
@@ -523,16 +519,6 @@ export class EventsWatcher {
       const parsed = JSON.parse(raw) as MomEvent;
       if (!parsed || typeof parsed !== "object") {
         throw new Error("Invalid JSON object");
-      }
-      // Plain Runtime todos are durable user tasks, not executable events.
-      // Give manually imported rows an id, then keep them out of every
-      // delivery, recovery, and scheduling path.
-      if (parsed.type === "todo") {
-        const identified = this.ensureTaskId(parsed);
-        if (identified.taskId !== parsed.taskId) this.updateEventFile(filename, () => identified);
-        this.cancel(filename);
-        this.knownFiles.add(filename);
-        return;
       }
       const normalized = this.normalizeEventDelivery(parsed);
       const identified = this.ensureTaskId(normalized);

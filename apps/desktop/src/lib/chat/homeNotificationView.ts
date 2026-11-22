@@ -70,6 +70,7 @@ export function notificationTypeLabel(type: DesktopHomeNotificationType, zh: boo
     case "task-failed": return zh ? "任务失败" : "Task failed";
     case "action-required": return zh ? "待处理" : "Action";
     case "cross-channel": return zh ? "渠道回复" : "Channels";
+    case "follow-up": return zh ? "跟进" : "Follow-up";
   }
 }
 
@@ -90,6 +91,8 @@ export function openActionLabel(item: DesktopHomeNotification, zh: boolean): str
     case "task-result":
     case "task-failed":
       return zh ? "打开自动任务" : "Open automations";
+    case "follow-up":
+      return zh ? "查看任务" : "View task";
   }
 }
 

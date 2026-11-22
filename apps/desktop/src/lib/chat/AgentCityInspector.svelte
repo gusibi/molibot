@@ -1,5 +1,6 @@
 <script lang="ts">
   import X from "reicon-svelte/icons/X";
+  import type { DesktopAgentActionKind } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import type { AgentCityFloor, AgentCityStatus } from "./agentCityProjection";
 
@@ -72,6 +73,16 @@
   function workerStatus(status: "working" | "completed" | "error"): string {
     return statusLabel(status);
   }
+
+  function actionKindLabel(kind: DesktopAgentActionKind): string {
+    if (kind === "tool_call") return copy.agentCityActionTool;
+    if (kind === "model_call") return copy.agentCityActionModel;
+    if (kind === "skill_usage") return copy.agentCityActionSkill;
+    if (kind === "subagent_task") return copy.agentCityActionSubagent;
+    return copy.agentCityActionApproval;
+  }
+
+  $: activeSteps = floor.steps ?? floor.activity?.steps ?? [];
 </script>
 
 <aside class="agent-city-inspector" aria-label={copy.agentCityInspectorTitle}>
@@ -157,6 +168,28 @@
           </div>
         {:else}
           <p class="agent-city-inspector-empty">{copy.agentCityInspectorNoActiveTask}</p>
+        {/if}
+      </section>
+
+      <section class="agent-city-inspector-section">
+        <h3>{copy.agentCityActionPipeline}</h3>
+        {#if activeSteps.length > 0}
+          <ol class="agent-city-action-pipeline">
+            {#each activeSteps as step (step.id)}
+              <li data-status={step.status} data-kind={step.kind}>
+                <i data-status={step.status}></i>
+                <span>{actionKindLabel(step.kind)}</span>
+                <code>{step.name}</code>
+                {#if step.durationMs > 0}
+                  <small>{step.durationMs}ms</small>
+                {:else}
+                  <time>{activityTime(step.startedAt)}</time>
+                {/if}
+              </li>
+            {/each}
+          </ol>
+        {:else}
+          <p class="agent-city-inspector-empty">{copy.agentCityNoActions}</p>
         {/if}
       </section>
 
@@ -316,6 +349,18 @@
   .agent-city-inspector-facts--runtime dd { font-family: var(--font-mono); font-size: 10px; }
   .agent-city-inspector-team-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .agent-city-inspector-team-chips span { padding: 3px 7px; border: 1px solid var(--separator); border-radius: 999px; background: var(--fill); color: var(--label-secondary); font-size: var(--fs-meta); }
+  .agent-city-action-pipeline { display: grid; margin: 0; padding: 0; gap: 5px; list-style: none; }
+  .agent-city-action-pipeline li { display: grid; grid-template-columns: 8px auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 28px; padding: 4px 8px; border: 1px solid var(--separator); border-radius: var(--rounded-sm); background: color-mix(in srgb, var(--card-bg) 82%, transparent); font-size: var(--fs-meta); }
+  .agent-city-action-pipeline li[data-status="working"] { border-color: color-mix(in srgb, var(--accent) 45%, var(--separator)); background: color-mix(in srgb, var(--accent) 10%, var(--card-bg)); }
+  .agent-city-action-pipeline li[data-status="waiting"] { border-color: color-mix(in srgb, var(--warning) 45%, var(--separator)); background: color-mix(in srgb, var(--warning) 10%, var(--card-bg)); }
+  .agent-city-action-pipeline li i { width: 6px; height: 6px; border-radius: 50%; background: var(--label-tertiary); }
+  .agent-city-action-pipeline li i[data-status="working"] { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+  .agent-city-action-pipeline li i[data-status="waiting"] { background: var(--warning); }
+  .agent-city-action-pipeline li i[data-status="completed"] { background: var(--online); }
+  .agent-city-action-pipeline li i[data-status="error"] { background: var(--danger); }
+  .agent-city-action-pipeline li span { color: var(--label-secondary); font-size: var(--fs-meta); white-space: nowrap; }
+  .agent-city-action-pipeline li code { overflow: hidden; color: var(--label-primary); font-family: var(--font-mono); font-size: var(--fs-meta); text-overflow: ellipsis; white-space: nowrap; }
+  .agent-city-action-pipeline li small, .agent-city-action-pipeline li time { color: var(--label-tertiary); font-family: var(--font-mono); font-size: var(--fs-meta); white-space: nowrap; }
   .agent-city-worker-groups { display: grid; gap: 8px; }
   .agent-city-worker-group { overflow: hidden; border: 1px solid var(--separator); border-radius: var(--rounded-md); background: color-mix(in srgb, var(--card-bg) 78%, transparent); }
   .agent-city-worker-group > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; padding: 0 10px; border-bottom: 1px solid var(--separator); }

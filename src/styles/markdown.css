@@ -19,8 +19,8 @@
 .markdown-body {
   min-width: 0;
   max-width: 100%;
-  font-size: 15px;
-  line-height: 25px;
+  font-size: 14px;
+  line-height: 23px;
   color: var(--foreground);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -199,7 +199,7 @@
  * one .markdown-body implementation and one renderMarkdown() output — this
  * block only overrides the values that make Notion read differently.
  */
-:root[data-doc-style="notion"] .markdown-body { font-size: 15px; line-height: 23px; }
+:root[data-doc-style="notion"] .markdown-body { font-size: 14px; line-height: 21px; }
 :root[data-doc-style="notion"] :is(.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body blockquote, .markdown-body figure, .markdown-body .markdown-table-wrap) { margin-bottom: 6px; }
 :root[data-doc-style="notion"] :is(.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6) { margin-bottom: 6px; font-weight: 600; letter-spacing: -0.01em; }
 :root[data-doc-style="notion"] .markdown-body h1 { font-size: 26px; line-height: 32px; margin-top: 22px; padding-bottom: 0; border-bottom: 0; }

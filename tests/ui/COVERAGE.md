@@ -10,6 +10,16 @@
 - 本次改动需要的验证：`pnpm verify:feature`
 - 原生 App 核心测试：`pnpm test:app`（尚未建设，见下）
 
+## 安装与对话反馈回归（2026-11-16）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 当前可见会话完成后已读、设置页遮挡时保持未读、返回会话已读、隔离服务冷启动及重启恢复 | 已实现 | 浏览器 UI + 本地模拟模型 + 真实通知存储 | `agent-reported-regressions.spec.ts` |
+| 模型发现列表的添加/移除同行与窄窗布局、上下文轮询重启及失败恢复保留 DOM | 已实现 | 浏览器 UI + 可控接口响应 | `agent-reported-regressions.spec.ts` |
+| 工具输出替换保持底部跟随，手动上滚仍可中断 | 已实现 | 滚动 action | `apps/desktop/src/lib/chat/stickToBottom.test.ts` |
+| 已安装目录重载保留依赖，外部同 ID 更新，拒绝安装根、祖先及符号链接别名 | 已实现 | 安装器 + 临时目录 | `src/lib/server/miniapps/install.test.ts` |
+| 当前运行实例与原生安装包 | 待验证 | 原生 App | — |
+
 ## 项目文件搜索（2026-11-02）
 
 | 场景 | 状态 | 负责层 | 用例 |

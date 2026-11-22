@@ -319,7 +319,8 @@
 - [Automatic Durable Execution PRD](automatic-durable-execution-prd.md)继续维护基础执行、证据、副作用与恢复规则；本文扩展单 Agent／Team 任务形态，不要求开放式任务先建立完整线性计划。
 - 本文继续取代已归档的[规模化自主长任务 PRD](../archive/requirements/large-autonomous-execution-prd.md)。其阶段 A 已交付验收与阻塞报告不受影响。
 - [Multi-Agent Room Spec](multi-agent-room-spec.md) 的房间对话行为不变；任务执行形态修订（2026-11-07）后，看板任务进一步复用其会话底盘（可见会话、署名、steer、每成员独立 Context、写者串行）与成员运行构造；命名统一为「Agent Team」——Room 载体称「Agent Team 会话」，看板多成员任务称「Agent Team 任务」，代码实体不改名。
-- ADR 0003／0004／0005 继续约束 Runtime Task 边界、按域存储与 Pi 私有执行存储。
+- ADR 0003／0004／0005 继续约束 Runtime Task 边界、按域存储与 Pi 私有执行存储；[ADR 0009](../adr/0009-time-triggers-and-tasks.md) 确定用户面只有“时间触发”和“任务”两类。
+- [持续跟进 Phase One 实施 Spec](../designs/agent-runtime/personal-agent-follow-up-spec.md) 以 `follow_up` 运行模式扩展单 Agent 看板任务，包括其渠道通知；本文 Out of Scope 中的渠道通知条款对 `execute` 模式继续有效。
 
 ### 实施前
 

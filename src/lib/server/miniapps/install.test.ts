@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import test from "node:test";
 import { createMiniAppInstaller } from "$lib/server/miniapps/install.js";
 import { MiniAppError, type MiniAppInstallSource } from "$lib/server/miniapps/types.js";
@@ -300,15 +300,32 @@ test("reinstalling reports a replacement and swaps the code", async () => {
   );
 });
 
-test("installing from inside the code root is refused", async () => {
+test("selecting an installed app reloads it without copying or changing provenance", async () => {
   const harness = makeHarness();
   const inside = join(harness.codeRoot, "notes");
-  writeAppInto(inside, "notes");
+  writeAppInto(inside, "notes", "2.0.0");
+  mkdirSync(join(inside, "node_modules"));
+  writeFileSync(join(inside, "node_modules", "dependency.txt"), "keep");
+  const result = await installerFor(harness).install({ source: "directory", path: inside });
+  assert.equal(result.appId, "notes");
+  assert.equal(result.replaced, true);
+  assert.equal(readFileSync(join(inside, "node_modules", "dependency.txt"), "utf8"), "keep");
+  assert.deepEqual(harness.sources, {});
+  assert.deepEqual(readdirSync(harness.codeRoot), ["notes"]);
+});
 
-  await assert.rejects(
-    () => installerFor(harness).install({ source: "directory", path: inside }),
-    (error: unknown) => error instanceof MiniAppError && /already inside/i.test(error.message)
-  );
+test("rejects the install root and mismatched nested apps before staging", async () => {
+  const harness = makeHarness();
+  const installer = installerFor(harness);
+  await assert.rejects(() => installer.install({ source: "directory", path: harness.codeRoot }), MiniAppError);
+  await assert.rejects(() => installer.install({ source: "directory", path: parse(harness.root).root }), MiniAppError);
+  const alias = join(harness.root, "apps-alias");
+  symlinkSync(harness.codeRoot, alias);
+  await assert.rejects(() => installer.install({ source: "directory", path: alias }), MiniAppError);
+  const nested = join(harness.codeRoot, "wrong");
+  writeAppInto(nested, "notes");
+  await assert.rejects(() => installer.install({ source: "directory", path: nested }), MiniAppError);
+  assert.deepEqual(readdirSync(harness.codeRoot), ["wrong"]);
 });
 
 test("a source directory's .git and node_modules are not copied", async () => {

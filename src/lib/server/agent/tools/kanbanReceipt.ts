@@ -18,7 +18,16 @@ const kanbanReceiptSchema = Type.Object({
     text: Type.Optional(Type.String()),
     done: Type.Optional(Type.Boolean()),
     remove: Type.Optional(Type.Boolean())
-  }), { description: "进度清单变更：新增（text）、勾选/取消（itemId 或 text + done）、删除（remove）。" }))
+  }), { description: "进度清单变更：新增（text）、勾选/取消（itemId 或 text + done）、删除（remove）。" })),
+  decision: Type.Optional(Type.Union([Type.Literal("silent"), Type.Literal("notify")], {
+    description: "（跟进模式专用）本次检查结论：silent（保持安静，无须打扰）或 notify（有明确依据需要通知用户）。"
+  })),
+  notifyText: Type.Optional(Type.String({
+    description: "（跟进模式专用，decision=notify 时必填）面向用户的简短通知内容，必须基于真实观察到的证据。"
+  })),
+  notifyArtifactIds: Type.Optional(Type.Array(Type.String(), {
+    description: "（跟进模式专用）附带的派生产物 ID 列表（可选）。"
+  }))
 });
 
 export type KanbanReceiptToolInput = {
@@ -34,6 +43,9 @@ export type KanbanReceiptToolInput = {
   requestCompletion?: boolean;
   proposeConditions?: string[];
   checklist?: Array<{ itemId?: string; text?: string; done?: boolean; remove?: boolean }>;
+  decision?: "silent" | "notify";
+  notifyText?: string;
+  notifyArtifactIds?: string[];
 };
 
 /**
@@ -62,6 +74,7 @@ export function getKanbanReceiptToolDefinition(): ToolDefinition {
         || receipt.question?.trim()
         || receipt.verifyAt?.trim()
         || receipt.requestCompletion
+        || receipt.decision !== undefined
         || (receipt.proposeConditions && receipt.proposeConditions.length > 0)
         || (receipt.checklist && receipt.checklist.length > 0)
       );
@@ -79,7 +92,14 @@ export function getKanbanReceiptToolDefinition(): ToolDefinition {
           ...(receipt.verifyAt?.trim() ? { verifyAt: receipt.verifyAt.trim() } : {}),
           ...(receipt.requestCompletion ? { requestCompletion: true } : {}),
           ...(receipt.proposeConditions?.length ? { proposeConditions: receipt.proposeConditions.map(item => item.trim()).filter(Boolean) } : {}),
-          ...(receipt.checklist?.length ? { checklist: receipt.checklist } : {})
+          ...(receipt.checklist?.length ? { checklist: receipt.checklist } : {}),
+          ...(receipt.decision ? { decision: receipt.decision } : {}),
+          ...(receipt.notifyText?.trim() ? {
+            notify: {
+              text: receipt.notifyText.trim(),
+              ...(receipt.notifyArtifactIds?.length ? { artifactIds: receipt.notifyArtifactIds } : {})
+            }
+          } : {})
         });
         if (!result.ok) return { ok: false, error: result.error };
         return {

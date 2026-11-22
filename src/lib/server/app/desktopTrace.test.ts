@@ -265,7 +265,31 @@ test("buildDesktopAgentActivity assigns unbound Bots to default and nests Subage
   ], ordinarySessions, now);
   assert.equal(items[0]?.agentId, "default");
   assert.deepEqual(items[0]?.subagents.map((item) => [item.name, item.status]), [["researcher", "working"]]);
+  assert.equal(items[0]?.currentAction?.kind, "subagent_task");
+  assert.equal(items[0]?.currentAction?.name, "researcher");
   assert.equal(JSON.stringify(items).includes("sensitive task"), false);
+});
+
+test("buildDesktopAgentActivity projects live tool calls, reasoning steps, and waiting approvals into currentAction and steps", () => {
+  const settings = {
+    ...defaultRuntimeSettings,
+    channels: { web: { instances: [{ id: "general", name: "General", enabled: true, credentials: {}, allowedChatIds: [] }] } }
+  } as RuntimeSettings;
+  const now = Date.parse("2026-07-12T12:00:08.000Z");
+  const items = buildDesktopAgentActivity(settings, [
+    fact({ id: "run-1", factType: "run", factId: "run-1", runId: "run-1", channel: "web", botId: "general", status: "started", startedAt: "2026-07-12T12:00:00.000Z", updatedAt: "2026-07-12T12:00:00.000Z" }),
+    fact({ id: "m-1", factType: "model_call", factId: "m-1", runId: "run-1", channel: "web", botId: "general", model: "claude-3-7-sonnet", status: "success", durationMs: 850, startedAt: "2026-07-12T12:00:01.000Z", finishedAt: "2026-07-12T12:00:02.000Z", updatedAt: "2026-07-12T12:00:02.000Z" }),
+    fact({ id: "t-1", factType: "tool_call", factId: "t-1", runId: "run-1", channel: "web", botId: "general", name: "read_file", status: "success", durationMs: 42, startedAt: "2026-07-12T12:00:03.000Z", finishedAt: "2026-07-12T12:00:03.042Z", updatedAt: "2026-07-12T12:00:03.042Z" }),
+    fact({ id: "t-2", factType: "tool_call", factId: "t-2", runId: "run-1", channel: "web", botId: "general", name: "bash", status: "started", startedAt: "2026-07-12T12:00:04.000Z", updatedAt: "2026-07-12T12:00:04.000Z" })
+  ], ordinarySessions, now);
+  assert.equal(items[0]?.currentAction?.kind, "tool_call");
+  assert.equal(items[0]?.currentAction?.name, "bash");
+  assert.equal(items[0]?.currentAction?.status, "working");
+  assert.deepEqual(items[0]?.steps?.map((step) => [step.kind, step.name, step.status]), [
+    ["model_call", "claude-3-7-sonnet", "completed"],
+    ["tool_call", "read_file", "completed"],
+    ["tool_call", "bash", "working"]
+  ]);
 });
 
 test("buildDesktopAgentActivity drops orphaned started runs after the runtime timeout grace", () => {

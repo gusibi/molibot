@@ -142,11 +142,11 @@ test("tools index registers documentExport as the verified deliverable writer", 
   assert.match(indexSource, /Generate and re-read verify deliverable DOCX, XLSX, or PDF/);
 });
 
-test("tools index registers runtimeTask as the only Agent todo and scheduling CRUD surface", () => {
+test("tools index registers runtimeTask as the only Agent scheduling CRUD surface", () => {
   assert.match(indexSource, /createRuntimeTaskTool/);
   assert.match(indexSource, /name: "runtimeTask"/);
   assert.match(indexSource, /tool: runtimeTaskTool/);
-  assert.match(indexSource, /"todo"/);
+  assert.match(indexSource, /"reminder"/);
   assert.match(indexSource, /"delete"/);
   assert.doesNotMatch(indexSource, /createEventTool/);
 });

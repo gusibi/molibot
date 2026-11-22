@@ -128,6 +128,7 @@
     "task-failed": TriangleWarning,
     "action-required": Handshake,
     "cross-channel": Dialog,
+    "follow-up": Bell,
   } as const;
 
   const CATEGORY_ICONS = {

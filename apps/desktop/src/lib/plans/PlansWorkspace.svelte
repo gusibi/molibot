@@ -202,6 +202,17 @@
     if (!version) return;
     await action({ action: "complete", planId, expectedVersion: version, actionId: crypto.randomUUID() });
   }
+  async function snoozeFollowUp(): Promise<void> {
+    const version = kanbanBundle?.detail.execution.version;
+    if (!version || !selectedId) return;
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    await action({ action: "follow_up_snooze", planId: selectedId, expectedVersion: version, until });
+  }
+  async function completeFollowUp(): Promise<void> {
+    const version = kanbanBundle?.detail.execution.version;
+    if (!version || !selectedId) return;
+    await action({ action: "follow_up_complete", planId: selectedId, expectedVersion: version });
+  }
   async function deletePlan() { if (detail && window.confirm(copy.planBoardDeleteConfirm)) await action({ action: "delete", planId: detail.execution.id, expectedVersion: detail.execution.version }); }
   async function control(kind: "pause" | "cancel") {
     const version = selectedKind === "kanban" ? kanbanBundle?.detail.execution.version : detail?.execution.version;
@@ -298,6 +309,8 @@
           onApproval={(approvalId, status) => void decide("approval", approvalId, status)}
           onDecide={(decisionId, answer) => void decide("answer", decisionId, answer)}
           onConditions={(conditions) => void saveKanbanConditions(conditions)}
+          onFollowUpSnooze={() => void snoozeFollowUp()}
+          onFollowUpComplete={() => void completeFollowUp()}
         />
       {/key}
       {#if actionError}<p class="plans-action-error" role="alert">{actionError}</p>{/if}

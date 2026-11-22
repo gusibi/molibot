@@ -10,10 +10,21 @@ import type { MomEvent } from "$lib/server/agent/events.js";
 import type { ChannelInboundMessage, DurableAttemptHooks } from "$lib/server/agent/core/types.js";
 import type { ToolApprovalRequest, ToolApprovalConsumptionRequest, ToolResult, ToolSideEffect } from "$lib/server/agent/tools/toolTypes.js";
 import type { ChannelManager } from "$lib/server/channels/registry.js";
-import type { DurableExecution, DurableWakeup, DurableWakeupMode, ExecutionStep, SideEffectRecord, StepVerificationRule } from "./types.js";
+import { OutboxDeliveryError } from "$lib/server/channels/shared/outbox.js";
+import type { DurableExecution, DurableWakeup, DurableWakeupMode, ExecutionStep, FollowUpNotifyTarget, SideEffectRecord, StepVerificationRule } from "./types.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
 import { readDurableEvidence } from "./evidence.js";
 import { buildKanbanBriefing, decideKanbanRoundOutcome, KANBAN_USAGE_GAP_REASON, kanbanRetryDelayMs, KANBAN_MAX_AUTO_RETRIES, KANBAN_RETRY_EXHAUSTED_SUFFIX } from "./kanbanRuntime.js";
+import { observeFollowUpSources } from "./followUpEvidence.js";
+import {
+  buildFixedCheckinFallbackText,
+  buildFollowUpBriefing,
+  buildUnavailableSourceNoticeText,
+  computeNextFollowUpCheckAt,
+  evaluateFollowUpCheckReceipt,
+  findDueFixedCheckin,
+  fixedCheckinTriggerSlot
+} from "./followUpRuntime.js";
 import { kanbanProjectKey } from "./kanbanStore.js";
 import type { KanbanReceiptActions, KanbanTaskConfig } from "./types.js";
 import { KanbanProjectSlotHeldError } from "./types.js";
@@ -57,6 +68,15 @@ export interface DurableExecutionRuntimeOptions {
    */
   onMemberReflow?: (input: { execution: DurableExecution; kind: "ack" | "receipt" | "brief"; memberName: string; text: string; sessionId?: string }) => void;
   onAttemptDelivery?: (input: DurableAttemptDelivery) => void | Promise<void>;
+  onFollowUpNotify?: (input: {
+    deliveryKey: string;
+    executionId: string;
+    title: string;
+    summary: string;
+    botId: string;
+    projectId?: string;
+    artifactRefs: string[];
+  }) => void | Promise<void>;
   queryableProbes?: Record<string, DurableQueryableProbe>;
 }
 
@@ -575,6 +595,14 @@ export class DurableExecutionRuntime {
         expectedVersionForAttempt = detail.execution.version;
       } else if (detail.execution.status !== "queued") {
         return { kind: "discarded" };
+      }
+      if (kanbanTask.mode === "follow_up") {
+        return this.executeFollowUpCheck({
+          expectedVersion: expectedVersionForAttempt,
+          task: kanbanTask,
+          detail,
+          label: filename
+        });
       }
       return this.executeKanbanRound({
         expectedVersion: expectedVersionForAttempt,
@@ -1342,6 +1370,509 @@ export class DurableExecutionRuntime {
       this.options.onMemberReflow?.({ execution: input.execution, kind: input.kind, memberName, text, ...(input.sessionId ? { sessionId: input.sessionId } : {}) });
     } catch (error) {
       momWarn("durableExecution", "kanban_member_reflow_failed", { executionId: input.execution.id, kind: input.kind, error: String(error) });
+    }
+  }
+
+  /**
+   * Executes one check cycle for a Kanban Task in `follow_up` mode:
+   * 1. Enforces expiry before any work.
+   * 2. Observes authorized sources and short-circuits to `silent` when the
+   *    evidence fingerprint has not changed (no model call, no Project slot).
+   * 3. Runs a bounded read-only attempt and records `silent` / `notify` /
+   *    `analysis_failed`, never stalling in `waiting_for_user` on bad receipts
+   *    and never acquiring the Project advance slot.
+   */
+  private async executeFollowUpCheck(input: {
+    expectedVersion: number;
+    task: KanbanTaskConfig;
+    detail: NonNullable<ReturnType<DurableExecutionStore["getDetail"]>>;
+    label: string;
+  }): Promise<WakeupExecutionOutcome> {
+    const executionId = input.task.executionId;
+    const now = new Date();
+    const followUp = this.store.followUp.getFollowUp(executionId);
+    if (!followUp) return { kind: "discarded" };
+
+    // 1. Expiry gate.
+    if (now.getTime() >= Date.parse(followUp.expiresAt)) {
+      this.store.followUp.expireFollowUp({ executionId, expectedVersion: input.expectedVersion, now });
+      momLog("durableExecution", "follow_up_expired", { executionId, label: input.label });
+      return { kind: "done" };
+    }
+
+    // 2. Determine whether a fixed check-in is due and observe authorized sources.
+    const existingDecisions = this.store.followUp.listDecisions(executionId);
+    const dueFixedCheckin = findDueFixedCheckin({
+      now,
+      fixedCheckins: followUp.fixedCheckins,
+      decisions: existingDecisions,
+      authorizationRevision: followUp.authorizationRevision
+    });
+    const isFixedCheckin = Boolean(dueFixedCheckin);
+    const triggerSlot = dueFixedCheckin
+      ? fixedCheckinTriggerSlot(dueFixedCheckin)
+      : (followUp.nextCheckAt ?? now.toISOString());
+    const completedSlots = new Set(
+      existingDecisions
+        .filter(d => d.authorizationRevision === followUp.authorizationRevision)
+        .map(d => d.triggerSlot)
+    );
+    completedSlots.add(triggerSlot);
+
+    const previousObservations = this.store.followUp.getLatestObservationsMap(executionId);
+    const { observations, fingerprint } = observeFollowUpSources({
+      ownerId: followUp.ownerId,
+      projectId: input.task.projectId,
+      workDir: input.task.workDir,
+      sources: followUp.sources,
+      previousObservations,
+      readExecutionDetail: (targetId) => this.store.getDetail(targetId),
+      now
+    });
+    this.store.followUp.recordObservations(executionId, triggerSlot, observations);
+
+    const lastDecision = this.store.followUp.getLastDecision(executionId, followUp.authorizationRevision);
+    const allUnavailable = observations.length > 0 && observations.every(o => o.status === "unavailable" || o.status === "revoked");
+
+    // 3a. Fingerprint short-circuit (conditional checks only; fixed check-ins must still execute).
+    if (!isFixedCheckin && lastDecision && lastDecision.evidenceFingerprint === fingerprint) {
+      const nextCheckAt = computeNextFollowUpCheckAt({
+        now,
+        checkIntervalMs: followUp.checkIntervalMs,
+        expiresAt: followUp.expiresAt,
+        fixedCheckins: followUp.fixedCheckins,
+        completedTriggerSlots: completedSlots
+      });
+      this.store.followUp.commitShortCircuitSilent({
+        executionId,
+        expectedVersion: input.expectedVersion,
+        authorizationRevision: followUp.authorizationRevision,
+        triggerSlot,
+        reasonCode: "evidence_unchanged",
+        evidenceFingerprint: fingerprint,
+        nextCheckAt,
+        now
+      });
+      momLog("durableExecution", "follow_up_short_circuit_silent", {
+        executionId,
+        triggerSlot,
+        nextCheckAt: nextCheckAt.toISOString()
+      });
+      return { kind: "done" };
+    }
+
+    // 3b. Missing evidence policy when every source is unavailable (non-fixed checks).
+    if (!isFixedCheckin && allUnavailable) {
+      const nextCheckAt = computeNextFollowUpCheckAt({
+        now,
+        checkIntervalMs: followUp.checkIntervalMs,
+        expiresAt: followUp.expiresAt,
+        fixedCheckins: followUp.fixedCheckins,
+        completedTriggerSlots: completedSlots
+      });
+      if (followUp.missingEvidencePolicy === "notify_unavailable") {
+        const noticeText = buildUnavailableSourceNoticeText(
+          input.task.title,
+          observations.map(o => o.sourceKey)
+        );
+        const outcome = this.store.followUp.recordCheckOutcome({
+          executionId,
+          authorizationRevision: followUp.authorizationRevision,
+          triggerSlot,
+          decision: "notify",
+          reasonCode: "sources_unavailable_notified",
+          evidenceFingerprint: fingerprint,
+          notifyText: noticeText,
+          artifactRefs: [],
+          notifyTarget: followUp.notifyTarget,
+          nextCheckAt,
+          expiresAt: followUp.expiresAt,
+          now
+        });
+        this.store.followUp.commitShortCircuitSilent({
+          executionId,
+          expectedVersion: input.expectedVersion,
+          authorizationRevision: followUp.authorizationRevision,
+          triggerSlot,
+          reasonCode: "sources_unavailable_notified",
+          evidenceFingerprint: fingerprint,
+          nextCheckAt,
+          now
+        });
+        if (outcome.delivery) {
+          await this.deliverFollowUpNotice({
+            deliveryKey: outcome.delivery.deliveryKey,
+            executionId,
+            title: input.task.title,
+            summary: outcome.delivery.notifyText,
+            botId: input.detail.execution.botId,
+            projectId: input.task.projectId,
+            artifactRefs: [],
+            notifyTarget: followUp.notifyTarget,
+            expiresAt: followUp.expiresAt
+          });
+        }
+        return { kind: "done" };
+      }
+
+      this.store.followUp.commitShortCircuitSilent({
+        executionId,
+        expectedVersion: input.expectedVersion,
+        authorizationRevision: followUp.authorizationRevision,
+        triggerSlot,
+        reasonCode: "sources_unavailable_wait",
+        evidenceFingerprint: fingerprint,
+        nextCheckAt,
+        now
+      });
+      return { kind: "done" };
+    }
+
+    const manager = this.options.channelManagers.get("web")?.get(input.detail.execution.botId);
+    if (!manager?.runDurableAttempt) {
+      const nextCheckAt = computeNextFollowUpCheckAt({
+        now,
+        checkIntervalMs: followUp.checkIntervalMs,
+        expiresAt: followUp.expiresAt,
+        fixedCheckins: followUp.fixedCheckins,
+        completedTriggerSlots: completedSlots
+      });
+      if (isFixedCheckin) {
+        const fallbackText = buildFixedCheckinFallbackText(input.task.title);
+        const outcome = this.store.followUp.recordCheckOutcome({
+          executionId,
+          authorizationRevision: followUp.authorizationRevision,
+          triggerSlot,
+          decision: "notify",
+          reasonCode: "fixed_checkin_fallback",
+          evidenceFingerprint: fingerprint,
+          notifyText: fallbackText,
+          artifactRefs: [],
+          notifyTarget: followUp.notifyTarget,
+          nextCheckAt,
+          expiresAt: followUp.expiresAt,
+          now
+        });
+        this.store.followUp.commitShortCircuitSilent({
+          executionId,
+          expectedVersion: input.expectedVersion,
+          authorizationRevision: followUp.authorizationRevision,
+          triggerSlot,
+          reasonCode: "fixed_checkin_fallback",
+          evidenceFingerprint: fingerprint,
+          nextCheckAt,
+          now
+        });
+        if (outcome.delivery) {
+          await this.deliverFollowUpNotice({
+            deliveryKey: outcome.delivery.deliveryKey,
+            executionId,
+            title: input.task.title,
+            summary: outcome.delivery.notifyText,
+            botId: input.detail.execution.botId,
+            projectId: input.task.projectId,
+            artifactRefs: [],
+            notifyTarget: followUp.notifyTarget,
+            expiresAt: followUp.expiresAt
+          });
+        }
+        return { kind: "done" };
+      }
+      this.store.followUp.commitShortCircuitSilent({
+        executionId,
+        expectedVersion: input.expectedVersion,
+        authorizationRevision: followUp.authorizationRevision,
+        triggerSlot,
+        reasonCode: "runner_unavailable",
+        evidenceFingerprint: fingerprint,
+        nextCheckAt,
+        now
+      });
+      return { kind: "done" };
+    }
+
+    // 4. Claim attempt WITHOUT acquiring the Project advance slot.
+    const round = input.task.roundCount + 1;
+    const runId = `followup-check-${randomUUID()}`;
+    let claimed: ReturnType<DurableExecutionStore["claimAttempt"]>;
+    try {
+      claimed = this.store.claimAttempt({
+        executionId,
+        expectedVersion: input.expectedVersion,
+        processOwnerId: this.processOwnerId,
+        runId,
+        contextSessionId: `pending:${runId}`,
+        leaseDurationMs: this.leaseDurationMs
+      });
+    } catch (cause) {
+      if (cause instanceof DurableExecutionBudgetError) {
+        this.store.transitionStatus(executionId, input.expectedVersion, "partial", { lastError: cause.message });
+        return { kind: "done" };
+      }
+      throw cause;
+    }
+
+    const currentTask = this.store.kanban.getTask(executionId)!;
+    const detail = this.store.getDetail(executionId)!;
+    const criteria = detail.acceptanceCriteria.filter(c => c.planVersion === detail.execution.currentPlanVersion);
+    const recentDeliveries = this.store.followUp.listDeliveries(executionId);
+    const briefing = buildFollowUpBriefing({
+      task: currentTask,
+      followUp,
+      round,
+      criteria,
+      observations,
+      recentDeliveries,
+      isFixedCheckin
+    });
+
+    const inbound: ChannelInboundMessage = {
+      chatId: detail.execution.sourceChatId || `kanban:${executionId}`,
+      chatType: "private",
+      messageId: Date.now(),
+      userId: detail.execution.ownerId,
+      userName: "FOLLOW_UP",
+      text: briefing,
+      ts: (Date.now() / 1000).toFixed(6),
+      attachments: [],
+      imageContents: [],
+      isEvent: true,
+      sessionMode: "fresh",
+      runId,
+      ...(currentTask.currentAgentId ? { agentId: currentTask.currentAgentId } : {}),
+      ...(currentTask.projectId ? { projectId: currentTask.projectId } : {})
+    };
+
+    const control = new AbortController();
+    const attemptHooks: DurableAttemptHooks = {
+      execution: {
+        clientSignal: control.signal,
+        awaitToolQuiescence: true,
+        assertToolAuthority: () => control.signal.throwIfAborted()
+      },
+      onApprovalRequest: async () => "deny",
+      submitKanbanReceipt: async (actions) => {
+        const current = this.store.getById(executionId);
+        if (!current || current.leaseOwnerId !== this.processOwnerId) {
+          return { ok: false, error: "The attempt no longer owns this follow-up task." };
+        }
+        try {
+          const receiptActions = actions as KanbanReceiptActions;
+          const dedupKey = receiptActions.dedupKey?.trim() || `fu-r${round}-${triggerSlot}`;
+          const recorded = this.store.kanban.transact(() => this.store.kanban.recordReceiptInTransaction({
+            executionId,
+            round,
+            actorAgentId: currentTask.currentAgentId || "default",
+            actions: receiptActions,
+            dedupKey,
+            expectedVersion: current.version,
+            processOwnerId: this.processOwnerId
+          }));
+          return { ok: true, receiptId: recorded.receipt.receiptId, recorded: recorded.recorded };
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+      }
+    };
+
+    let modelError: string | undefined;
+    let tokensUsed = 0;
+    let finalText = "";
+    try {
+      const attemptResult = await manager.runDurableAttempt(inbound, attemptHooks);
+      tokensUsed = Number(attemptResult.result?.usage?.totalTokens ?? 0);
+      finalText = attemptResult.text ?? "";
+      if (attemptResult.result?.stopReason === "error") {
+        modelError = attemptResult.result.errorMessage ?? "model error";
+      }
+    } catch (error) {
+      modelError = error instanceof Error ? error.message : String(error);
+    }
+
+    // 5. Re-verify authorization and execution status before committing any decision or notice.
+    const latestFollowUp = this.store.followUp.getFollowUp(executionId);
+    const latestExecution = this.store.getById(executionId);
+    const authChanged = !latestFollowUp
+      || latestFollowUp.authorizationRevision !== followUp.authorizationRevision
+      || !latestExecution
+      || latestExecution.status !== "running";
+
+    const settleNow = new Date();
+    if (authChanged) {
+      const latestVersion = this.store.getById(executionId)?.version ?? claimed.execution.version;
+      this.store.finishAttempt({
+        attemptId: claimed.attempt.id,
+        executionId,
+        expectedVersion: latestVersion,
+        processOwnerId: this.processOwnerId,
+        status: "interrupted",
+        nextExecutionStatus: latestExecution?.status === "paused" ? "paused" : "cancelled",
+        tokensUsed,
+        reason: "Follow-up authorization or status changed mid-check; result discarded.",
+        kanban: { round, consumeInputs: false }
+      });
+      return { kind: "done" };
+    }
+
+    const receipt = this.store.kanban.listReceipts(executionId).filter(r => r.round === round).slice(-1)[0] ?? null;
+    const evaluated = evaluateFollowUpCheckReceipt({
+      taskTitle: currentTask.title,
+      receipt,
+      observations,
+      modelError,
+      isFixedCheckin
+    });
+    const nextCheckAt = computeNextFollowUpCheckAt({
+      now: settleNow,
+      checkIntervalMs: latestFollowUp.checkIntervalMs,
+      expiresAt: latestFollowUp.expiresAt,
+      requestedVerifyAt: evaluated.requestedVerifyAt,
+      fixedCheckins: latestFollowUp.fixedCheckins,
+      completedTriggerSlots: completedSlots
+    });
+
+    const outcome = this.store.followUp.recordCheckOutcome({
+      executionId,
+      authorizationRevision: followUp.authorizationRevision,
+      triggerSlot,
+      decision: evaluated.outcome,
+      reasonCode: evaluated.reasonCode,
+      evidenceFingerprint: fingerprint,
+      notifyText: evaluated.notifyText,
+      artifactRefs: evaluated.artifactRefs,
+      notifyTarget: latestFollowUp.notifyTarget,
+      nextCheckAt,
+      expiresAt: latestFollowUp.expiresAt,
+      now: settleNow
+    });
+
+    const latestVersion = this.store.getById(executionId)?.version ?? claimed.execution.version;
+    this.store.finishAttempt({
+      attemptId: claimed.attempt.id,
+      executionId,
+      expectedVersion: latestVersion,
+      processOwnerId: this.processOwnerId,
+      status: evaluated.outcome === "analysis_failed" ? "failed" : "completed",
+      nextExecutionStatus: "queued",
+      nextRunAt: nextCheckAt,
+      wakeupReason: "verify",
+      tokensUsed,
+      reason: evaluated.outcome === "notify"
+        ? (evaluated.notifyText ?? finalText)
+        : `Follow-up check settled: ${evaluated.outcome} (${evaluated.reasonCode})`,
+      kanban: { round, consumeInputs: false }
+    });
+
+    // 6. Deliver Desktop notification ONLY on `notify` and only if still active and unexpired.
+    if (evaluated.outcome === "notify" && outcome.delivery) {
+      const currentAfterSettle = this.store.getById(executionId);
+      const stillActive = Boolean(
+        currentAfterSettle
+        && currentAfterSettle.status === "queued"
+        && settleNow.getTime() < Date.parse(latestFollowUp.expiresAt)
+      );
+      if (stillActive) {
+        await this.deliverFollowUpNotice({
+          deliveryKey: outcome.delivery.deliveryKey,
+          executionId,
+          title: currentTask.title,
+          summary: outcome.delivery.notifyText,
+          botId: detail.execution.botId,
+          projectId: currentTask.projectId,
+          artifactRefs: evaluated.artifactRefs,
+          notifyTarget: latestFollowUp.notifyTarget,
+          expiresAt: latestFollowUp.expiresAt
+        });
+      }
+    }
+
+    return { kind: "done" };
+  }
+
+  private async deliverFollowUpNotice(input: {
+    deliveryKey: string;
+    executionId: string;
+    title: string;
+    summary: string;
+    botId: string;
+    projectId?: string;
+    artifactRefs: string[];
+    notifyTarget: FollowUpNotifyTarget;
+    expiresAt: string;
+  }): Promise<void> {
+    // Re-check execution status right before delivery (pre-send gate).
+    const current = this.store.getById(input.executionId);
+    if (!current || current.status !== "queued") {
+      this.store.followUp.updateDeliveryStatus(input.deliveryKey, "cancelled");
+      return;
+    }
+
+    // Always record in Desktop home notification center.
+    try {
+      await this.options.onFollowUpNotify?.({
+        deliveryKey: input.deliveryKey,
+        executionId: input.executionId,
+        title: input.title,
+        summary: input.summary,
+        botId: input.botId,
+        projectId: input.projectId,
+        artifactRefs: input.artifactRefs
+      });
+    } catch (error) {
+      momWarn("durableExecution", "follow_up_home_notify_failed", {
+        executionId: input.executionId,
+        deliveryKey: input.deliveryKey,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+
+    if (input.notifyTarget.kind !== "channel") {
+      this.store.followUp.updateDeliveryStatus(input.deliveryKey, "sent", "desktop-home");
+      return;
+    }
+
+    const channel = input.notifyTarget.channel?.trim();
+    const instanceId = input.notifyTarget.instanceId?.trim();
+    const chatId = input.notifyTarget.chatId?.trim();
+    const manager = channel && instanceId ? this.options.channelManagers.get(channel)?.get(instanceId) : undefined;
+    if (!channel || !instanceId || !chatId || !manager?.sendInternalNotice) {
+      this.store.followUp.updateDeliveryStatus(input.deliveryKey, "failed");
+      momWarn("durableExecution", "follow_up_channel_target_unavailable", {
+        executionId: input.executionId,
+        deliveryKey: input.deliveryKey,
+        channel,
+        instanceId
+      });
+      return;
+    }
+
+    this.store.followUp.updateDeliveryStatus(input.deliveryKey, "sending");
+    try {
+      const text = `【跟进 · ${input.title}】\n${input.summary}`;
+      const expiresMs = Date.parse(input.expiresAt);
+      await manager.sendInternalNotice(chatId, text, {
+        kind: "follow-up",
+        filename: input.deliveryKey,
+        deliveryKey: input.deliveryKey,
+        ...(Number.isFinite(expiresMs) ? { expiresAt: expiresMs } : {})
+      });
+      this.store.followUp.updateDeliveryStatus(input.deliveryKey, "sent", `${channel}:${instanceId}`);
+    } catch (error) {
+      if (error instanceof OutboxDeliveryError) {
+        const mapped = error.status === "unknown"
+          ? "unknown"
+          : (error.status === "cancelled" || error.status === "expired" ? "cancelled" : "failed");
+        this.store.followUp.updateDeliveryStatus(input.deliveryKey, mapped);
+      } else {
+        this.store.followUp.updateDeliveryStatus(input.deliveryKey, "failed");
+      }
+      momWarn("durableExecution", "follow_up_channel_notify_failed", {
+        executionId: input.executionId,
+        deliveryKey: input.deliveryKey,
+        channel,
+        instanceId,
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 

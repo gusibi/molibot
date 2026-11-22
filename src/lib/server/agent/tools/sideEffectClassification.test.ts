@@ -18,7 +18,7 @@ test("side-effect classification is deterministic and hashes the full input", ()
   assert.equal(classifyToolSideEffect("bash", { command: "touch a.md" }).sideEffectClass, "non_idempotent");
   assert.equal(classifyToolSideEffect("runtimeTask", { action: "get", taskId: "task-1" }).sideEffectClass, "pure");
   assert.equal(classifyToolSideEffect("runtimeTask", { action: "update", taskId: "task-1", patch: { enabled: false } }).sideEffectClass, "idempotent");
-  assert.equal(classifyToolSideEffect("runtimeTask", { action: "create", type: "todo", text: "Buy milk" }).sideEffectClass, "non_idempotent");
+  assert.equal(classifyToolSideEffect("runtimeTask", { action: "create", type: "one-shot", at: "2999-01-01T09:00:00+08:00", text: "Buy milk" }).sideEffectClass, "non_idempotent");
   assert.equal(classifyToolSideEffect("subagent", { mode: "single", task: "inspect" }).sideEffectClass, "pure");
 });
 

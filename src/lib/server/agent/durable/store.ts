@@ -3,6 +3,7 @@ import { copyFileSync, existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { ensureSqliteParentDir, storagePaths } from "$lib/server/infra/db/storage.js";
 import { ensureKanbanSchema, KanbanStore, releaseProjectSlotInTransaction } from "./kanbanStore.js";
+import { ensureFollowUpSchema, FollowUpStore } from "./followUpStore.js";
 import {
   DURABLE_ENGINE_VERSION,
   DURABLE_EXECUTION_STATUSES,
@@ -687,6 +688,7 @@ export class DurableExecutionStore {
     this.ensureColumn("durable_plan_deliveries", "delivery_meta_json", "TEXT");
     ensureWakeupSchema(this.db);
     ensureKanbanSchema(this.db);
+    ensureFollowUpSchema(this.db);
   }
 
   /**
@@ -709,11 +711,20 @@ export class DurableExecutionStore {
   }
 
   private kanbanValue: KanbanStore | null = null;
+  private followUpValue: FollowUpStore | null = null;
 
   /** Kanban Task storage sharing this aggregate's connection and transactions. */
   get kanban(): KanbanStore {
     if (!this.kanbanValue) this.kanbanValue = new KanbanStore(this.db, () => this.notify());
     return this.kanbanValue;
+  }
+
+  /** Follow-up task mode storage sharing this aggregate's connection and transactions. */
+  get followUp(): FollowUpStore {
+    if (!this.followUpValue) {
+      this.followUpValue = new FollowUpStore(this.db, () => this.notify(), (executionId) => this.kanban.getTask(executionId));
+    }
+    return this.followUpValue;
   }
 
   /** The store stopped accepting work after an unrecoverable storage error. */

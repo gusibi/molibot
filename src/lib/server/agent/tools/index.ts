@@ -20,6 +20,8 @@ import { decideBashToolPolicy } from "$lib/server/agent/tools/bashPolicy.js";
 import { getEditToolDefinition } from "$lib/server/agent/tools/edit.js";
 import { createFileSearchTools } from "$lib/server/agent/tools/fileSearch.js";
 import { createRuntimeTaskTool } from "$lib/server/agent/tools/runtimeTask.js";
+import { createFollowUpTool } from "$lib/server/agent/tools/followUp.js";
+import { PlanService } from "$lib/server/agent/plans/service.js";
 import { projectWorkspaceDir } from "$lib/server/projects/runtimeCache.js";
 import { createMcpInvokeTool } from "$lib/server/agent/tools/mcpInvoke.js";
 import { createLoadMcpTool } from "$lib/server/agent/tools/loadMcp.js";
@@ -294,6 +296,16 @@ export function createMomTools(options: {
     ...(options.project?.id
       ? { projectId: options.project.id, projectEventsDir: join(projectWorkspaceDir(options.project.id), "events") }
       : {})
+  }));
+  const followUpRuntimeTool = wrapSerializedTool(createFollowUpTool({
+    planService: new PlanService(),
+    ownerId: "owner",
+    botId: options.store.getBotId(),
+    agentId: options.store.getWorkspaceDir().split(/[\\/]/).at(-1) || "default",
+    timezone: options.timezone,
+    projectId: options.project?.id,
+    workDir: options.project?.rootPath ?? options.cwd,
+    sourceUiSessionId: options.sessionId
   }));
   const switchModelRuntimeTool = wrapSerializedTool(createSwitchModelTool({
     getSettings: options.getSettings,
@@ -800,7 +812,6 @@ export function createMomTools(options: {
         "update",
         "delete",
         "task",
-        "todo",
         "event",
         "events",
         "schedule",
@@ -815,6 +826,22 @@ export function createMomTools(options: {
         "tomorrow"
       ],
       tool: runtimeTaskTool,
+      loadDeferredTools
+    }),
+    createDeferredToolEntry({
+      name: "followUp",
+      description: "Create, inspect, snooze, or complete an authorized follow-up task (Kanban Task in follow_up mode).",
+      keywords: [
+        "follow",
+        "followup",
+        "follow_up",
+        "delegate",
+        "track",
+        "monitor",
+        "checkin",
+        "snooze"
+      ],
+      tool: followUpRuntimeTool,
       loadDeferredTools
     }),
     createDeferredToolEntry({

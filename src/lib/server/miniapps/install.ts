@@ -235,6 +235,29 @@ export class MiniAppInstaller {
   constructor(private readonly options: MiniAppInstallerOptions) {}
 
   async install(request: MiniAppInstallRequest): Promise<MiniAppInstallResult> {
+    if (request.source === "directory") {
+      let sourceDir: string;
+      try { sourceDir = fs.realpathSync(request.path); }
+      catch { bad("That directory does not exist."); }
+      fs.mkdirSync(this.options.codeRoot, { recursive: true });
+      const codeRoot = fs.realpathSync(this.options.codeRoot);
+      const sourcePrefix = sourceDir.endsWith(path.sep) ? sourceDir : sourceDir + path.sep;
+      if (sourceDir === codeRoot || codeRoot.startsWith(sourcePrefix)) {
+        bad("Choose an app directory, not the Mini App install root or its parent.");
+      }
+      if (sourceDir.startsWith(codeRoot + path.sep)) {
+        const appId = path.basename(sourceDir);
+        if (path.dirname(sourceDir) !== codeRoot || !isValidMiniAppId(appId)) {
+          bad("Choose the installed app's own directory.");
+        }
+        const validated = readMiniAppManifest(sourceDir, appId);
+        if (!validated.ok) bad(`This is not a valid Mini App: ${validated.error}`);
+        // The source is already live. Activation reloads it; copying would drop
+        // dependencies and overwrite its recorded installation origin.
+        return { appId, replaced: true, installSource: { kind: "directory", label: appId } };
+      }
+      request = { source: "directory", path: sourceDir };
+    }
     const stagingDir = path.join(
       this.options.codeRoot,
       `.staging-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

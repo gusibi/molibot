@@ -93,6 +93,8 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   let subpixelCarry = 0;
   let lastFrameTime = 0;
   let lastScrollTop = node.scrollTop;
+  let lastScrollHeight = node.scrollHeight;
+  let lastClientHeight = node.clientHeight;
   // Queried per follow() call, which during streaming is once per frame - so
   // resolve the list once and let `.matches` track live changes.
   const reducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
@@ -108,6 +110,9 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
     velocity = 0;
     subpixelCarry = 0;
     node.scrollTop = node.scrollHeight;
+    lastScrollTop = node.scrollTop;
+    lastScrollHeight = node.scrollHeight;
+    lastClientHeight = node.clientHeight;
   };
   const stopSpring = (): void => {
     if (springFrame) cancelAnimationFrame(springFrame);
@@ -210,8 +215,18 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
       announce(true);
       return;
     }
+    const layoutChanged = node.scrollHeight !== lastScrollHeight || node.clientHeight !== lastClientHeight;
+    lastScrollHeight = node.scrollHeight;
+    lastClientHeight = node.clientHeight;
     const moved = node.scrollTop - lastScrollTop;
     lastScrollTop = node.scrollTop;
+    // Tool output replacement can clamp scrollTop and queue a scroll event.
+    // Layout movement carries no reader intent; wheel/touch still interrupt.
+    if (pinned && layoutChanged) {
+      if (live) follow();
+      else instantToBottom();
+      return;
+    }
     if (moved < 0) {
       // An upward move indicates reader intent to page up only when away from
       // the bottom boundary. If they are already resting within the settle
@@ -256,7 +271,9 @@ export function stickToBottom(node: HTMLElement, options: StickToBottomOptions):
   const onTouchMove = (): void => {
     // Touch owns the gesture while it lasts; the resulting scroll events
     // decide whether following re-arms.
-    if (springFrame) stopSpring();
+    stopSpring();
+    cancelScheduledBottom();
+    announce(false);
   };
   const suspendFollowing = (): void => {
     announce(false);

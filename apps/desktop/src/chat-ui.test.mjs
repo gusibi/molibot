@@ -2345,6 +2345,8 @@ test("Agent Studio projects real activity into an accessible Three.js city", () 
   assert.match(agentStudio, /hoveredFloorKey \? cityFloors\.find/);
   assert.match(agentStudio, /\{#if hoveredFloor && hoveredFloor\.key !== selectedFloorKey\}/);
   assert.match(agentStudio, /class="agent-city-hover-card"/);
+  assert.match(agentStudio, /style=\{hudNodeStyle\(nodeLayout\.x, nodeLayout\.y, nodeLayout\.zIndex\)\}/);
+  assert.doesNotMatch(agentStudio, /style=\{hudNodeStyle\(floor\.key\)\}/);
   assert.doesNotMatch(agentStudio, /agent-city-label-layer|agent-city-agent-label|agent-city-status-dot|agent-city-tooltip|agent-city-working-frame/);
   assert.match(agentStudio, /hoveredFloor\.activity\.taskPreview/);
   assert.match(agentStudio, /hoveredFloor\.subagents\.instances/);

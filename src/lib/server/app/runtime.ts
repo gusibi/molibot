@@ -5,7 +5,7 @@ import { PiRecoveryStore, type PiRecoveryRecord } from "$lib/server/agent/core/p
 import { getApprovalBroker } from "$lib/server/approval/approvalBroker.js";
 import { isDirectEventDelivery } from "$lib/server/agent/events.js";
 import { HomeNotificationStore } from "$lib/server/app/homeNotifications.js";
-import { recordReflectionHomeNotification, recordMaterialsHomeNotification, recordTaskHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
+import { recordReflectionHomeNotification, recordMaterialsHomeNotification, recordTaskHomeNotification, recordFollowUpHomeNotification } from "$lib/server/app/homeNotificationWriters.js";
 import { desktopHomeMemoryNamespaces } from "$lib/server/app/desktopMemory.js";
 import {
   DEFAULT_AGENT_ID,
@@ -1032,7 +1032,8 @@ function initializeRuntime(): RuntimeState {
       },
       onAttemptProgress: (execution, activities, round, sessionId) => updateDurableConversationProgress(state.sessions, execution, activities, round, sessionId),
       onAttemptOutput: (execution, runId, field, delta, round, sessionId) => updateDurableConversationOutput(state.sessions, execution, runId, field, delta, round, sessionId),
-      onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input, state.homeNotifications)
+      onAttemptDelivery: input => deliverDurableAttempt(state.sessions, input, state.homeNotifications),
+      onFollowUpNotify: input => recordFollowUpHomeNotification(state.homeNotifications, input)
     });
     if (!liveServicesDisabled()) {
       const durableStartup = durableExecutionRuntime.start();

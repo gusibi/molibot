@@ -6,6 +6,7 @@
     selectAgentCityQuality,
     supportsAgentCityWebGL2,
     type AgentCityHover,
+    type AgentCityHudCoords,
     type AgentCityQuality,
     type AgentCitySceneController,
     type AgentCityTheme,
@@ -24,6 +25,7 @@
   export let onSelect: (key: string | null) => void = () => {};
   export let onFocus: (key: string) => void = () => {};
   export let onView: (view: AgentCityViewState) => void = () => {};
+  export let onHud: (coords: AgentCityHudCoords) => void = () => {};
 
   let canvas: HTMLCanvasElement;
   let container: HTMLDivElement;
@@ -157,7 +159,8 @@
         }
       },
       onContextLost: onFallback,
-      onViewChange: (view) => onView(view)
+      onViewChange: (view) => onView(view),
+      onHudUpdate: (coords) => onHud(coords)
     });
 
     const handleMotion = (event: MediaQueryListEvent): void => {

@@ -629,7 +629,7 @@ test("explicit skill selection precedes automatic runtime-tool routing", () => {
     const app = prompt.indexOf("Step 2 — App data");
     assert.ok(app > explicitSkill && app < runtimeTool);
     assert.match(prompt, /ordinary file reads, edits, builds, and tests do not require discovery/);
-    assert.match(prompt, /unscheduled todos use it only when no installed app owns those records/);
+    assert.match(prompt, /reminders, timers, scheduled execution, recurring summaries → `runtimeTask`/);
   } finally {
     rmSync(workspaceDir, { recursive: true, force: true });
   }

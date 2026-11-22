@@ -105,6 +105,7 @@
               >
                 <span class="kanban-card-top">
                   <strong title={item.title}>{item.title}</strong>
+                  {#if item.mode === "follow_up"}<span class="kanban-card-tag" data-mode="follow_up">{copy.kanbanModeFollowUp}</span>{/if}
                   {#if item.form === "team"}<span class="kanban-card-tag" data-form="team">{copy.kanbanFormTeam}</span>{/if}
                 </span>
                 {#if item.goal}<span class="kanban-card-goal" title={item.goal}>{item.goal}</span>{/if}

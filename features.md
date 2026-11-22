@@ -1,3 +1,18 @@
+## 2026-11-17 — AI 回复 Markdown 正文再降一档
+
+- Desktop `--md-fs-body` / `--md-lh-body` 与 Web `.markdown-body` 正文由 15/25 降到 14/23，Notion 皮肤同步 14/21；Web 用户消息纯文本同步 14/23。标题、代码、表格与图注阶梯保持不变。
+- `DESIGN.md` 文档排版轴说明、`markdown.test.ts` 两端镜像断言同步更新。
+
+验证：`src/lib/ui/markdown.test.ts` 13/14 通过；唯一失败为祖传 `md-figure img` 单行正则与实际换行写法不符，HEAD 基线同样失败。桌面 `chat-ui.test.mjs` 的 `--md-*` token 断言通过，该文件其余失败为工作区既有选择器正则漂移。未执行全量 UI / 原生套件。
+
+## 2026-11-16 — 小程序安装与桌面对话修复
+
+- 本地目录安装按 manifest ID 替换已有小程序；选择安装目录中的应用时校验并重新激活，保留依赖与来源记录。安装根目录、其祖先及名称与 manifest 不符的子目录会被拒绝。
+- 上下文面板切换运行状态、请求失败及恢复刷新时保留已有快照；工具输出替换造成的滚动位置变化不再解除底部跟随，手动上滚仍可停止跟随。
+- 当前可见会话收到完成通知后自动标记已读；设置页、通知中心等页面遮住会话时保留未读。模型发现列表的添加、移除按钮保持同行。
+
+验证：40 项定向单测与 3 项 WebKit 回归通过，覆盖隔离服务冷启动、页面切换、重启恢复、失败后刷新及窄窗按钮布局。根类型检查通过，桌面 `svelte-check` 为 0 错误、0 警告。选取的旧 UI 源码正则守卫有 10 项失败，与 HEAD 基线完全相同。当前用户服务和原生安装包未更新；完整回归留待整体验收。
+
 ## 2026-11-14 — 外部会话可归档/删除（生命周期行接管，转录投影保持只读）
 
 修复外部渠道会话（飞书/TG/QQ/微信镜像）在桌面「多选」归档/删除时报 `external sessions are read-only` 被一律跳过的问题。此前 `SessionLifecycleService.authorizedRow` 对外部会话一刀切 skip，但生命周期行本就独立于只读的 `contexts/` 投影（删除 Agent 时 `archiveAgentHistory` 已在单独改这些行），同一会话能被系统归档却不能被用户删除，语义不自洽：
@@ -65,7 +80,7 @@
 
 ## 2026-11-12 — AI 回复文档排版与飞书 / Notion 样式切换
 
-**排版对齐飞书文档节奏**：Desktop 与 Web 的 Markdown 渲染统一到成对的 `--md-*` 排版 token（正文 15/25、标题阶梯、表格/代码 14/22、图注 12/18；初版 16/27 经反馈整体降一档），标准图片带 title 时渲染为 `<figure>/<figcaption>` 题注，图文混排段落输出 inline `<img>`（只有纯图片段落成块），不再被浏览器 foster-parenting 拆成三块；`RENDER_SCHEMA_VERSION` 升到 3，完整渲染缓存与流式 sealed block 缓存同步失效。代码块操作按钮图标化，复制成功态走 `data-copied`。
+**排版对齐飞书文档节奏**：Desktop 与 Web 的 Markdown 渲染统一到成对的 `--md-*` 排版 token（正文 14/23、标题阶梯、表格/代码 14/22、图注 12/18；初版 16/27 经两轮反馈降到与界面正文同字号、行高更松），标准图片带 title 时渲染为 `<figure>/<figcaption>` 题注，图文混排段落输出 inline `<img>`（只有纯图片段落成块），不再被浏览器 foster-parenting 拆成三块；`RENDER_SCHEMA_VERSION` 升到 3，完整渲染缓存与流式 sealed block 缓存同步失效。代码块操作按钮图标化，复制成功态走 `data-copied`。
 
 **样式轴与主题族正交**：`data-doc-style="feishu|notion"` 只调 Markdown 阅读节奏（Notion：标题 600、h1 无下划线、链接下划线、行内代码红字、表格无外框、块间距收紧），主题族继续管颜色与表面；两套皮肤共用同一份 HTML、缓存与流式骨架，渲染器与消毒器不感知皮肤。桌面在外观设置新增「AI 回复样式」分段控件并跨窗口 storage 同步；Web 由 `src/app.html` 首屏前内联属性（无刷新闪烁）并监听 storage 同步。输入仍只有标准 Markdown，不解析飞书 XML 方言。
 

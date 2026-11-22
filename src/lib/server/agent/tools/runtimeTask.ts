@@ -12,7 +12,7 @@ const displaySchema = Type.Optional(Type.Any({
 
 const createSchema = Type.Object({
   action: Type.Literal("create"),
-  type: Type.Union([Type.Literal("todo"), Type.Literal("one-shot"), Type.Literal("periodic")]),
+  type: Type.Union([Type.Literal("one-shot"), Type.Literal("periodic")]),
   text: Type.String({ description: "Reminder text or recurring Agent instruction." }),
   name: Type.Optional(Type.String({ description: "Optional readable name used in the task id." })),
   at: Type.Optional(Type.String({ description: "Future ISO 8601 datetime with timezone offset. Required for one-shot." })),
@@ -36,13 +36,13 @@ const taskPatchSchema = Type.Object({
 
 const runtimeTaskSchema = Type.Union([
   createSchema,
-  Type.Object({ action: Type.Literal("list"), type: Type.Optional(Type.Union([Type.Literal("todo"), Type.Literal("one-shot"), Type.Literal("periodic")])) }),
+  Type.Object({ action: Type.Literal("list"), type: Type.Optional(Type.Union([Type.Literal("one-shot"), Type.Literal("periodic")])) }),
   Type.Object({ action: Type.Literal("get"), taskId: Type.String() }),
   Type.Object({ action: Type.Literal("update"), taskId: Type.String(), patch: taskPatchSchema }),
   Type.Object({ action: Type.Literal("delete"), taskId: Type.String() })
 ]);
 
-type UserRuntimeTask = Extract<MomEvent, { type: "todo" | "one-shot" | "periodic" }>;
+type UserRuntimeTask = Extract<MomEvent, { type: "one-shot" | "periodic" }>;
 
 interface TaskFile {
   filename: string;
@@ -52,7 +52,7 @@ interface TaskFile {
 }
 
 function isUserRuntimeTask(value: MomEvent): value is UserRuntimeTask {
-  return (value.type === "todo" || value.type === "one-shot" || value.type === "periodic") && value.managed?.by !== "molibot";
+  return (value.type === "one-shot" || value.type === "periodic") && value.managed?.by !== "molibot";
 }
 
 function readTaskFiles(eventsDir: string): TaskFile[] {
@@ -150,11 +150,9 @@ function publicTask(row: TaskFile) {
     enabled: event.enabled !== false,
     text: event.text,
     ...(event.display ? { display: event.display } : {}),
-    ...(event.type === "todo" ? {} : {
-      delivery: event.delivery ?? (event.type === "periodic" ? "agent" : "text"),
-      sessionMode: event.sessionMode ?? (event.type === "periodic" ? "fresh" : "chat")
-    }),
-    ...(event.type === "one-shot" ? { at: event.at } : event.type === "periodic" ? { schedule: event.schedule, timezone: event.timezone } : {}),
+    delivery: event.delivery ?? (event.type === "periodic" ? "agent" : "text"),
+    sessionMode: event.sessionMode ?? (event.type === "periodic" ? "fresh" : "chat"),
+    ...(event.type === "one-shot" ? { at: event.at } : { schedule: event.schedule, timezone: event.timezone }),
     status: event.status?.state ?? "pending",
     lastTriggeredAt: event.status?.lastTriggeredAt,
     completedAt: event.status?.completedAt,
@@ -185,14 +183,14 @@ export function createRuntimeTaskTool(options: {
     name: "runtimeTask",
     label: "runtimeTask",
     description: [
-      "Create, list, inspect, update, and delete Agent Runtime tasks.",
-      "A todo is an unscheduled item, a one-shot Runtime Task is a reminder, and a periodic Runtime Task is an automation.",
+      "Create, list, inspect, update, and delete Agent Runtime reminders and automations.",
+      "A one-shot Runtime Task is a reminder, and a periodic Runtime Task is an automation.",
       "Runtime Events are execution records and notifications are delivery outcomes; neither is a separate user CRUD resource.",
       "This tool never reads or writes Mini App Todo data. Mini Apps own their own optional data and business rules.",
       "Use action=create for reminders and automations; list/get before changing an ambiguous task; update by taskId; delete only when the user asked to remove it.",
       "Never use memory, shell sleeps, OS schedulers, or manually edited event JSON files for scheduling.",
       "A periodic or one-shot Agent task may declare a bounded display reading surface (briefing, topic-proposals, document, generic) so its result can be read as a briefing or proposal on the Agent home; omit it for an ordinary generic text result.",
-      "In a Project chat this tool manages the Project's automations: only periodic Agent tasks are supported there (agent delivery, fresh session mode), and reminders or todos are rejected."
+      "In a Project chat this tool manages the Project's automations: only periodic Agent tasks are supported there (agent delivery, fresh session mode), and one-shot reminders are rejected."
     ].join("\n"),
     parameters: runtimeTaskSchema,
     execute: async (_toolCallId, params) => {
@@ -228,11 +226,7 @@ export function createRuntimeTaskTool(options: {
         if (patch.sessionMode !== undefined) next.sessionMode = patch.sessionMode;
         const display = displayFromInput(patch.display);
         if (display) next.display = display;
-        if (next.type === "todo") {
-          if (patch.at !== undefined || patch.schedule !== undefined || patch.timezone !== undefined || patch.delivery !== undefined || patch.sessionMode !== undefined) {
-            throw new Error("todo tasks do not accept schedule or delivery fields.");
-          }
-        } else if (next.type === "one-shot") {
+        if (next.type === "one-shot") {
           if (patch.schedule !== undefined || patch.timezone !== undefined) throw new Error("schedule/timezone only apply to periodic tasks.");
           if (patch.at !== undefined) {
             next.at = validateFutureAt(patch.at);
@@ -256,7 +250,7 @@ export function createRuntimeTaskTool(options: {
       if (!text) throw new Error("text cannot be empty.");
       const isProjectChat = Boolean(options.projectId);
       if (isProjectChat && params.type !== "periodic") {
-        throw new Error("Project chats only support periodic automations; one-shot reminders and todos are not available here.");
+        throw new Error("Project chats only support periodic automations; one-shot reminders are not available here.");
       }
       if (isProjectChat && (params.delivery ?? "agent") !== "agent") {
         throw new Error("Project automations always run through the Agent; delivery must be agent.");
@@ -278,12 +272,7 @@ export function createRuntimeTaskTool(options: {
         ...(display ? { display } : {}),
         status: { state: "pending" as const, runCount: 0 }
       };
-      const event: UserRuntimeTask = params.type === "todo"
-        ? {
-            ...common,
-            type: "todo"
-          }
-        : params.type === "one-shot"
+      const event: UserRuntimeTask = params.type === "one-shot"
         ? {
             ...common,
             type: "one-shot",

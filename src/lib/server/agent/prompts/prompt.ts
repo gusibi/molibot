@@ -324,7 +324,7 @@ function buildToolsSection(): string {
     "  - video generation or progress checks → `videoGenerate` (asynchronous; follow its submission/status contract)",
     "  - speech, narration, voiceover, spoken audio → `ttsGenerate`, not OS speech commands such as macOS `say`",
     "  - current web information → `webSearch`; an explicitly selected skill or app may use its own live source",
-    "  - reminders, timers, scheduled execution, recurring summaries → `runtimeTask`; unscheduled todos use it only when no installed app owns those records",
+    "  - reminders, timers, scheduled execution, recurring summaries → `runtimeTask`",
     "  - formal documents → `documentExport` (verified DOCX/XLSX/PDF)",
     "- Use bash for shell-native work: scripts, builds, tests, package installs, data processing, and commands with no dedicated tool.",
     "- Do not bypass managed tools by manually editing event JSON files, bot profile files, or deferred-tool state.",

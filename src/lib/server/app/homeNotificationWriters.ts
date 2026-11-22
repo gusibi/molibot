@@ -238,3 +238,33 @@ export function reconcilePlanCompletions(store: HomeNotificationStore, plans: re
     if (!completed.has(row.dedupeKey)) store.resolveByDedupe(row.dedupeKey);
   }
 }
+
+export interface FollowUpHomeNotificationInput {
+  deliveryKey: string;
+  executionId: string;
+  title: string;
+  summary: string;
+  botId?: string;
+  projectId?: string;
+  artifactRefs?: string[];
+}
+
+/**
+ * Records a follow-up check notice on the Agent home, deduplicated by the
+ * follow-up delivery key so replays never create duplicate cards.
+ */
+export function recordFollowUpHomeNotification(store: HomeNotificationStore, input: FollowUpHomeNotificationInput): void {
+  store.record({
+    type: "follow-up",
+    dedupeKey: input.deliveryKey,
+    refId: input.executionId,
+    botId: input.botId,
+    projectId: input.projectId,
+    payload: {
+      planId: input.executionId,
+      title: input.title,
+      summary: input.summary,
+      ...(input.artifactRefs?.length ? { artifactRefs: input.artifactRefs } : {})
+    }
+  });
+}

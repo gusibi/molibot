@@ -510,8 +510,111 @@ export interface PlanListFilter {
 // tables below live in the same store as the aggregate (ADR 0004).
 
 export type KanbanTaskForm = "single" | "team";
+export type KanbanTaskMode = "execute" | "follow_up";
 export type KanbanApprovalPolicy = "deny" | "suspend";
 export type KanbanCompletionSource = "user" | "generated" | "pending";
+
+export type FollowUpLifecycle = "active" | "paused" | "completed" | "cancelled" | "expired";
+export type MissingEvidencePolicy = "wait" | "ask_at_check" | "notify_unavailable";
+export type ObservationStatus = "available" | "unchanged" | "unavailable" | "revoked";
+export type FollowUpDecisionAction = "silent" | "notify";
+export type FollowUpDecisionOutcome = "silent" | "notify" | "analysis_failed";
+export type FollowUpDeliveryStatus = "reserved" | "sending" | "sent" | "unknown" | "failed" | "cancelled";
+
+export type FollowUpSourceRef =
+  | { kind: "plan"; planId: string }
+  | { kind: "execution"; executionId: string }
+  | { kind: "project_file"; relativePath: string };
+
+export interface FollowUpNotifyTarget {
+  kind: "desktop" | "channel";
+  channel?: string;
+  instanceId?: string;
+  chatId?: string;
+}
+
+export interface FollowUpConfig {
+  executionId: string;
+  ownerId: string;
+  requestId?: string;
+  authorizationRevision: number;
+  authorizedAt: string;
+  allowedHelp: string[];
+  missingEvidencePolicy: MissingEvidencePolicy;
+  timezone: string;
+  checkIntervalMs: number;
+  nextCheckAt?: string;
+  fixedCheckins: string[];
+  expiresAt: string;
+  notifyTarget: FollowUpNotifyTarget;
+  sources: FollowUpSourceRef[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FollowUpObservation {
+  id: string;
+  executionId: string;
+  triggerSlot: string;
+  kind: FollowUpSourceRef["kind"];
+  sourceKey: string;
+  status: ObservationStatus;
+  contentHash?: string;
+  errorCode?: string;
+  readAt: string;
+}
+
+export interface FollowUpDecision {
+  id: string;
+  executionId: string;
+  authorizationRevision: number;
+  triggerSlot: string;
+  decision: FollowUpDecisionOutcome;
+  reasonCode: string;
+  evidenceFingerprint: string;
+  notifyText?: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
+
+export interface FollowUpDelivery {
+  id: string;
+  deliveryKey: string;
+  executionId: string;
+  decisionId: string;
+  target: FollowUpNotifyTarget;
+  status: FollowUpDeliveryStatus;
+  notifyText: string;
+  notBefore?: string;
+  expiresAt?: string;
+  externalReceipt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateFollowUpTaskInput {
+  ownerId: string;
+  botId: string;
+  agentId: string;
+  title: string;
+  goal: string;
+  projectId?: string;
+  workDir?: string;
+  completionConditions?: PlanCriterionInput[];
+  sources: FollowUpSourceRef[];
+  allowedHelp?: string[];
+  missingEvidencePolicy?: MissingEvidencePolicy;
+  timezone: string;
+  checkIntervalMs: number;
+  nextCheckAt: Date;
+  fixedCheckins?: string[];
+  expiresAt: Date;
+  notifyTarget: FollowUpNotifyTarget;
+  requestId?: string;
+  budgetTokenLimit?: number;
+  sourceUiSessionId?: string;
+  now?: Date;
+}
 
 /** Frozen member snapshot taken at task start; later Team edits do not apply. */
 export interface KanbanMemberSnapshot {
@@ -527,6 +630,9 @@ export interface KanbanMemberSnapshot {
 export interface KanbanTaskConfig {
   executionId: string;
   form: KanbanTaskForm;
+  /** `execute` (default) advances work to Done; `follow_up` monitors authorized sources over time. */
+  mode?: KanbanTaskMode;
+  closeReason?: string;
   title: string;
   goal: string;
   /** Team only: task coordinator; must be one of the member snapshot. */
@@ -601,6 +707,10 @@ export interface KanbanReceiptActions {
   /** Condition candidates proposed when the task has none; the user confirms or revises them. */
   proposeConditions?: string[];
   checklist?: Array<{ itemId?: string; text?: string; done?: boolean; remove?: boolean }>;
+  /** Follow-up mode only: explicit outcome of a check round. */
+  decision?: FollowUpDecisionAction;
+  /** Follow-up mode only: user-facing notice when decision === 'notify'. */
+  notify?: { text: string; artifactIds?: string[] };
 }
 
 export interface KanbanReceipt {

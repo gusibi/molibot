@@ -76,6 +76,8 @@ interface KanbanTaskRow {
   external_id: string | null;
   source_url: string | null;
   budget_topups_json: string | null;
+  mode?: "execute" | "follow_up" | null;
+  close_reason?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +125,8 @@ function rowToTask(row: KanbanTaskRow): KanbanTaskConfig {
   return {
     executionId: row.execution_id,
     form: row.form,
+    mode: row.mode === "follow_up" ? "follow_up" : "execute",
+    ...(row.close_reason ? { closeReason: row.close_reason } : {}),
     title: row.title,
     goal: row.goal,
     ...(row.coordinator_agent_id ? { coordinatorAgentId: row.coordinator_agent_id } : {}),
@@ -176,6 +180,8 @@ export function ensureKanbanSchema(db: DatabaseSync): void {
       external_id TEXT,
       source_url TEXT,
       budget_topups_json TEXT,
+      mode TEXT NOT NULL DEFAULT 'execute' CHECK (mode IN ('execute','follow_up')),
+      close_reason TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -247,6 +253,15 @@ export function ensureKanbanSchema(db: DatabaseSync): void {
       acquired_at TEXT NOT NULL
     );
   `);
+  const taskCols = new Set(
+    (db.prepare("PRAGMA table_info(durable_kanban_tasks)").all() as Array<{ name: string }>).map(col => col.name)
+  );
+  if (!taskCols.has("mode")) {
+    db.exec("ALTER TABLE durable_kanban_tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'execute';");
+  }
+  if (!taskCols.has("close_reason")) {
+    db.exec("ALTER TABLE durable_kanban_tasks ADD COLUMN close_reason TEXT;");
+  }
 }
 
 /** Normalized key for the Project advance slot: project id, else work dir. */

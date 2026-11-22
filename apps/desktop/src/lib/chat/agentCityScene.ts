@@ -77,6 +77,21 @@ export interface AgentCityViewState {
   followKey: string | null;
 }
 
+export interface AgentCitySatelliteHudCoord {
+  id: string;
+  role: string;
+  status: "working" | "completed" | "error";
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
+export interface AgentCityHudCoords {
+  anchors: Record<string, { x: number; y: number; visible: boolean; depth?: number }>;
+  satellites: Record<string, AgentCitySatelliteHudCoord[]>;
+  owner: { x: number; y: number; visible: boolean };
+}
+
 export interface AgentCitySceneOptions {
   canvas: HTMLCanvasElement;
   projection: AgentCityProjection;
@@ -93,6 +108,7 @@ export interface AgentCitySceneOptions {
   onPerformanceFallback: () => void;
   onContextLost: () => void;
   onViewChange?: (view: AgentCityViewState) => void;
+  onHudUpdate?: (coords: AgentCityHudCoords) => void;
 }
 
 export interface AgentCitySceneController {
@@ -173,6 +189,14 @@ interface AnimatedFloorPerimeter {
   length: number;
 }
 
+interface WorkerPacket {
+  mesh: THREE.Mesh;
+  angle: number;
+  innerRadius: number;
+  outerRadius: number;
+  seed: number;
+}
+
 interface FloorNode {
   key: string;
   group: THREE.Group;
@@ -195,6 +219,12 @@ interface FloorNode {
   roomMaterials: THREE.MeshStandardMaterial[];
   activityMaterials: THREE.MeshStandardMaterial[];
   workerScreens: THREE.MeshStandardMaterial[];
+  workerPackets: WorkerPacket[];
+  workerAnchors: { id: string; role: string; anchor: THREE.Object3D }[];
+  holoBeam: THREE.Mesh;
+  holoBeamMaterial: THREE.MeshStandardMaterial;
+  holoCore: THREE.Mesh;
+  holoRings: THREE.Mesh[];
   celebration: THREE.Group | null;
   proceduralShell: THREE.Group;
   proceduralDecor: THREE.Group;
@@ -247,13 +277,47 @@ function themedStatusColor(status: AgentCityStatus, visual: AgentCityVisualTheme
   if (status === "error") return cssColorHex(visual.danger, STATUS_COLORS.error);
   return STATUS_COLORS[status];
 }
-const COAT_COLOR = 0xcaa678;
-const COAT_COLOR_DISABLED = 0x9b9388;
+const COAT_COLOR = 0xe3be92;
+const COAT_COLOR_DISABLED = 0xa39a8f;
 /** Pug ears fold forward at rest; upright cones read as a cat. */
 const EAR_REST_PITCH = 1.05;
 const CAMERA_TWEEN_MS = 620;
 /** Full runtime data is retained; only the scene applies an animated-worker LOD. */
 const SUBAGENT_RENDER_LIMIT = 12;
+
+let cachedFurBumpMap: THREE.CanvasTexture | null = null;
+
+/**
+ * Generates a subtle procedural short-fur micro-grain bump texture so the pug
+ * coat reads like soft velvet/fur instead of flat plastic spheres.
+ */
+function sharedFurBumpMap(): THREE.CanvasTexture | null {
+  if (cachedFurBumpMap) return cachedFurBumpMap;
+  if (typeof document === "undefined") return null;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const image = ctx.createImageData(size, size);
+  let seed = 1337;
+  for (let i = 0; i < image.data.length; i += 4) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const grain = 112 + ((seed >>> 24) % 44);
+    image.data[i] = grain;
+    image.data[i + 1] = grain;
+    image.data[i + 2] = grain;
+    image.data[i + 3] = 255;
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(3, 3);
+  cachedFurBumpMap = texture;
+  return texture;
+}
 
 export function selectAgentCityQuality(capabilities: AgentCityCapabilities): AgentCityQuality {
   if (!capabilities.webgl2) return "fallback";
@@ -424,10 +488,17 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   contactShadow.renderOrder = 1;
   root.add(contactShadow, pose, roleAccessory);
 
-  const coat = material(COAT_COLOR);
+  const furBump = sharedFurBumpMap();
+  const coat = new THREE.MeshStandardMaterial({
+    color: COAT_COLOR,
+    roughness: 0.9,
+    metalness: 0.0,
+    bumpMap: furBump ?? undefined,
+    bumpScale: furBump ? 0.014 : 0
+  });
   const coatMaterials = [coat];
 
-  const body = mesh(new THREE.SphereGeometry(0.37, 18, 12), coat, 0, 0.42, 0);
+  const body = mesh(new THREE.SphereGeometry(0.37, 22, 16), coat, 0, 0.42, 0);
   body.scale.set(1.08, 0.9, 1.18);
   pose.add(body);
 
@@ -435,22 +506,44 @@ function createPug(assistant = false, role: string | null = null): PugRig {
   head.position.set(0, 0.74, 0.05);
   pose.add(head);
   head.add(headAccessory);
-  const skull = mesh(new THREE.SphereGeometry(0.34, 18, 12), material(0xd8b88e), 0, 0.1, 0.08);
+  const skullMat = new THREE.MeshStandardMaterial({
+    color: 0xeacaa1,
+    roughness: 0.9,
+    metalness: 0.0,
+    bumpMap: furBump ?? undefined,
+    bumpScale: furBump ? 0.012 : 0
+  });
+  const skull = mesh(new THREE.SphereGeometry(0.34, 22, 16), skullMat, 0, 0.1, 0.08);
   skull.scale.set(1.02, 0.94, 0.9);
   head.add(skull);
-  const muzzle = mesh(new THREE.SphereGeometry(0.19, 16, 10), material(0x4c4037), 0, 0.02, 0.34);
+  const muzzleMat = new THREE.MeshStandardMaterial({
+    color: 0x3d3028,
+    roughness: 0.88,
+    metalness: 0.0,
+    bumpMap: furBump ?? undefined,
+    bumpScale: furBump ? 0.01 : 0
+  });
+  const muzzle = mesh(new THREE.SphereGeometry(0.19, 18, 12), muzzleMat, 0, 0.02, 0.34);
   muzzle.scale.set(1.2, 0.78, 0.62);
   head.add(muzzle);
-  const nose = mesh(new THREE.SphereGeometry(0.065, 12, 8), material(0x1f1d1b, 0.45), 0, 0.08, 0.49);
+  const nose = mesh(new THREE.SphereGeometry(0.065, 14, 10), material(0x221b17, 0.24, 0.06), 0, 0.08, 0.49);
   nose.scale.set(1.1, 0.7, 0.65);
   head.add(nose);
 
   let earLeft: THREE.Mesh | null = null;
   let earRight: THREE.Mesh | null = null;
   const pawPivots: THREE.Group[] = [];
+  const eyeSurface = material(0x18120e, 0.08, 0.08);
+  const eyeShineSurface = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 0.35,
+    roughness: 0.1
+  });
   for (const side of [-1, 1]) {
-    head.add(mesh(new THREE.SphereGeometry(0.047, 10, 8), material(0x171717, 0.3), side * 0.12, 0.17, 0.34));
-    const ear = mesh(new THREE.ConeGeometry(0.13, 0.25, 5), material(0x59483d), side * 0.26, 0.28, 0.02);
+    head.add(mesh(new THREE.SphereGeometry(0.05, 14, 10), eyeSurface, side * 0.12, 0.17, 0.34));
+    head.add(mesh(new THREE.SphereGeometry(0.015, 8, 6), eyeShineSurface, side * 0.108, 0.188, 0.382));
+    const ear = mesh(new THREE.ConeGeometry(0.13, 0.25, 8), material(0x3a2c24, 0.88), side * 0.26, 0.28, 0.02);
     ear.rotation.set(EAR_REST_PITCH, 0, side * -0.42);
     head.add(ear);
     if (side < 0) earLeft = ear; else earRight = ear;
@@ -614,53 +707,52 @@ function setRigHome(rig: PugRig, position: THREE.Vector3, yaw: number): void {
 }
 
 /**
- * Desk built around its own origin with the seat side on +z, so the caller can
- * turn it against a side wall. Facing the back wall would put the working pug's
- * back to the camera and hide the whole typing animation.
+ * Holographic tactical terminal built around its own origin with the seat side
+ * on +z, so the caller can position it inside the tactical pod.
  */
 function createWorkstation(accent: number, visual: AgentCityVisualTheme): { group: THREE.Group; screen: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
   const profile = agentCityRecipeProfile(visual.recipe);
-  const desk = mixHex(cssColorHex(visual.panel, 0x8d755f), accent, profile.roomAccentMix * 0.34);
-  const frame = mixHex(cssColorHex(visual.separator, 0x5f554c), desk, 0.34);
-  addBox(group, [1.25, 0.11, 0.58], desk, [0, 0.48, 0], visual.recipe === "retro" || visual.recipe === "editorial" ? 0.01 : 0.055);
-  addBox(group, [0.1, 0.48, 0.1], frame, [-0.48, 0.23, 0]);
-  addBox(group, [0.1, 0.48, 0.1], frame, [0.46, 0.23, 0]);
+  const desk = mixHex(cssColorHex(visual.panel, 0x1b2836), accent, Math.max(0.28, profile.roomAccentMix * 0.65));
+  const frame = mixHex(cssColorHex(visual.separator, 0x2d4052), accent, 0.42);
+  addBox(group, [1.1, 0.06, 0.46], desk, [0, 0.48, 0], visual.recipe === "retro" || visual.recipe === "editorial" ? 0.01 : 0.03);
+  addBox(group, [0.06, 0.46, 0.06], frame, [-0.42, 0.23, 0]);
+  addBox(group, [0.06, 0.46, 0.06], frame, [0.42, 0.23, 0]);
   const screen = new THREE.MeshStandardMaterial({
-    color: 0x52616b,
+    color: mixHex(accent, 0xffffff, 0.35),
     emissive: accent,
-    emissiveIntensity: 0,
-    roughness: 0.42
+    emissiveIntensity: 0.55,
+    roughness: 0.18,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.86
   });
-  group.add(mesh(new THREE.BoxGeometry(0.56, 0.4, 0.08), screen, 0, 0.83, 0));
-  addBox(group, [0.07, 0.28, 0.07], frame, [0, 0.61, 0]);
-  // Keyboard, so the typing clip has something to hit.
-  addBox(group, [0.42, 0.03, 0.16], mixHex(frame, accent, 0.12), [0, 0.55, 0.24], visual.recipe === "retro" ? 0.005 : 0.02);
+  group.add(mesh(new THREE.BoxGeometry(0.76, 0.44, 0.024), screen, 0, 0.84, -0.04));
+  // Keyboard / holographic projection pad.
+  addBox(group, [0.46, 0.02, 0.16], mixHex(frame, accent, 0.38), [0, 0.53, 0.16], visual.recipe === "retro" ? 0.005 : 0.015);
   return { group, screen };
 }
 
 function floorPalette(index: number, dark: boolean, visual: AgentCityVisualTheme): { wall: number; trim: number; accent: number } {
   const profile = agentCityRecipeProfile(visual.recipe);
-  const surface = cssColorHex(visual.card, dark ? 0x26333b : 0xf5eee4);
-  const panel = cssColorHex(visual.panel, dark ? 0x3b4b54 : 0xd9c7ae);
+  const surface = cssColorHex(visual.card, dark ? 0x14202c : 0xe4eef7);
+  const panel = cssColorHex(visual.panel, dark ? 0x1f3142 : 0xd2e1ee);
   const accents = [
-    cssColorHex(visual.accent, dark ? 0x48aeff : 0x006bff),
-    cssColorHex(visual.online, dark ? 0x82eb8d : 0x28a948),
-    cssColorHex(visual.skillAccent, dark ? 0xc979ff : 0x8500d1),
-    cssColorHex(visual.warning, dark ? 0xffc543 : 0xaa4d00)
+    cssColorHex(visual.accent, dark ? 0x38bdf8 : 0x006bff),
+    cssColorHex(visual.online, dark ? 0x34d399 : 0x28a948),
+    cssColorHex(visual.skillAccent, dark ? 0xa855f7 : 0x8500d1),
+    cssColorHex(visual.warning, dark ? 0xfbbf24 : 0xaa4d00)
   ];
   const accent = accents[index % accents.length];
   return {
-    wall: mixHex(surface, accent, profile.roomAccentMix * (dark ? 0.62 : 0.48)),
-    trim: mixHex(panel, accent, profile.roomAccentMix * (dark ? 0.9 : 0.7)),
+    wall: mixHex(surface, accent, Math.max(0.24, profile.roomAccentMix * (dark ? 0.72 : 0.52))),
+    trim: mixHex(panel, accent, Math.max(0.32, profile.roomAccentMix * (dark ? 0.95 : 0.75))),
     accent
   };
 }
 
 /**
- * Panes on the inner face of the back wall. The dollhouse is open at the front,
- * so lighting these from inside is what reads as "someone is still in there" at
- * night — the outer faces never point at the camera.
+ * Holographic telemetry panes inside the tactical pod.
  */
 function createWindowPanes(
   count: number,
@@ -671,15 +763,17 @@ function createWindowPanes(
 ): { group: THREE.Group; material: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
   const material = new THREE.MeshStandardMaterial({
-    color: 0xbfd9e8,
-    emissive: 0xffd79a,
-    emissiveIntensity: 0,
-    roughness: 0.28,
-    metalness: 0.05
+    color: 0x7dd3fc,
+    emissive: 0x38bdf8,
+    emissiveIntensity: 0.25,
+    roughness: 0.15,
+    metalness: 0.15,
+    transparent: true,
+    opacity: 0.42
   });
   const offset = ((count - 1) * spacing) / 2;
   for (let index = 0; index < count; index += 1) {
-    group.add(mesh(new THREE.BoxGeometry(size[0], size[1], 0.03), material, index * spacing - offset, y, z));
+    group.add(mesh(new THREE.BoxGeometry(size[0], size[1], 0.02), material, index * spacing - offset, y, z));
   }
   return { group, material };
 }
@@ -689,19 +783,23 @@ function createWorkerStation(accent: number, role: string, visual: AgentCityVisu
   const group = new THREE.Group();
   const roleAccent = roleColor(role);
   const profile = agentCityRecipeProfile(visual.recipe);
-  const desk = mixHex(cssColorHex(visual.panel, 0x756b62), accent, profile.roomAccentMix * 0.28);
-  const frame = mixHex(cssColorHex(visual.separator, 0x57514b), desk, 0.3);
-  addBox(group, [0.5, 0.055, 0.34], desk, [0, 0.27, 0], visual.recipe === "retro" || visual.recipe === "editorial" ? 0.008 : 0.035);
-  addBox(group, [0.045, 0.26, 0.045], frame, [-0.19, 0.13, 0]);
-  addBox(group, [0.045, 0.26, 0.045], frame, [0.19, 0.13, 0]);
+  const podBase = mixHex(cssColorHex(visual.panel, 0x1b2a38), roleAccent || accent, Math.max(0.35, profile.roomAccentMix * 0.6));
+  const satellitePad = mesh(new THREE.CylinderGeometry(0.46, 0.52, 0.08, 6), material(podBase, 0.35, 0.35), 0, 0.04, 0);
+  group.add(satellitePad);
   const screen = new THREE.MeshStandardMaterial({
-    color: 0x33424c,
+    color: mixHex(roleAccent || accent, 0xffffff, 0.35),
     emissive: roleAccent || accent,
-    emissiveIntensity: 0.55,
-    roughness: 0.32
+    emissiveIntensity: 0.85,
+    roughness: 0.2,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.9
   });
-  group.add(mesh(new THREE.BoxGeometry(0.3, 0.22, 0.035), screen, 0, 0.48, -0.04));
-  addBox(group, [0.22, 0.018, 0.09], mixHex(frame, roleAccent, 0.12), [0, 0.32, 0.11], visual.recipe === "retro" ? 0.004 : 0.012);
+  const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(0.44, 0.022, 8, 24), screen);
+  orbitRing.rotation.x = Math.PI / 2;
+  orbitRing.position.y = 0.12;
+  group.add(orbitRing);
+  group.add(mesh(new THREE.OctahedronGeometry(0.14, 0), screen, 0, 0.52, -0.05));
   return { group, screen };
 }
 
@@ -711,125 +809,95 @@ function createRoomDecor(
   isGlobal: boolean,
   dark: boolean,
   accent: number,
-  variant: number,
-  hasWorkers: boolean,
+  _variant: number,
+  _hasWorkers: boolean,
   visual: AgentCityVisualTheme
 ): { activityMaterials: THREE.MeshStandardMaterial[]; celebration: THREE.Group } {
   const activityMaterials: THREE.MeshStandardMaterial[] = [];
-  const profile = agentCityRecipeProfile(visual.recipe);
-  const card = cssColorHex(visual.card, dark ? 0x293942 : 0xd7e0dc);
-  const panel = cssColorHex(visual.panel, dark ? 0x48545d : 0xc7d1d6);
-  const separator = cssColorHex(visual.separator, dark ? 0x6f5d4f : 0x9a8068);
-  const wood = mixHex(separator, cssColorHex(visual.warning, 0x9a8068), visual.recipe === "product" ? 0.18 : 0.34);
-  const soft = mixHex(panel, accent, profile.roomAccentMix * 0.46);
-  const fabric = mixHex(card, accent, profile.roomAccentMix * 0.7);
-  const rug = mixHex(card, accent, profile.roomAccentMix * 0.4);
+  const card = cssColorHex(visual.card, dark ? 0x13202c : 0xdce8f2);
+  const panel = cssColorHex(visual.panel, dark ? 0x1e3040 : 0xc8dae8);
 
-  // A soft floor plane makes the rooms feel inhabited instead of like empty boxes.
-  addBox(
-    group,
-    isGlobal ? [4.9, 0.035, 3.25] : [2.45, 0.03, 1.48],
-    rug,
-    isGlobal ? [-0.2, 0.275, 0.28] : [-0.2, 0.115, 0.28]
+  // Holographic Hex Reactor Core base plate
+  const padRadius = isGlobal ? 3.2 : 1.72;
+  const basePlate = mesh(
+    new THREE.CylinderGeometry(padRadius, padRadius * 1.06, 0.08, isGlobal ? 32 : 6),
+    material(mixHex(card, accent, dark ? 0.22 : 0.16), 0.38, 0.42),
+    0,
+    0.09,
+    0
   );
+  group.add(basePlate);
 
-  // Bookshelf + books.
-  const shelfX = isGlobal ? -2.85 : -1.48;
-  const shelfZ = isGlobal ? -1.88 : -0.92;
-  const shelfHeight = isGlobal ? 1.72 : 1.16;
-  addBox(group, [0.64, shelfHeight, 0.16], wood, [shelfX, shelfHeight / 2 + 0.15, shelfZ]);
-  for (let level = 0; level < (isGlobal ? 4 : 3); level += 1) {
-    addBox(group, [0.7, 0.045, 0.24], dark ? 0x806b58 : 0x9b8069, [shelfX, 0.34 + level * 0.39, shelfZ + 0.02]);
-    for (let book = 0; book < 4; book += 1) {
-      const colors = [0xd06c8d, 0x4f8bd8, 0xe7a34b, 0x72a85f];
-      addBox(group, [0.08, 0.22 + ((book + variant) % 2) * 0.05, 0.08], colors[(book + variant) % colors.length], [
-        shelfX - 0.22 + book * 0.14,
-        0.48 + level * 0.39,
-        shelfZ + 0.13
-      ]);
-    }
-  }
-
-  // Lounge corner. It retracts while a temporary worker camp is deployed so
-  // the team gets a visually distinct collaboration zone instead of clipping furniture.
-  if (!hasWorkers) {
-    const loungeX = isGlobal ? -2.05 : -0.78;
-    const loungeZ = isGlobal ? 0.9 : 0.46;
-    const cushion = mesh(new THREE.CylinderGeometry(isGlobal ? 0.64 : 0.46, isGlobal ? 0.68 : 0.49, 0.16, 22), material(fabric, 0.92), loungeX, isGlobal ? 0.34 : 0.2, loungeZ);
-    group.add(cushion);
-    addBox(group, isGlobal ? [1.42, 0.12, 0.72] : [0.96, 0.1, 0.54], soft, [
-      loungeX,
-      isGlobal ? 0.3 : 0.18,
-      loungeZ + (isGlobal ? 0.18 : 0.14)
-    ]);
-  }
-
-  // Plant in the far corner.
-  const plantX = isGlobal ? 2.95 : -1.48;
-  const plantZ = isGlobal ? 1.78 : 0.82;
-  group.add(mesh(new THREE.CylinderGeometry(0.18, 0.23, 0.34, 12), material(dark ? 0x735945 : 0xb88563), plantX, 0.33, plantZ));
-  for (const [dx, dz, scale] of [[-0.1, 0, 1], [0.1, 0.03, 0.9], [0, -0.09, 1.08]] as const) {
-    const leaf = mesh(new THREE.SphereGeometry(0.18, 10, 7), material(dark ? 0x4d7a5b : 0x70a87d), plantX + dx, 0.68, plantZ + dz);
-    leaf.scale.set(0.7, scale, 0.5);
-    group.add(leaf);
-  }
-
-  // Task board: this is the room's strongest state surface and changes with the Agent.
-  const boardMaterial = new THREE.MeshStandardMaterial({
-    color: dark ? 0x24323d : 0xe6eef2,
+  // Glowing inner telemetry ring
+  const ringMaterial = new THREE.MeshStandardMaterial({
+    color: mixHex(accent, 0xffffff, 0.35),
     emissive: accent,
-    emissiveIntensity: 0.08,
-    roughness: 0.36,
-    metalness: 0.04
+    emissiveIntensity: dark ? 0.55 : 0.28,
+    roughness: 0.2,
+    metalness: 0.3
   });
-  const board = mesh(
-    new THREE.BoxGeometry(isGlobal ? 2.15 : 1.05, isGlobal ? 0.72 : 0.48, 0.055),
-    boardMaterial,
-    isGlobal ? 0.25 : -0.25,
-    isGlobal ? 0.9 : 0.64,
-    isGlobal ? -2.14 : -1.0
+  const innerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(padRadius * 0.76, isGlobal ? 0.045 : 0.03, 10, isGlobal ? 48 : 6),
+    ringMaterial
   );
-  dynamicGroup.add(board);
-  activityMaterials.push(boardMaterial);
-  const cellCount = isGlobal ? 5 : 3;
-  for (let index = 0; index < cellCount; index += 1) {
+  innerRing.rotation.x = Math.PI / 2;
+  innerRing.position.y = 0.15;
+  dynamicGroup.add(innerRing);
+  activityMaterials.push(ringMaterial);
+
+  // Outer precision reticle ring
+  const outerRingMaterial = new THREE.MeshStandardMaterial({
+    color: mixHex(panel, accent, 0.5),
+    emissive: accent,
+    emissiveIntensity: dark ? 0.32 : 0.15,
+    roughness: 0.3
+  });
+  const outerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(padRadius * 0.96, 0.02, 8, isGlobal ? 64 : 32),
+    outerRingMaterial
+  );
+  outerRing.rotation.x = Math.PI / 2;
+  outerRing.position.y = 0.14;
+  dynamicGroup.add(outerRing);
+  activityMaterials.push(outerRingMaterial);
+
+  // Vertical Holographic Data Pillars at corners
+  const pillarCount = isGlobal ? 6 : 4;
+  for (let index = 0; index < pillarCount; index += 1) {
+    const angle = (index / pillarCount) * Math.PI * 2 + Math.PI / 4;
+    const px = Math.cos(angle) * (padRadius * 0.88);
+    const pz = Math.sin(angle) * (padRadius * 0.88);
     const cellMaterial = new THREE.MeshStandardMaterial({
       color: accent,
       emissive: accent,
-      emissiveIntensity: 0.08,
-      roughness: 0.4
+      emissiveIntensity: dark ? 0.38 : 0.18,
+      roughness: 0.25,
+      transparent: true,
+      opacity: 0.82
     });
-    const spacing = isGlobal ? 0.37 : 0.26;
     dynamicGroup.add(mesh(
-      new THREE.BoxGeometry(isGlobal ? 0.24 : 0.16, 0.08, 0.025),
+      new THREE.CylinderGeometry(0.028, 0.028, isGlobal ? 1.45 : 0.92, 8),
       cellMaterial,
-      (isGlobal ? 0.25 : -0.25) + (index - (cellCount - 1) / 2) * spacing,
-      isGlobal ? 0.9 : 0.64,
-      isGlobal ? -2.105 : -0.968
+      px,
+      isGlobal ? 0.82 : 0.54,
+      pz
     ));
     activityMaterials.push(cellMaterial);
   }
 
-  // Standing lamp; the glow remains subtle so it reads as interior light, not a beacon.
-  const lampX = isGlobal ? 2.65 : -1.35;
-  const lampZ = isGlobal ? 1.58 : 0.66;
-  addBox(group, [0.055, isGlobal ? 1.08 : 0.72, 0.055], dark ? 0x58656d : 0x71808a, [lampX, isGlobal ? 0.72 : 0.5, lampZ]);
-  const lampMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffe7b0,
-    emissive: 0xffc96b,
-    emissiveIntensity: dark ? 0.42 : 0.12,
-    roughness: 0.55
-  });
-  group.add(mesh(new THREE.ConeGeometry(isGlobal ? 0.28 : 0.2, isGlobal ? 0.34 : 0.25, 16, 1, true), lampMaterial, lampX, isGlobal ? 1.32 : 0.9, lampZ));
-  activityMaterials.push(lampMaterial);
-
-  // Celebration satellites: hidden unless a task just completed / remains completed.
+  // Celebration orbital energy satellites: active when a run completes
   const celebration = new THREE.Group();
-  const confettiColors = [0xffc543, 0x48aeff, 0x82eb8d, 0xc979ff, 0xff7d9d, 0xffffff];
+  const confettiColors = [0x38bdf8, 0x34d399, 0xa855f7, 0xfbbf24, 0x60a5fa, 0xffffff];
   for (let index = 0; index < confettiColors.length; index += 1) {
-    const bit = mesh(new THREE.SphereGeometry(isGlobal ? 0.075 : 0.05, 8, 6), material(confettiColors[index], 0.45));
+    const satMat = new THREE.MeshStandardMaterial({
+      color: confettiColors[index],
+      emissive: confettiColors[index],
+      emissiveIntensity: 0.9,
+      roughness: 0.2
+    });
+    const bit = mesh(new THREE.OctahedronGeometry(isGlobal ? 0.11 : 0.075, 0), satMat);
     const angle = (index / confettiColors.length) * Math.PI * 2;
-    bit.position.set(Math.cos(angle) * (isGlobal ? 1.2 : 0.72), 0.9 + (index % 2) * 0.3, Math.sin(angle) * (isGlobal ? 0.78 : 0.46));
+    bit.position.set(Math.cos(angle) * (isGlobal ? 1.65 : 1.05), 1.05 + (index % 2) * 0.25, Math.sin(angle) * (isGlobal ? 1.65 : 1.05));
     celebration.add(bit);
   }
   celebration.visible = false;
@@ -1030,20 +1098,70 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const accent = cssColorHex(visualTheme.accent, 0x4a9a94);
     const panel = cssColorHex(visualTheme.panel, theme === "dark" ? 0x2d3940 : 0xe9edf0);
     const separator = cssColorHex(visualTheme.separator, theme === "dark" ? 0x56616a : 0x9aa3aa);
+    const furBump = sharedFurBumpMap();
     root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
+      const meshName = object.name.toLowerCase();
       const surfaces = Array.isArray(object.material) ? object.material : [object.material];
       for (const surface of surfaces) {
         if (!(surface instanceof THREE.MeshStandardMaterial)) continue;
         const name = surface.name.toLowerCase();
         if (name.includes("vesttrim")) {
           surface.color.setHex(mixHex(separator, accent, 0.28));
-          surface.roughness = profile.roughness;
-        } else if (name.includes("momovest") || name === "vest") {
-          surface.color.setHex(accent);
-          surface.roughness = profile.roughness;
-          surface.metalness = profile.metalness;
+          surface.roughness = Math.max(0.7, profile.roughness);
+        } else if (name.includes("momovest") || name.includes("momoteal") || name === "vest") {
+          surface.color.setHex(mixHex(accent, panel, 0.22));
+          surface.roughness = Math.max(0.74, profile.roughness);
+          surface.metalness = Math.min(0.08, profile.metalness);
+        } else if (name.includes("warmfawn")) {
+          surface.color.setHex(0xe5c298);
+          surface.roughness = 0.92;
+          surface.metalness = 0.0;
+          if (furBump) {
+            surface.bumpMap = furBump;
+            surface.bumpScale = 0.014;
+          }
+        } else if (name.includes("creamfawn")) {
+          surface.color.setHex(0xf5e5ce);
+          surface.roughness = 0.93;
+          surface.metalness = 0.0;
+          if (furBump) {
+            surface.bumpMap = furBump;
+            surface.bumpScale = 0.011;
+          }
+        } else if (name.includes("maskbrown")) {
+          surface.color.setHex(0x3e3129);
+          surface.roughness = 0.88;
+          surface.metalness = 0.0;
+          if (furBump) {
+            surface.bumpMap = furBump;
+            surface.bumpScale = 0.01;
+          }
+        } else if (name === "ear" || meshName.startsWith("ear")) {
+          surface.color.setHex(0x362922);
+          surface.roughness = 0.9;
+          surface.metalness = 0.0;
+        } else if (name.includes("eyehighlight")) {
+          surface.color.setHex(0xffffff);
+          surface.emissive.setHex(0xffffff);
+          surface.emissiveIntensity = 0.35;
+          surface.roughness = 0.12;
+        } else if (name === "ink") {
+          if (meshName.startsWith("nose")) {
+            surface.color.setHex(0x231c18);
+            surface.roughness = 0.24;
+            surface.metalness = 0.06;
+          } else {
+            surface.color.setHex(0x16110d);
+            surface.roughness = 0.08;
+            surface.metalness = 0.08;
+          }
+        } else if (name.includes("tongue")) {
+          surface.color.setHex(0xe68a86);
+          surface.roughness = 0.42;
+          surface.metalness = 0.0;
         }
+        surface.needsUpdate = true;
       }
     });
   }
@@ -1106,10 +1224,14 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (!communityKit || node.assetVisual.children.length > 0) return;
     const architecture = cloneCommunityComponent(communityKit, isGlobal ? "HQArchitecture" : "StudioArchitecture", dark, accent, visualTheme);
     const decor = cloneCommunityComponent(communityKit, isGlobal ? "HQDecor" : "StudioDecor", dark, accent, visualTheme);
-    if (architecture) node.assetVisual.add(architecture);
+    if (architecture) {
+      architecture.visible = false;
+      node.assetVisual.add(architecture);
+    }
     if (decor) {
       const lounge = decor.getObjectByName("Lounge");
       if (lounge) lounge.visible = !hasWorkers;
+      decor.visible = false;
       node.assetVisual.add(decor);
     }
     if (!architecture && !decor) return;
@@ -1122,8 +1244,8 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         if (surface.name.toLowerCase().includes("glasstint")) node.assetWindowMaterials.push(surface);
       }
     });
-    node.proceduralShell.visible = false;
-    node.proceduralDecor.visible = false;
+    node.proceduralShell.visible = true;
+    node.proceduralDecor.visible = true;
     if (node.status) applyWindowGlow(node, node.status);
   }
 
@@ -1189,100 +1311,151 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     disposeObject(staticRoot);
     staticRoot.clear();
     const profile = agentCityRecipeProfile(visualTheme.recipe);
-    const accent = cssColorHex(visualTheme.accent, theme === "dark" ? 0x48aeff : 0x006bff);
-    const surface = cssColorHex(visualTheme.surface, theme === "dark" ? 0x1d282f : 0xdfe7e5);
-    const panel = cssColorHex(visualTheme.panel, theme === "dark" ? 0x2a373e : 0xd5dfdc);
-    const card = cssColorHex(visualTheme.card, theme === "dark" ? 0x26333b : 0xf5eee4);
-    const separator = cssColorHex(visualTheme.separator, theme === "dark" ? 0x4a5962 : 0xb9c4c8);
-    const online = cssColorHex(visualTheme.online, theme === "dark" ? 0x5ebc78 : 0x4f8c61);
-    const warning = cssColorHex(visualTheme.warning, theme === "dark" ? 0xd9a34f : 0xa97842);
-    const groundColor = mixHex(surface, panel, theme === "dark" ? 0.18 : 0.26);
-    const ground = mesh(new THREE.BoxGeometry(34, 0.28, 22), material(groundColor, profile.roughness, profile.metalness), 0, -0.2, 0);
+    const accent = cssColorHex(visualTheme.accent, theme === "dark" ? 0x38bdf8 : 0x006bff);
+    const surface = cssColorHex(visualTheme.surface, theme === "dark" ? 0x111a24 : 0xdfe7e5);
+    const panel = cssColorHex(visualTheme.panel, theme === "dark" ? 0x1b2836 : 0xd5dfdc);
+    const card = cssColorHex(visualTheme.card, theme === "dark" ? 0x16222f : 0xf5eee4);
+    const separator = cssColorHex(visualTheme.separator, theme === "dark" ? 0x36495c : 0xb9c4c8);
+    const online = cssColorHex(visualTheme.online, theme === "dark" ? 0x34d399 : 0x28a948);
+    const warning = cssColorHex(visualTheme.warning, theme === "dark" ? 0xfbbf24 : 0xa97842);
+
+    // Tactical Holographic Astrolabe Deck Base
+    const groundColor = mixHex(surface, panel, theme === "dark" ? 0.22 : 0.28);
+    const ground = mesh(
+      new THREE.CylinderGeometry(20.5, 21.2, 0.24, 64),
+      material(groundColor, Math.max(0.28, profile.roughness - 0.18), Math.min(0.45, profile.metalness + 0.16)),
+      0,
+      -0.2,
+      0
+    );
     ground.receiveShadow = true;
     staticRoot.add(ground);
-    const roadColor = mixHex(panel, separator, visualTheme.recipe === "retro" ? 0.72 : 0.48);
-    const addRoad = (fromX: number, fromZ: number, toX: number, toZ: number, width = 0.3): void => {
+
+    // Concentric Polar Orbit Rings on the Tactical Deck
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: mixHex(accent, separator, 0.45),
+      emissive: accent,
+      emissiveIntensity: (theme === "dark" ? 0.42 : 0.18) * profile.emissiveScale,
+      roughness: 0.28,
+      metalness: 0.3,
+      transparent: true,
+      opacity: theme === "dark" ? 0.62 : 0.42
+    });
+    for (const radius of [4.2, 8.6, 12.8, 16.8, 20.2]) {
+      const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(radius, radius === 12.8 ? 0.045 : 0.024, 8, 96), ringMat);
+      orbitRing.rotation.x = Math.PI / 2;
+      orbitRing.position.y = -0.05;
+      staticRoot.add(orbitRing);
+    }
+
+    // glowing neural conduit traces from Primary Core to every orbital node
+    const conduitColor = mixHex(panel, accent, visualTheme.recipe === "retro" ? 0.35 : 0.55);
+    const conduitMat = new THREE.MeshStandardMaterial({
+      color: conduitColor,
+      emissive: accent,
+      emissiveIntensity: (theme === "dark" ? 0.28 : 0.12) * profile.emissiveScale,
+      roughness: 0.3,
+      metalness: 0.25,
+      transparent: true,
+      opacity: theme === "dark" ? 0.72 : 0.52
+    });
+    const addConduit = (fromX: number, fromZ: number, toX: number, toZ: number, traceWidth = 0.14): void => {
       const dx = toX - fromX;
       const dz = toZ - fromZ;
       const length = Math.hypot(dx, dz);
       if (length < 0.01) return;
-      const road = addBox(staticRoot, [width, 0.035, length], roadColor, [(fromX + toX) / 2, -0.02, (fromZ + toZ) / 2]);
-      road.rotation.y = Math.atan2(dx, dz);
+      const trace = mesh(
+        new THREE.BoxGeometry(traceWidth, 0.025, length),
+        conduitMat,
+        (fromX + toX) / 2,
+        -0.04,
+        (fromZ + toZ) / 2
+      );
+      trace.rotation.y = Math.atan2(dx, dz);
+      staticRoot.add(trace);
     };
     const primary = projection.globalFloor.position;
-    addRoad(projection.owner.position.x, projection.owner.position.z, primary.x, primary.z, 0.46);
+    addConduit(projection.owner.position.x, projection.owner.position.z, primary.x, primary.z, 0.28);
     for (const building of projection.buildings) {
-      addRoad(primary.x, primary.z, building.position.x, building.position.z);
+      addConduit(primary.x, primary.z, building.position.x, building.position.z, 0.12);
     }
 
-    // A small shared plaza and restrained landscaping make the scene read as a
-    // community rather than isolated dollhouses. These remain runtime-owned so
-    // they can follow light/dark themes without baking another asset variant.
-    const plazaMaterial = material(
-      mixHex(card, accent, profile.sceneryAccentMix),
-      profile.roughness,
-      profile.metalness
-    );
-    const plaza = mesh(new RoundedBoxGeometry(9.2, 0.06, 7.0, 5, 0.12), plazaMaterial, primary.x, -0.01, primary.z + 0.25);
+    // Central Nexus Reactor Pedestal
+    const plazaMaterial = new THREE.MeshStandardMaterial({
+      color: mixHex(card, accent, Math.max(0.18, profile.sceneryAccentMix * 1.4)),
+      emissive: accent,
+      emissiveIntensity: (theme === "dark" ? 0.18 : 0.06) * profile.emissiveScale,
+      roughness: 0.32,
+      metalness: 0.28
+    });
+    const plaza = mesh(new THREE.CylinderGeometry(4.6, 5.1, 0.1, 32), plazaMaterial, primary.x, -0.02, primary.z);
     plaza.receiveShadow = true;
     staticRoot.add(plaza);
 
-    // Theme families alter the community language, not only its RGB values.
-    // Technical themes get drafting-grid linework; retro/editorial themes get
-    // hard poster/desktop tiles; expressive themes get softer accent islands.
+    // Theme family tactical grid & markers
     if (visualTheme.recipe === "technical") {
       const gridColor = mixHex(accent, separator, 0.36);
-      const grid = new THREE.GridHelper(30, 30, gridColor, mixHex(gridColor, surface, 0.48));
-      grid.position.y = -0.045;
+      const grid = new THREE.GridHelper(36, 36, gridColor, mixHex(gridColor, surface, 0.48));
+      grid.position.y = -0.06;
       (grid.material as THREE.Material).transparent = true;
       (grid.material as THREE.Material).opacity = theme === "dark" ? 0.34 : 0.2;
       staticRoot.add(grid);
     } else if (visualTheme.recipe === "retro" || visualTheme.recipe === "editorial") {
       const rule = mixHex(separator, accent, visualTheme.recipe === "editorial" ? 0.34 : 0.12);
-      for (const z of [-5.6, -1.9, 1.8, 5.5]) {
-        addBox(staticRoot, [30, 0.018, visualTheme.recipe === "retro" ? 0.055 : 0.035], rule, [0, -0.035, z], 0.001);
+      for (const z of [-6.0, 0, 6.0]) {
+        addBox(staticRoot, [32, 0.016, visualTheme.recipe === "retro" ? 0.05 : 0.03], rule, [0, -0.05, z], 0.001);
       }
-      for (const x of [-10, -5, 0, 5, 10]) {
-        addBox(staticRoot, [visualTheme.recipe === "retro" ? 0.055 : 0.035, 0.018, 18], rule, [x, -0.035, 0], 0.001);
+      for (const x of [-10, 0, 10]) {
+        addBox(staticRoot, [visualTheme.recipe === "retro" ? 0.05 : 0.03, 0.016, 20], rule, [x, -0.05, 0], 0.001);
       }
     } else if (visualTheme.recipe === "expressive") {
-      for (const [x, z, scale] of [[-5.2, 2.5, 1.0], [5.0, 3.2, 0.82], [0, -3.0, 0.72]] as const) {
+      for (const [x, z, scale] of [[-6.2, 2.5, 1.0], [6.2, 2.5, 0.85], [0, -5.0, 0.75]] as const) {
         const island = mesh(
-          new THREE.CylinderGeometry(1.25 * scale, 1.25 * scale, 0.025, 32),
-          material(mixHex(card, accent, 0.24), 0.9),
-          x, -0.025, z
+          new THREE.CylinderGeometry(1.1 * scale, 1.1 * scale, 0.02, 24),
+          material(mixHex(card, accent, 0.28), 0.5),
+          x, -0.04, z
         );
         staticRoot.add(island);
       }
+    } else {
+      const subtleGrid = new THREE.GridHelper(34, 34, mixHex(accent, separator, 0.5), mixHex(separator, surface, 0.55));
+      subtleGrid.position.y = -0.065;
+      (subtleGrid.material as THREE.Material).transparent = true;
+      (subtleGrid.material as THREE.Material).opacity = theme === "dark" ? 0.22 : 0.14;
+      staticRoot.add(subtleGrid);
     }
 
-    const leafMaterial = material(mixHex(online, card, theme === "dark" ? 0.24 : 0.38), 0.92);
-    const trunkMaterial = material(mixHex(warning, panel, 0.58), 0.9);
-    const lampMaterial = new THREE.MeshStandardMaterial({
-      color: mixHex(warning, 0xffffff, theme === "dark" ? 0.56 : 0.74),
-      emissive: warning,
-      emissiveIntensity: (theme === "dark" ? 0.62 : 0.1) * profile.emissiveScale,
-      roughness: profile.roughness
+    // Perimeter Holographic Telemetry Beacons (replacing cartoon trees & park benches)
+    const beaconGlassMat = new THREE.MeshStandardMaterial({
+      color: mixHex(online, accent, 0.5),
+      emissive: accent,
+      emissiveIntensity: (theme === "dark" ? 0.72 : 0.28) * profile.emissiveScale,
+      roughness: 0.2,
+      metalness: 0.3
     });
-    for (const [x, z] of [[-3.8, -0.5], [3.8, -0.5], [-3.6, 4.7], [3.6, 4.7]] as const) {
-      staticRoot.add(mesh(new THREE.CylinderGeometry(0.09, 0.11, 0.75, 12), trunkMaterial, x, 0.34, z + primary.z));
-      const crown = mesh(new THREE.SphereGeometry(0.48, 14, 10), leafMaterial, x, 1.02, z + primary.z);
-      crown.scale.set(0.82, 1.12, 0.82);
-      staticRoot.add(crown);
-    }
-    for (const x of [-2.2, 2.2]) {
-      addBox(staticRoot, [0.9, 0.11, 0.34], mixHex(warning, panel, 0.5), [x, 0.25, primary.z + 3.0], visualTheme.recipe === "retro" ? 0.005 : 0.05);
-      addBox(staticRoot, [0.055, 0.34, 0.055], mixHex(separator, panel, 0.3), [x - 0.31, 0.12, primary.z + 3.0], 0.02);
-      addBox(staticRoot, [0.055, 0.34, 0.055], mixHex(separator, panel, 0.3), [x + 0.31, 0.12, primary.z + 3.0], 0.02);
-    }
-    for (const x of [-1.7, 1.7]) {
-      addBox(staticRoot, [0.055, 1.05, 0.055], mixHex(separator, panel, 0.3), [x, 0.5, primary.z + 5.1], 0.018);
-      staticRoot.add(mesh(new THREE.SphereGeometry(0.12, 12, 8), lampMaterial, x, 1.05, primary.z + 5.1));
+    const beaconWarnMat = new THREE.MeshStandardMaterial({
+      color: mixHex(warning, 0xffffff, 0.45),
+      emissive: warning,
+      emissiveIntensity: (theme === "dark" ? 0.65 : 0.22) * profile.emissiveScale,
+      roughness: 0.25
+    });
+    for (const angleDeg of [30, 90, 150, 210, 270, 330]) {
+      const rad = (angleDeg * Math.PI) / 180;
+      const bx = Math.cos(rad) * 16.8;
+      const bz = Math.sin(rad) * 16.8;
+      staticRoot.add(mesh(new THREE.CylinderGeometry(0.16, 0.24, 0.18, 6), material(mixHex(panel, accent, 0.35), 0.3, 0.4), bx, 0.02, bz));
+      staticRoot.add(mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.35, 8), beaconGlassMat, bx, 0.7, bz));
+      staticRoot.add(mesh(new THREE.OctahedronGeometry(0.11, 0), angleDeg % 180 === 90 ? beaconWarnMat : beaconGlassMat, bx, 1.45, bz));
     }
 
-    const owner = communityKit
-      ? cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", accent, visualTheme) ?? createOwnerCenter(theme === "dark", accent)
-      : createOwnerCenter(theme === "dark", accent);
+    const owner = createOwnerCenter(theme === "dark", accent);
+    if (communityKit) {
+      const hubClone = cloneCommunityComponent(communityKit, "CommunityHub", theme === "dark", accent, visualTheme);
+      if (hubClone) {
+        hubClone.visible = false;
+        owner.add(hubClone);
+      }
+    }
     owner.position.set(projection.owner.position.x, projection.owner.position.y, projection.owner.position.z);
     staticRoot.add(owner);
   }
@@ -1290,38 +1463,36 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
   function createOwnerCenter(dark: boolean, accent: number): THREE.Group {
     const group = new THREE.Group();
     const profile = agentCityRecipeProfile(visualTheme.recipe);
-    const baseColor = mixHex(cssColorHex(visualTheme.panel, dark ? 0x33434c : 0xd8e2df), accent, profile.sceneryAccentMix * 0.55);
-    const base = material(baseColor, profile.roughness, profile.metalness);
-    const platform = mesh(new THREE.CylinderGeometry(2.15, 2.35, 0.24, 40), base, 0, 0.08, 0);
+    const baseColor = mixHex(cssColorHex(visualTheme.panel, dark ? 0x172634 : 0xd8e2df), accent, Math.max(0.25, profile.sceneryAccentMix * 0.8));
+    const base = material(baseColor, 0.32, 0.38);
+    const platform = mesh(new THREE.CylinderGeometry(1.85, 2.15, 0.16, 6), base, 0, 0.04, 0);
     group.add(platform);
 
     const coreMaterial = new THREE.MeshStandardMaterial({
-      color: mixHex(cssColorHex(visualTheme.card, dark ? 0x17324c : 0xd9edff), accent, 0.28),
+      color: mixHex(accent, 0xffffff, 0.55),
       emissive: accent,
-      emissiveIntensity: 0.48 * profile.emissiveScale,
-      roughness: Math.max(0.28, profile.roughness - 0.3),
-      metalness: profile.metalness
+      emissiveIntensity: 0.88 * profile.emissiveScale,
+      roughness: 0.18,
+      metalness: 0.3
     });
-    group.add(mesh(new THREE.CylinderGeometry(0.42, 0.62, 1.35, 24), coreMaterial, 0, 0.78, 0));
-    group.add(mesh(new THREE.SphereGeometry(0.28, 20, 14), coreMaterial, 0, 1.52, 0));
+    group.add(mesh(new THREE.OctahedronGeometry(0.42, 0), coreMaterial, 0, 0.95, 0));
 
     const ringMaterial = new THREE.MeshStandardMaterial({
       color: mixHex(accent, 0xffffff, 0.42),
       emissive: accent,
-      emissiveIntensity: 0.36 * profile.emissiveScale,
-      roughness: Math.max(0.3, profile.roughness - 0.25)
+      emissiveIntensity: 0.62 * profile.emissiveScale,
+      roughness: 0.25
     });
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.35, 0.055, 10, 48), ringMaterial);
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = 0.25;
-    group.add(ring);
+    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.032, 10, 48), ringMaterial);
+    ring1.rotation.x = Math.PI / 2;
+    ring1.position.y = 0.22;
+    group.add(ring1);
 
-    for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
-      const x = Math.cos(angle) * 1.5;
-      const z = Math.sin(angle) * 1.5;
-      const terminal = addBox(group, [0.46, 0.12, 0.34], mixHex(cssColorHex(visualTheme.separator, dark ? 0x657680 : 0x9caab0), accent, 0.12), [x, 0.28, z]);
-      terminal.rotation.y = -angle;
-    }
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.76, 0.024, 10, 36), ringMaterial);
+    ring2.rotation.set(Math.PI / 3, Math.PI / 6, 0);
+    ring2.position.y = 0.95;
+    group.add(ring2);
+
     return group;
   }
 
@@ -1330,23 +1501,23 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const group = new THREE.Group();
     const points = floor.route.points.map((point) => new THREE.Vector3(point.x, point.y + 0.11, point.z));
     const curve = new THREE.CatmullRomCurve3(points);
-    const routeAccent = cssColorHex(visualTheme.accent, 0x006bff);
+    const routeAccent = cssColorHex(visualTheme.accent, 0x38bdf8);
     const tubeMaterial = new THREE.MeshStandardMaterial({
       color: routeAccent,
       emissive: routeAccent,
-      emissiveIntensity: 0.58 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale,
+      emissiveIntensity: 0.92 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale,
       transparent: true,
-      opacity: visualTheme.recipe === "retro" ? 0.58 : 0.78
+      opacity: visualTheme.recipe === "retro" ? 0.68 : 0.88
     });
-    const tube = mesh(new THREE.TubeGeometry(curve, 42, 0.045, 8, false), tubeMaterial);
+    const tube = mesh(new THREE.TubeGeometry(curve, 48, 0.042, 8, false), tubeMaterial);
     tube.castShadow = false;
     group.add(tube);
     const capsuleMaterial = new THREE.MeshStandardMaterial({
-      color: mixHex(routeAccent, 0xffffff, 0.82),
+      color: mixHex(routeAccent, 0xffffff, 0.88),
       emissive: routeAccent,
-      emissiveIntensity: 1.05 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale
+      emissiveIntensity: 1.45 * agentCityRecipeProfile(visualTheme.recipe).emissiveScale
     });
-    const capsule = mesh(new THREE.SphereGeometry(0.13, 10, 8), capsuleMaterial);
+    const capsule = mesh(new THREE.SphereGeometry(0.15, 12, 10), capsuleMaterial);
     group.add(capsule);
     cityRoot.add(group);
     return {
@@ -1374,7 +1545,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     target.userData.floorKey = key;
     parent.add(target);
     const anchor = new THREE.Object3D();
-    anchor.position.set(0, anchorY, 0.92);
+    anchor.position.set(0, anchorY, 0);
     parent.add(anchor);
     return { target, anchor };
   }
@@ -1388,7 +1559,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const dark = theme === "dark";
     const isGlobal = floor.kind === "global";
     const palette = floorPalette(variant, dark, visualTheme);
-    const accent = isGlobal ? cssColorHex(visualTheme.accent, 0x006bff) : palette.accent;
+    const accent = isGlobal ? cssColorHex(visualTheme.accent, 0x38bdf8) : palette.accent;
 
     let statusMaterial: THREE.MeshStandardMaterial;
     let perimeterSize: [number, number, number];
@@ -1396,8 +1567,6 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     let targetSize: [number, number, number];
     let anchorY: number;
     let windows: { group: THREE.Group; material: THREE.MeshStandardMaterial };
-    // Interior surfaces that pick up the room's own light. Glowing panes alone
-    // read wrong at city distance — a lit window over a pitch-black room.
     const roomMaterials: THREE.MeshStandardMaterial[] = [];
     const shell = (value: THREE.Mesh): THREE.Mesh => {
       roomMaterials.push(value.material as THREE.MeshStandardMaterial);
@@ -1405,44 +1574,68 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     };
 
     if (isGlobal) {
-      // The default Agent is the community's hero building rather than a remote
-      // "global" room. Extra width/depth leaves room for a temporary worker camp.
+      // Central Holographic Command Core for Primary Agent (Momo HQ)
       const hqProfile = agentCityRecipeProfile(visualTheme.recipe);
-      const hqBase = mixHex(
-        cssColorHex(visualTheme.card, dark ? 0x27323d : 0xe9edf0),
-        accent,
-        hqProfile.roomAccentMix * 0.42
-      );
       const hqTrim = mixHex(
-        cssColorHex(visualTheme.panel, dark ? 0x3d4d58 : 0xcad3d8),
+        cssColorHex(visualTheme.panel, dark ? 0x1b2c3b : 0xcad3d8),
         accent,
-        hqProfile.roomAccentMix * 0.7
+        Math.max(0.35, hqProfile.roomAccentMix * 0.85)
       );
-      shell(addBox(proceduralShell, [7.6, 0.3, 5], hqTrim, [0, 0.1, 0]));
-      shell(addBox(proceduralShell, [6.9, 3.05, 0.2], hqBase, [0, 1.7, -2.28]));
-      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], hqBase, [-3.35, 1.7, 0]));
-      shell(addBox(proceduralShell, [0.22, 3.05, 4.8], hqBase, [3.35, 1.7, 0]));
-      addBox(proceduralShell, [7.05, 0.18, 5], hqTrim, [0, 3.25, 0]);
-      statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.18, roughness: 0.4 });
-      group.add(mesh(new THREE.CylinderGeometry(0.5, 0.72, 1.6, 24), statusMaterial, 0, 0.95, -0.72));
-      perimeterSize = [7.05, 0.18, 5];
-      perimeterHeight = 3.34;
-      targetSize = [7.05, 3.34, 5];
-      anchorY = 3.62;
-      windows = createWindowPanes(4, 1.45, [1, 0.95], 1.82, -2.16);
+      shell(mesh(new THREE.CylinderGeometry(3.5, 3.8, 0.16, 32), material(hqTrim, 0.32, 0.4), 0, 0.04, 0));
+      proceduralShell.add(roomMaterials.length ? mesh(new THREE.CylinderGeometry(3.5, 3.8, 0.16, 32), roomMaterials[0], 0, 0.04, 0) : new THREE.Group());
+      statusMaterial = new THREE.MeshStandardMaterial({
+        color: accent,
+        emissive: accent,
+        emissiveIntensity: 0.45,
+        roughness: 0.25,
+        metalness: 0.3
+      });
+      const coreGyro = new THREE.Mesh(new THREE.TorusGeometry(2.85, 0.055, 12, 64), statusMaterial);
+      coreGyro.rotation.x = Math.PI / 2;
+      coreGyro.position.y = 0.18;
+      group.add(coreGyro);
+      perimeterSize = [5.4, 0.16, 5.4];
+      perimeterHeight = 2.4;
+      targetSize = [5.8, 2.8, 5.8];
+      anchorY = 2.35;
+      windows = createWindowPanes(3, 1.35, [0.95, 0.55], 1.15, -2.1);
     } else {
-      shell(addBox(proceduralShell, [3.8, 0.16, 2.35], palette.trim, [0, 0.02, 0]));
-      shell(addBox(proceduralShell, [3.8, 1.9, 0.16], palette.wall, [0, 1.02, -1.1]));
-      shell(addBox(proceduralShell, [0.16, 1.9, 2.35], palette.wall, [-1.82, 1.02, 0]));
-      shell(addBox(proceduralShell, [0.16, 1.9, 2.35], palette.wall, [1.82, 1.02, 0]));
-      addBox(proceduralShell, [3.85, 0.12, 2.4], palette.trim, [0, 1.98, 0]);
-      statusMaterial = new THREE.MeshStandardMaterial({ color: 0x7d7d7d, emissive: 0x7d7d7d, emissiveIntensity: 0.05, roughness: 0.55 });
-      group.add(mesh(new THREE.BoxGeometry(2.8, 0.055, 0.08), statusMaterial, 0, 0.1, 1.16));
-      perimeterSize = [3.85, 0.12, 2.4];
-      perimeterHeight = 2.04;
-      targetSize = [3.85, 2.04, 2.4];
-      anchorY = 2.32;
-      windows = createWindowPanes(2, 1.1, [0.8, 0.62], 1.18, -1.0);
+      // Open Hexagonal Tactical Pod (No ugly opaque black roof or closed walls!)
+      const podBaseMat = material(palette.trim, 0.34, 0.38);
+      const podHex = mesh(new THREE.CylinderGeometry(1.92, 2.1, 0.14, 6), podBaseMat, 0, 0.03, 0);
+      roomMaterials.push(podBaseMat);
+      proceduralShell.add(podHex);
+
+      // Rear low-profile holographic shield arc
+      const shieldMat = new THREE.MeshStandardMaterial({
+        color: palette.wall,
+        emissive: accent,
+        emissiveIntensity: dark ? 0.18 : 0.06,
+        roughness: 0.22,
+        metalness: 0.2,
+        transparent: true,
+        opacity: dark ? 0.55 : 0.42
+      });
+      roomMaterials.push(shieldMat);
+      const rearShield = mesh(new THREE.BoxGeometry(2.4, 0.95, 0.06), shieldMat, 0, 0.58, -1.18);
+      proceduralShell.add(rearShield);
+
+      statusMaterial = new THREE.MeshStandardMaterial({
+        color: 0x7d7d7d,
+        emissive: 0x7d7d7d,
+        emissiveIntensity: 0.22,
+        roughness: 0.3,
+        metalness: 0.3
+      });
+      const statusRing = new THREE.Mesh(new THREE.TorusGeometry(1.86, 0.042, 10, 6), statusMaterial);
+      statusRing.rotation.x = Math.PI / 2;
+      statusRing.position.y = 0.12;
+      group.add(statusRing);
+      perimeterSize = [3.3, 0.12, 3.3];
+      perimeterHeight = 1.85;
+      targetSize = [3.6, 2.15, 3.6];
+      anchorY = 1.95;
+      windows = createWindowPanes(2, 1.05, [0.75, 0.45], 0.85, -1.12);
     }
     proceduralShell.add(windows.group);
 
@@ -1453,27 +1646,29 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     const workerScreens: THREE.MeshStandardMaterial[] = [];
 
     if (renderedWorkers.length > 0) {
+      // Sub-agent Orbital Ring around the parent Agent node!
+      const orbitRadius = isGlobal ? 4.25 : 2.65;
       const campSurface = new THREE.MeshStandardMaterial({
-        color: mixHex(cssColorHex(visualTheme.panel, dark ? 0x26343d : 0xdbe5e8), accent, agentCityRecipeProfile(visualTheme.recipe).roomAccentMix * 0.55),
+        color: mixHex(accent, 0xffffff, 0.35),
         emissive: accent,
-        emissiveIntensity: 0.08,
-        roughness: 0.68
+        emissiveIntensity: 0.72,
+        roughness: 0.25,
+        transparent: true,
+        opacity: 0.85
       });
-      const camp = mesh(
-        new RoundedBoxGeometry(isGlobal ? 4.35 : 2.05, 0.055, isGlobal ? 2.55 : 1.62, 4, 0.025),
-        campSurface,
-        isGlobal ? -0.85 : -0.82,
-        isGlobal ? 0.285 : 0.13,
-        isGlobal ? 0.35 : 0.06
+      const subOrbitRing = new THREE.Mesh(
+        new THREE.TorusGeometry(orbitRadius, 0.032, 10, 48),
+        campSurface
       );
-      group.add(camp);
+      subOrbitRing.rotation.x = Math.PI / 2;
+      subOrbitRing.position.y = 0.16;
+      group.add(subOrbitRing);
       activityMaterials.push(campSurface);
     }
 
-    // Desk against the right wall, seat side facing -x: the working pug ends up
-    // in profile to the camera, so the paws on the keyboard stay visible.
+    // Holographic Tactical Console in front of the Agent
     const workstation = createWorkstation(accent, visualTheme);
-    workstation.group.position.set(isGlobal ? 2.62 : 1.35, 0, isGlobal ? 0.22 : 0.05);
+    workstation.group.position.set(isGlobal ? 1.15 : 0.68, 0, isGlobal ? 0.15 : 0.05);
     workstation.group.rotation.y = -Math.PI / 2;
     group.add(workstation.group);
     const deskScreen = workstation.screen;
@@ -1490,53 +1685,138 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
 
     const mainPug = createPug(false, null);
     mainPug.seed = pugSeed(floor.agent.id);
-    if (isGlobal) setRigScale(mainPug, 1.08);
+    if (isGlobal) setRigScale(mainPug, 1.12);
     group.add(mainPug.root);
     attachMomoAsset(mainPug);
     const pugs = [mainPug];
+    // Keep idle residents grounded inside their own workstation pod (small step
+    // between desk and side lounge) instead of floating across the plaza.
     if (isGlobal) {
-      mainPug.ambientTarget = new THREE.Vector3(0, 0.14, 2.75);
+      mainPug.ambientTarget = new THREE.Vector3(-0.32, 0.14, 0.36);
     } else if (floor.floorIndex === 0) {
-      const meetupWorldX = floor.position.x < 0 ? -3.2 : 3.2;
-      const meetupWorldZ = 3.8 + (Number(floor.buildingIndex) % 2) * 0.75;
-      mainPug.ambientTarget = new THREE.Vector3(
-        meetupWorldX - floor.position.x,
-        0.1,
-        meetupWorldZ - floor.position.z
-      );
+      mainPug.ambientTarget = new THREE.Vector3(-0.18, 0.1, 0.24);
     }
 
     const seatPosition = isGlobal
-      ? new THREE.Vector3(1.82, 0.14, 0.22)
-      : new THREE.Vector3(0.74, 0.1, 0.05);
-    const loungePosition = isGlobal ? new THREE.Vector3(-2.05, 0.14, 0.9) : new THREE.Vector3(-0.78, 0.1, 0.46);
+      ? new THREE.Vector3(0.25, 0.14, 0.15)
+      : new THREE.Vector3(0.05, 0.1, 0.05);
+    const loungePosition = isGlobal ? new THREE.Vector3(-0.35, 0.14, 0.35) : new THREE.Vector3(-0.15, 0.1, 0.18);
 
-    const workerColumns = isGlobal ? 5 : 3;
-    const workerSpacingX = isGlobal ? 0.7 : 0.5;
-    const workerSpacingZ = isGlobal ? 0.62 : 0.43;
-    const workerCenterX = isGlobal ? -0.9 : -0.82;
-    const workerCenterZ = isGlobal ? -0.28 : -0.58;
+    // Sub-agents deploy on an outer orbital ring around the parent Agent node
+    // with direct radiant neural link beams connecting parent -> sub-agent!
+    const orbitRadius = isGlobal ? 4.25 : 2.65;
+    const innerRadius = isGlobal ? 1.4 : 0.9;
+    const workerPackets: WorkerPacket[] = [];
+    const workerAnchors: { id: string; role: string; anchor: THREE.Object3D }[] = [];
     renderedWorkers.forEach((subagent, index) => {
-      const row = Math.floor(index / workerColumns);
-      const column = index % workerColumns;
-      const rowCount = Math.min(workerColumns, renderedWorkers.length - row * workerColumns);
-      const x = workerCenterX + (column - (rowCount - 1) / 2) * workerSpacingX;
-      const z = workerCenterZ + row * workerSpacingZ;
+      const count = Math.max(1, renderedWorkers.length);
+      const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
+      const x = Math.cos(angle) * orbitRadius;
+      const z = Math.sin(angle) * orbitRadius;
       const assistant = createPug(true, subagent.name);
       assistant.seed = pugSeed(`${floor.agent.id}:${subagent.id}`);
-      setRigScale(assistant, isGlobal ? 0.47 : 0.39);
+      setRigScale(assistant, isGlobal ? 0.52 : 0.44);
       assistant.spawnEpochMs = performance.timeOrigin + performance.now();
-      assistant.portalPosition = new THREE.Vector3(0, isGlobal ? 0.22 : 0.1, isGlobal ? 2.05 : 1.12);
-      setRigHome(assistant, new THREE.Vector3(x, isGlobal ? 0.22 : 0.1, z + 0.08), 0.08);
+      // Temporary Workers enter through the room portal at the parent core and deploy outward into orbit
+      assistant.portalPosition = new THREE.Vector3(0, isGlobal ? 0.22 : 0.12, 0);
+      setRigHome(assistant, new THREE.Vector3(x, isGlobal ? 0.22 : 0.12, z), -angle + Math.PI / 2);
       group.add(assistant.root);
       attachMomoAsset(assistant);
       pugs.push(assistant);
 
       const station = createWorkerStation(accent, subagent.name, visualTheme);
-      station.group.position.set(x, isGlobal ? 0.14 : 0.03, z - (isGlobal ? 0.27 : 0.21));
+      station.group.position.set(x, isGlobal ? 0.12 : 0.04, z);
+      station.group.rotation.y = -angle;
       group.add(station.group);
       workerScreens.push(station.screen);
+
+      // Anchor above each satellite for crisp 3D-projected DOM satellite tags
+      const satAnchor = new THREE.Object3D();
+      satAnchor.position.set(x, isGlobal ? 1.25 : 1.05, z);
+      group.add(satAnchor);
+      workerAnchors.push({ id: subagent.id, role: subagent.name, anchor: satAnchor });
+
+      // Radiant Neural Link Tether connecting Parent Pod -> Sub-agent Satellite
+      const tetherLength = orbitRadius - innerRadius;
+      const tetherMidRadius = (orbitRadius + innerRadius) * 0.5;
+      const tetherBeam = mesh(
+        new THREE.BoxGeometry(0.045, 0.028, Math.max(0.4, tetherLength)),
+        station.screen,
+        Math.cos(angle) * tetherMidRadius,
+        0.18,
+        Math.sin(angle) * tetherMidRadius
+      );
+      tetherBeam.rotation.y = Math.atan2(Math.cos(angle), Math.sin(angle));
+      group.add(tetherBeam);
+
+      // Flowing Energy Packet Capsule along the Parent <-> Sub-agent Tether
+      const packetMesh = mesh(
+        new THREE.SphereGeometry(0.095, 10, 8),
+        station.screen,
+        Math.cos(angle) * tetherMidRadius,
+        0.22,
+        Math.sin(angle) * tetherMidRadius
+      );
+      packetMesh.castShadow = false;
+      group.add(packetMesh);
+      workerPackets.push({
+        mesh: packetMesh,
+        angle,
+        innerRadius,
+        outerRadius: orbitRadius,
+        seed: index * 0.27
+      });
     });
+
+    // Vertical Holographic Projection Cone & Floating Tactical Gyroscope above the Pod
+    const holoBeamMaterial = new THREE.MeshStandardMaterial({
+      color: accent,
+      emissive: accent,
+      emissiveIntensity: 0.95,
+      roughness: 0.2,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false
+    });
+    const holoBeam = mesh(
+      new THREE.ConeGeometry(isGlobal ? 1.55 : 1.05, isGlobal ? 1.95 : 1.45, 24, 1, true),
+      holoBeamMaterial,
+      0,
+      isGlobal ? 1.15 : 0.88,
+      0
+    );
+    holoBeam.rotation.x = Math.PI;
+    holoBeam.castShadow = false;
+    holoBeam.receiveShadow = false;
+    holoBeam.visible = false;
+    group.add(holoBeam);
+
+    const holoCore = mesh(
+      new THREE.OctahedronGeometry(isGlobal ? 0.22 : 0.15, 0),
+      statusMaterial,
+      0,
+      isGlobal ? 1.68 : 1.32,
+      0
+    );
+    holoCore.castShadow = false;
+    group.add(holoCore);
+
+    const holoRing1 = new THREE.Mesh(
+      new THREE.TorusGeometry(isGlobal ? 1.35 : 0.92, 0.018, 8, 48),
+      statusMaterial
+    );
+    holoRing1.rotation.x = Math.PI / 2;
+    holoRing1.position.y = isGlobal ? 0.42 : 0.34;
+    group.add(holoRing1);
+
+    const holoRing2 = new THREE.Mesh(
+      new THREE.TorusGeometry(isGlobal ? 0.65 : 0.46, 0.016, 8, 36),
+      statusMaterial
+    );
+    holoRing2.rotation.x = Math.PI / 3;
+    holoRing2.position.y = isGlobal ? 1.68 : 1.32;
+    group.add(holoRing2);
+    const holoRings = [holoRing1, holoRing2];
 
     let overflowStudio: THREE.Object3D | null = null;
     if (floor.subagents.instances.length > SUBAGENT_RENDER_LIMIT) {
@@ -1597,6 +1877,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       roomMaterials,
       activityMaterials,
       workerScreens,
+      workerPackets,
+      workerAnchors,
+      holoBeam,
+      holoBeamMaterial,
+      holoCore,
+      holoRings,
       celebration,
       proceduralShell,
       proceduralDecor,
@@ -1660,6 +1946,10 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     if (node.perimeter) node.perimeter.group.visible = floor.animation === "working";
     if (node.beacon) node.beacon.visible = floor.state === "error";
     if (node.celebration) node.celebration.visible = floor.state === "completed";
+    node.holoBeam.visible = floor.state === "working" || floor.state === "error" || floor.state === "completed";
+    node.holoBeamMaterial.color.setHex(statusColor);
+    node.holoBeamMaterial.emissive.setHex(statusColor);
+    node.holoCore.visible = floor.state !== "disabled";
     const roomAccent =
       floor.state === "working" ? node.deskAccent :
       floor.state === "completed" ? themedStatusColor("completed", visualTheme) :
@@ -1881,6 +2171,81 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     return { x: (projected.x * 0.5 + 0.5) * width, y: (-projected.y * 0.5 + 0.5) * height };
   }
 
+  let lastHudSnapshot = "";
+
+  function publishHudCoords(force = false): void {
+    if (!options.onHudUpdate || width <= 1 || height <= 1) return;
+    camera.updateMatrixWorld();
+    const anchors: Record<string, { x: number; y: number; visible: boolean; depth: number }> = {};
+    const satellites: Record<string, AgentCitySatelliteHudCoord[]> = {};
+    let snapshot = "";
+    for (const [key, node] of floorNodes) {
+      const projected = node.anchor.getWorldPosition(anchorWorldPosition).project(camera);
+      const visible =
+        projected.z >= -1 &&
+        projected.z <= 1 &&
+        projected.x >= -1.08 &&
+        projected.x <= 1.08 &&
+        projected.y >= -1.08 &&
+        projected.y <= 1.08;
+      const x = Math.round((projected.x * 0.5 + 0.5) * width * 2) / 2;
+      const y = Math.round((-projected.y * 0.5 + 0.5) * height * 2) / 2;
+      const depth = Math.round(projected.z * 1000) / 1000;
+      anchors[key] = { x, y, visible, depth };
+      snapshot += `${key}:${x},${y},${visible ? 1 : 0};`;
+      if (node.workerAnchors.length > 0) {
+        const list: AgentCitySatelliteHudCoord[] = [];
+        node.workerAnchors.forEach((sat, index) => {
+          const rig = node.pugs[index + 1];
+          const satProj = sat.anchor.getWorldPosition(anchorWorldPosition).project(camera);
+          const satVisible =
+            satProj.z >= -1 &&
+            satProj.z <= 1 &&
+            satProj.x >= -1.08 &&
+            satProj.x <= 1.08 &&
+            satProj.y >= -1.08 &&
+            satProj.y <= 1.08 &&
+            (rig ? rig.root.visible : true);
+          const rawStatus = rig?.status;
+          const satStatus: "working" | "completed" | "error" =
+            rawStatus === "completed" ? "completed" : rawStatus === "error" ? "error" : "working";
+          const sx = Math.round((satProj.x * 0.5 + 0.5) * width * 2) / 2;
+          const sy = Math.round((-satProj.y * 0.5 + 0.5) * height * 2) / 2;
+          list.push({
+            id: sat.id,
+            role: sat.role,
+            status: satStatus,
+            x: sx,
+            y: sy,
+            visible: satVisible
+          });
+          snapshot += `s:${sat.id}:${sx},${sy},${satVisible ? 1 : 0},${satStatus};`;
+        });
+        satellites[key] = list;
+      }
+    }
+    const ownerPos = anchorWorldPosition.set(
+      projection.owner.position.x,
+      projection.owner.position.y + 1.65,
+      projection.owner.position.z
+    ).project(camera);
+    const ownerVisible = ownerPos.z >= -1 && ownerPos.z <= 1;
+    const ox = Math.round((ownerPos.x * 0.5 + 0.5) * width * 2) / 2;
+    const oy = Math.round((-ownerPos.y * 0.5 + 0.5) * height * 2) / 2;
+    snapshot += `o:${ox},${oy},${ownerVisible ? 1 : 0}`;
+    if (!force && snapshot === lastHudSnapshot) return;
+    lastHudSnapshot = snapshot;
+    options.onHudUpdate({
+      anchors,
+      satellites,
+      owner: {
+        x: ox,
+        y: oy,
+        visible: ownerVisible
+      }
+    });
+  }
+
   function updateCamera(): void {
     camera.aspect = Math.max(0.4, width / Math.max(1, height));
     camera.updateProjectionMatrix();
@@ -1943,25 +2308,25 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           }
         }
 
-        // Idle ground-floor residents periodically leave their Studio for a
-        // shared plaza meetup. Two deterministic meetup points make Agents
-        // visibly cross rooms and briefly socialize without inventing task data.
+        // Idle ground-floor residents stay grounded at their own pod instead of
+        // floating off-platform: occasionally turn slightly toward their coffee
+        // spot for a brief break, then return to their workstation (no shared plaza meetup drift).
         let ambientClip: PugClip | null = null;
         if (!rig.isWorker && rig.status === "idle" && rig.ambientTarget && !reducedMotion) {
-          const cycle = 36_000;
-          const phase = (timeMs + (rig.seed % 12) * 2300) % cycle;
+          const cycle = 44_000;
+          const phase = (timeMs + (rig.seed % 12) * 3100) % cycle;
           const targetDelta = rig.ambientTarget.clone().sub(rig.homePosition);
-          if (phase < 4000) {
-            const p = phase / 4000;
+          if (phase < 3000) {
+            const p = phase / 3000;
             rig.travelOffset.copy(targetDelta).multiplyScalar(p * p * (3 - 2 * p));
-            ambientClip = "pace";
-          } else if (phase < 8000) {
+            ambientClip = "coffee";
+          } else if (phase < 11_000) {
             rig.travelOffset.copy(targetDelta);
-            ambientClip = phase < 6100 ? "lookAround" : "greet";
-          } else if (phase < 12_000) {
-            const p = (phase - 8000) / 4000;
+            ambientClip = phase < 7000 ? "reading" : "coffee";
+          } else if (phase < 14_000) {
+            const p = (phase - 11_000) / 3000;
             rig.travelOffset.copy(targetDelta).multiplyScalar(1 - p * p * (3 - 2 * p));
-            ambientClip = "pace";
+            ambientClip = "lookAround";
           }
         }
         if (rig.spawnEpochMs !== null) {
@@ -1979,6 +2344,12 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
           motion.clip = lifecycleClip ?? ambientClip ?? motion.clip;
           motion.pose = pugPose(motion.clip, timeMs / 1000, rig.seed);
         }
+        // Keep GLTF residents seated cleanly at their workstation: replace
+        // chaotic rolling or lateral pacing with purposeful reading/coffee clips.
+        if (rig.asset && !rig.oneShot && (motion.clip === "roll" || motion.clip === "pace")) {
+          motion.clip = rig.seed % 2 === 0 ? "reading" : "coffee";
+          motion.pose = pugPose(motion.clip, timeMs / 1000, rig.seed);
+        }
         // While greeting, the pug turns to look straight at the viewer.
         const greeting = motion.oneShot && rig.oneShot?.clip === "greet";
         rig.faceCamera += ((greeting ? 1 : 0) - rig.faceCamera) * 0.18;
@@ -1992,8 +2363,11 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
         }
 
         if (rig.asset) {
-          applyRigTravel(rig, motion.pose, yaw);
-          applyPugProp(rig, motion.pose, showProps);
+          // GLTF clips animate in-place; zero out procedural lateral travel so
+          // the character never slides across the floor like it is floating.
+          const groundedPose = { ...motion.pose, travelX: 0, travelZ: 0, travelYaw: 0 };
+          applyRigTravel(rig, groundedPose, yaw);
+          applyPugProp(rig, groundedPose, showProps);
           playMomoAnimation(rig.asset, momoAnimationName(motion.clip), reducedMotion ? 0 : 0.16);
           if (rig.asset.currentAction) rig.asset.currentAction.paused = reducedMotion;
           if (reducedMotion && rig.asset.currentAction) rig.asset.currentAction.time = 0.28;
@@ -2075,6 +2449,39 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
             surface.emissiveIntensity = steadyCloseUp ? 0.62 : 0.62 + Math.sin(time * 0.004 + rig.seed) * 0.09;
           }
         });
+        node.workerPackets.forEach((packet, index) => {
+          const rig = node.pugs[index + 1];
+          if (!rig || !rig.root.visible) {
+            packet.mesh.visible = false;
+            return;
+          }
+          packet.mesh.visible = true;
+          const returning = rig.status === "completed";
+          const speed = rig.status === "error" ? 0.00045 : 0.00075;
+          const rawProgress = ((time * speed + packet.seed) % 1 + 1) % 1;
+          const t = returning ? 1 - rawProgress : rawProgress;
+          const radius = packet.innerRadius + (packet.outerRadius - packet.innerRadius) * t;
+          packet.mesh.position.set(
+            Math.cos(packet.angle) * radius,
+            0.2 + Math.sin(t * Math.PI) * 0.14,
+            Math.sin(packet.angle) * radius
+          );
+        });
+        const spinSpeed = node.status === "working" ? 0.0024 : node.status === "error" ? 0.0036 : 0.00055;
+        node.holoCore.rotation.y = time * spinSpeed + node.glowPhase;
+        node.holoCore.rotation.x = Math.sin(time * 0.0015 + node.glowPhase) * 0.35;
+        if (node.holoRings[0]) {
+          node.holoRings[0].rotation.z = time * spinSpeed * 0.8 + node.glowPhase;
+        }
+        if (node.holoRings[1]) {
+          node.holoRings[1].rotation.y = -time * spinSpeed * 1.3 + node.glowPhase;
+          node.holoRings[1].rotation.z = Math.sin(time * 0.002 + node.glowPhase) * 0.4;
+        }
+        if (node.holoBeam.visible) {
+          node.holoBeamMaterial.opacity = steadyCloseUp
+            ? 0.12
+            : 0.13 + Math.sin(time * 0.003 + node.glowPhase) * 0.04;
+        }
         const route = node.route;
         if (route && route.group.visible) {
           const direction = route.phase === "returning" ? -1 : 1;
@@ -2121,6 +2528,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
     }
 
     renderer.render(scene, camera);
+    publishHudCoords();
     const sampleTarget = quality === "full" ? 180 : 90;
     if (frameSamples.length < sampleTarget) {
       if (delta > 0) frameSamples.push(delta);
@@ -2180,6 +2588,7 @@ export function createAgentCityScene(options: AgentCitySceneOptions): AgentCityS
       renderer.setSize(width, height, false);
       updateCamera();
       renderer.render(scene, camera);
+      publishHudCoords(true);
     },
     setVisible(nextVisible) {
       if (visible === nextVisible) return;

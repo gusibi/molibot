@@ -20,7 +20,8 @@ export type HomeNotificationType =
   | "task-failed"
   | "action-required"
   | "plan-completed"
-  | "cross-channel";
+  | "cross-channel"
+  | "follow-up";
 
 export type HomeNotificationStatus = "unread" | "read" | "resolved";
 export type HomeNotificationStatusFilter = "all" | "unread" | "read";

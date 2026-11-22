@@ -15,7 +15,8 @@ const VALID_NOTIFICATION_TYPES = new Set<HomeNotificationType>([
   "task-failed",
   "action-required",
   "plan-completed",
-  "cross-channel"
+  "cross-channel",
+  "follow-up"
 ]);
 
 function parseStatusFilter(value: unknown): HomeNotificationStatusFilter {

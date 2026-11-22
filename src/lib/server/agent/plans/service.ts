@@ -1,9 +1,11 @@
 import { DurableExecutionCoordinator, projectDurableExecution } from "$lib/server/agent/durable/coordinator.js";
+import { deriveFollowUpLifecycle } from "$lib/server/agent/durable/followUpStore.js";
 import { getDurableExecutionStore, type DurableExecutionStore } from "$lib/server/agent/durable/store.js";
 import {
   DurableExecutionConflictError,
   DurableExecutionNotFoundError,
   PlanDeletedError,
+  type CreateFollowUpTaskInput,
   type CreateKanbanTaskInput,
   type CreatePlanInput,
   type DurableExecution,
@@ -199,6 +201,7 @@ export class PlanService {
   /** Desktop detail bundle: task config, plan-level detail, receipt/checklist/input/handoff projections. */
   getKanbanBundle(ownerId: string, executionId: string) {
     const { task, detail } = this.getKanbanTask(ownerId, executionId);
+    const followUpConfig = task.mode === "follow_up" ? this.store.followUp.getFollowUp(executionId) : null;
     return {
       task,
       detail,
@@ -207,8 +210,35 @@ export class PlanService {
       inputs: this.store.kanban.listInputs(executionId, false),
       handoffs: this.store.kanban.listHandoffs(executionId),
       attempts: this.store.listAttemptActivities(executionId),
-      memberSessions: this.store.kanban.listMemberSessions(executionId)
+      memberSessions: this.store.kanban.listMemberSessions(executionId),
+      ...(followUpConfig ? {
+        followUp: {
+          config: followUpConfig,
+          lifecycle: deriveFollowUpLifecycle(detail.execution.status, task.closeReason),
+          decisions: this.store.followUp.listDecisions(executionId),
+          deliveries: this.store.followUp.listDeliveries(executionId),
+          latestObservations: Array.from(this.store.followUp.getLatestObservationsMap(executionId).values())
+        }
+      } : {})
     };
+  }
+
+  createFollowUpTask(input: CreateFollowUpTaskInput) {
+    const result = this.store.followUp.createFollowUp(input);
+    return {
+      created: result.created,
+      bundle: this.getKanbanBundle(input.ownerId, result.task.executionId)
+    };
+  }
+
+  snoozeFollowUpTask(input: { ownerId: string; executionId: string; expectedVersion: number; until: Date }) {
+    this.store.followUp.snoozeFollowUp(input);
+    return this.getKanbanBundle(input.ownerId, input.executionId);
+  }
+
+  completeFollowUpTask(input: { ownerId: string; executionId: string; expectedVersion: number }) {
+    this.store.followUp.completeFollowUp(input);
+    return this.getKanbanBundle(input.ownerId, input.executionId);
   }
 
   startKanbanTask(input: { ownerId: string; executionId: string; expectedVersion: number; actionId: string }): PlanDetail {
@@ -332,10 +362,13 @@ export class PlanService {
             : task.members.some(member => member.agentId === filter.executorAgentId);
           if (!involved) continue;
         }
+        const followUpCfg = task.mode === "follow_up" ? this.store.followUp.getFollowUp(summary.executionId) : null;
         items.push({
           ...base,
           kind: "kanban",
           form: task.form,
+          ...(task.mode ? { mode: task.mode } : {}),
+          ...(followUpCfg?.nextCheckAt ? { nextCheckAt: followUpCfg.nextCheckAt } : {}),
           executorLabel: executorLabelOf(task),
           ...(task.currentAgentId ? { currentAgentId: task.currentAgentId } : {}),
           ...(checklist ? { checklist } : {}),

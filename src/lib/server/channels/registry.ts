@@ -27,7 +27,11 @@ export interface ChannelManager {
   abortProjectTaskRun?(runId: string, reason?: string): { aborted: boolean };
   runDurableAttempt?(event: ChannelInboundMessage, hooks?: DurableAttemptHooks): Promise<DurableAttemptResult>;
   readDurableRunDetail?(input: { chatId: string; runId: string; sessionId?: string; projectId?: string }): RunDetailEntry[];
-  sendInternalNotice?(chatId: string, text: string, metadata: { kind: string; filename: string }): Promise<void>;
+  sendInternalNotice?(
+    chatId: string,
+    text: string,
+    metadata: { kind: string; filename: string; deliveryKey?: string; expiresAt?: number }
+  ): Promise<void>;
   sendMemoryReviewItem?(chatId: string, item: MemoryReviewItem): Promise<{ messageId: string } | null>;
   runIdleCompactionSweep?(nowMs?: number): Promise<{ scanned: number; compacted: number }>;
 }

@@ -350,12 +350,29 @@ export interface DesktopTraceResponse {
 
 export type DesktopAgentActivityStatus = "idle" | "working" | "completed" | "error";
 
+export type DesktopAgentActionKind = "tool_call" | "model_call" | "skill_usage" | "subagent_task" | "approval";
+
+export type DesktopAgentActionStatus = "working" | "waiting" | "completed" | "error" | "blocked";
+
+export interface DesktopAgentActionStepItem {
+  id: string;
+  kind: DesktopAgentActionKind;
+  name: string;
+  status: DesktopAgentActionStatus;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  totalTokens?: number;
+  provider?: string;
+}
+
 export interface DesktopSubagentActivityItem {
   id: string;
   name: string;
   status: Exclude<DesktopAgentActivityStatus, "idle">;
   startedAt: string;
   finishedAt: string;
+  durationMs?: number;
 }
 
 export interface DesktopAgentActivityRunItem {
@@ -368,6 +385,13 @@ export interface DesktopAgentActivityRunItem {
   startedAt: string;
   finishedAt: string;
   subagents: DesktopSubagentActivityItem[];
+  currentAction?: DesktopAgentActionStepItem | null;
+  steps?: DesktopAgentActionStepItem[];
+  toolCallCount?: number;
+  modelCallCount?: number;
+  skillCount?: number;
+  totalTokens?: number;
+  activeModel?: string;
 }
 
 export interface DesktopAgentActivityItem {
@@ -382,6 +406,13 @@ export interface DesktopAgentActivityItem {
   startedAt: string;
   finishedAt: string;
   subagents: DesktopSubagentActivityItem[];
+  currentAction?: DesktopAgentActionStepItem | null;
+  steps?: DesktopAgentActionStepItem[];
+  toolCallCount?: number;
+  modelCallCount?: number;
+  skillCount?: number;
+  totalTokens?: number;
+  activeModel?: string;
   /** Newest first; includes concurrent active runs and recent terminal runs. */
   runs: DesktopAgentActivityRunItem[];
 }
@@ -623,7 +654,8 @@ export type DesktopHomeNotificationType =
   | "task-failed"
   | "action-required"
   | "plan-completed"
-  | "cross-channel";
+  | "cross-channel"
+  | "follow-up";
 
 export interface DesktopHomeNotification {
   id: string;
@@ -1274,6 +1306,8 @@ export interface DesktopKanbanBoardItem {
   goal: string;
   projectId?: string;
   form?: "single" | "team";
+  mode?: "execute" | "follow_up";
+  nextCheckAt?: string;
   executorLabel?: string;
   currentAgentId?: string;
   waitingReason?: string;
@@ -1329,6 +1363,8 @@ export interface DesktopKanbanTaskBundle {
   task: {
     executionId: string;
     form: "single" | "team";
+    mode?: "execute" | "follow_up";
+    closeReason?: string;
     title: string;
     goal: string;
     coordinatorAgentId?: string;
@@ -1360,6 +1396,48 @@ export interface DesktopKanbanTaskBundle {
   attempts: Array<{ attemptId: string; runId: string; round: number | null; text: string; activities: DesktopConversationActivity[]; updatedAt: string }>;
   /** Member child sessions (team tasks): read-only views nested under the main conversation. */
   memberSessions: Array<{ agentId: string; sessionId: string }>;
+  /** Present when task.mode === "follow_up": delegation config, lifecycle, observations, decisions, and delivery ledger. */
+  followUp?: {
+    config: {
+      executionId: string;
+      authorizationRevision: number;
+      authorizedAt: string;
+      timezone: string;
+      checkIntervalMs: number;
+      nextCheckAt?: string;
+      expiresAt: string;
+      missingEvidencePolicy: "wait" | "ask_at_check" | "notify_unavailable";
+      sources: Array<
+        | { kind: "project_file"; relativePath: string }
+        | { kind: "plan"; planId: string }
+        | { kind: "execution"; executionId: string }
+      >;
+    };
+    lifecycle: "active" | "paused" | "completed" | "cancelled" | "expired";
+    decisions: Array<{
+      id: string;
+      triggerSlot: string;
+      decision: "silent" | "notify" | "analysis_failed";
+      reasonCode: string;
+      notifyText?: string;
+      createdAt: string;
+    }>;
+    deliveries: Array<{
+      id: string;
+      deliveryKey: string;
+      status: "reserved" | "sending" | "sent" | "unknown" | "failed" | "cancelled";
+      notifyText: string;
+      createdAt: string;
+    }>;
+    latestObservations: Array<{
+      id: string;
+      kind: "project_file" | "plan" | "execution";
+      sourceKey: string;
+      status: "available" | "unchanged" | "unavailable" | "revoked";
+      errorCode?: string;
+      readAt: string;
+    }>;
+  };
 }
 
 export interface DesktopKanbanCreateRequest {
@@ -1450,6 +1528,8 @@ export type DesktopPlanActionRequest =
   | { action: "kanban_steer"; ownerId?: string; planId: string; text: string }
   | { action: "kanban_budget"; ownerId?: string; planId: string; expectedVersion: number; addTokens: number }
   | { action: "kanban_conditions"; ownerId?: string; planId: string; expectedVersion: number; conditions: string[] }
+  | { action: "follow_up_snooze"; ownerId?: string; planId: string; expectedVersion: number; until: string }
+  | { action: "follow_up_complete"; ownerId?: string; planId: string; expectedVersion: number }
   | {
       action: "revise";
       ownerId?: string;

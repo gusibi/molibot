@@ -2264,7 +2264,7 @@
                           {@html renderMarkdown(m.content)}
                         </div>
                       {:else}
-                        <div class="max-w-3xl whitespace-pre-wrap break-words text-[15px] leading-[25px]">{m.content}</div>
+                        <div class="max-w-3xl whitespace-pre-wrap break-words text-[14px] leading-[23px]">{m.content}</div>
                       {/if}
                     </div>
                   </article>

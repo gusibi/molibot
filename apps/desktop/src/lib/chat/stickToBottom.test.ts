@@ -217,3 +217,40 @@ test("stickToBottom accumulates sub-pixel steps during live streaming so integer
     action.destroy?.();
   }
 });
+
+
+test("tool content replacement clamps scrollTop without releasing bottom follow", () => {
+  const node = new MockNode();
+  const events: boolean[] = [];
+  node.addEventListener(SCROLL_PINNED_EVENT, event => events.push((event as CustomEvent).detail.pinned));
+  const action = stickToBottom(node as unknown as HTMLElement, { key: "tools", live: true });
+  try {
+    // A running tool's tall output is replaced by a compact completed row.
+    node.scrollHeight = 850;
+    node.scrollTop = 250;
+    node.dispatchEvent(new Event("scroll"));
+    // The next tool grows the DOM before the queued browser scroll event arrives.
+    node.scrollHeight = 1300;
+    node.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(events, [], "layout changes must not be mistaken for reader intent");
+    // A real upward move still gives control to the reader.
+    node.scrollTop = 150;
+    node.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(events, [false]);
+  } finally { action.destroy?.(); }
+});
+
+
+test("touch scrolling interrupts follow even while tool layout changes", () => {
+  const node = new MockNode();
+  const events: boolean[] = [];
+  node.addEventListener(SCROLL_PINNED_EVENT, event => events.push((event as CustomEvent).detail.pinned));
+  const action = stickToBottom(node as unknown as HTMLElement, { key: "tools", live: true });
+  try {
+    node.dispatchEvent(new Event("touchmove"));
+    node.scrollHeight = 1300;
+    node.scrollTop = 300;
+    node.dispatchEvent(new Event("scroll"));
+    assert.deepEqual(events, [false]);
+  } finally { action.destroy?.(); }
+});

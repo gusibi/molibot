@@ -4,6 +4,9 @@ import { botAgentId } from "$lib/server/sessions/executionIdentity.js";
 import type { DesktopModelOutcomes } from "$lib/shared/desktop";
 import type { TraceFactRecord } from "$lib/server/agent/hooks/traceStore.js";
 import type {
+  DesktopAgentActionKind,
+  DesktopAgentActionStatus,
+  DesktopAgentActionStepItem,
   DesktopAgentActivityItem,
   DesktopAgentActivityRunItem,
   DesktopMemoryExtractionTrigger,
@@ -395,6 +398,50 @@ const TERMINAL_ACTIVITY_WINDOW_MS = 10_000;
 const ACTIVE_ACTIVITY_STALE_MS = 12 * 60_000;
 const RECENT_ACTIVITY_HISTORY_MS = 24 * 60 * 60_000;
 const RECENT_ACTIVITY_HISTORY_LIMIT = 8;
+const ACTION_STEP_LIMIT = 12;
+
+const ACTION_FACT_TYPES = new Set<DesktopAgentActionKind>([
+  "tool_call",
+  "model_call",
+  "skill_usage",
+  "subagent_task",
+  "approval"
+]);
+
+function mapActionStatus(status: TraceFactRecord["status"]): DesktopAgentActionStatus {
+  if (status === "waiting") return "waiting";
+  if (status === "started") return "working";
+  if (status === "blocked") return "blocked";
+  if (status === "error" || status === "aborted") return "error";
+  return "completed";
+}
+
+function actionStepName(fact: TraceFactRecord): string {
+  if (fact.factType === "model_call") {
+    return (fact.model || fact.name || fact.provider || "model").trim();
+  }
+  return (fact.name || fact.factType).trim();
+}
+
+function selectCurrentAction(steps: DesktopAgentActionStepItem[]): DesktopAgentActionStepItem | null {
+  if (steps.length === 0) return null;
+  const activePriority: Record<DesktopAgentActionKind, number> = {
+    approval: 5,
+    tool_call: 4,
+    subagent_task: 3,
+    skill_usage: 2,
+    model_call: 1
+  };
+  const activeSteps = steps.filter((step) => step.status === "working" || step.status === "waiting");
+  if (activeSteps.length > 0) {
+    return [...activeSteps].sort((left, right) => {
+      const priorityDelta = activePriority[right.kind] - activePriority[left.kind];
+      if (priorityDelta !== 0) return priorityDelta;
+      return Date.parse(right.startedAt) - Date.parse(left.startedAt);
+    })[0] ?? null;
+  }
+  return steps[steps.length - 1] ?? null;
+}
 
 export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: TraceFactRecord[], sessions: Pick<SessionStore, "getConversationProjectId">, nowMs = Date.now()): DesktopAgentActivityItem[] {
   const botDetails = new Map<string, { agentId?: string; name: string }>();
@@ -405,22 +452,68 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
   }
 
   const subagentsByRun = new Map<string, DesktopSubagentActivityItem[]>();
+  const stepsByRun = new Map<string, DesktopAgentActionStepItem[]>();
+  const statsByRun = new Map<string, { toolCallCount: number; modelCallCount: number; skillCount: number; totalTokens: number; activeModel: string }>();
   for (const candidate of facts) {
-    if (candidate.factType !== "subagent_task" || !candidate.runId) continue;
-    const terminal = candidate.status !== "started" && candidate.status !== "waiting";
-    const finishedAt = candidate.finishedAt ?? candidate.updatedAt;
-    const item: DesktopSubagentActivityItem = {
-      id: candidate.factId,
-      name: candidate.name || "subagent",
-      status: candidate.status === "started" || candidate.status === "waiting"
-        ? "working"
-        : candidate.status === "success" ? "completed" : "error",
-      startedAt: candidate.startedAt ?? candidate.createdAt,
-      finishedAt: terminal ? finishedAt : ""
+    if (!candidate.runId) continue;
+    const stats = statsByRun.get(candidate.runId) ?? {
+      toolCallCount: 0,
+      modelCallCount: 0,
+      skillCount: 0,
+      totalTokens: 0,
+      activeModel: ""
     };
-    const existing = subagentsByRun.get(candidate.runId) ?? [];
-    existing.push(item);
-    subagentsByRun.set(candidate.runId, existing);
+    if (candidate.factType === "tool_call") stats.toolCallCount += 1;
+    if (candidate.factType === "model_call") {
+      stats.modelCallCount += 1;
+      stats.totalTokens += candidate.totalTokens ?? 0;
+      const modelName = (candidate.model || candidate.name || "").trim();
+      if (modelName) stats.activeModel = modelName;
+    }
+    if (candidate.factType === "skill_usage") stats.skillCount += 1;
+    statsByRun.set(candidate.runId, stats);
+
+    if (candidate.factType === "subagent_task") {
+      const terminal = candidate.status !== "started" && candidate.status !== "waiting";
+      const finishedAt = candidate.finishedAt ?? candidate.updatedAt;
+      const item: DesktopSubagentActivityItem = {
+        id: candidate.factId,
+        name: candidate.name || "subagent",
+        status: candidate.status === "started" || candidate.status === "waiting"
+          ? "working"
+          : candidate.status === "success" ? "completed" : "error",
+        startedAt: candidate.startedAt ?? candidate.createdAt,
+        finishedAt: terminal ? finishedAt : "",
+        durationMs: typeof candidate.durationMs === "number" && Number.isFinite(candidate.durationMs)
+          ? Math.max(0, Math.round(candidate.durationMs))
+          : 0
+      };
+      const existing = subagentsByRun.get(candidate.runId) ?? [];
+      existing.push(item);
+      subagentsByRun.set(candidate.runId, existing);
+    }
+    if (ACTION_FACT_TYPES.has(candidate.factType as DesktopAgentActionKind)) {
+      const kind = candidate.factType as DesktopAgentActionKind;
+      const terminal = candidate.status !== "started" && candidate.status !== "waiting";
+      const startedAt = candidate.startedAt ?? candidate.createdAt;
+      const finishedAt = terminal ? (candidate.finishedAt ?? candidate.updatedAt) : "";
+      const step: DesktopAgentActionStepItem = {
+        id: candidate.factId || candidate.id,
+        kind,
+        name: actionStepName(candidate),
+        status: mapActionStatus(candidate.status),
+        startedAt,
+        finishedAt,
+        durationMs: typeof candidate.durationMs === "number" && Number.isFinite(candidate.durationMs)
+          ? Math.max(0, Math.round(candidate.durationMs))
+          : 0,
+        ...(typeof candidate.totalTokens === "number" && candidate.totalTokens > 0 ? { totalTokens: candidate.totalTokens } : {}),
+        ...(candidate.provider ? { provider: candidate.provider } : {})
+      };
+      const existingSteps = stepsByRun.get(candidate.runId) ?? [];
+      existingSteps.push(step);
+      stepsByRun.set(candidate.runId, existingSteps);
+    }
   }
 
   const latestUpdateByRun = new Map<string, number>();
@@ -450,6 +543,12 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
     if (!terminal && nowMs - referenceAt > ACTIVE_ACTIVITY_STALE_MS) continue;
     if (terminal && nowMs - referenceAt > RECENT_ACTIVITY_HISTORY_MS) continue;
 
+    const orderedSteps = (stepsByRun.get(fact.runId) ?? [])
+      .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+      .slice(-ACTION_STEP_LIMIT);
+    const currentAction = selectCurrentAction(orderedSteps);
+    const runStats = statsByRun.get(fact.runId);
+
     const run: DesktopAgentActivityRunItem = {
       status: fact.status === "started" || fact.status === "waiting" ? "working" : fact.status === "success" ? "completed" : "error",
       runId: fact.runId,
@@ -459,7 +558,14 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
       taskPreview: typeof fact.payload.taskPreview === "string" ? fact.payload.taskPreview : "",
       startedAt: fact.startedAt ?? fact.createdAt,
       finishedAt: terminal ? finishedAt : "",
-      subagents: (subagentsByRun.get(fact.runId) ?? []).sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+      subagents: (subagentsByRun.get(fact.runId) ?? []).sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)),
+      currentAction,
+      steps: orderedSteps,
+      toolCallCount: runStats?.toolCallCount ?? 0,
+      modelCallCount: runStats?.modelCallCount ?? 0,
+      skillCount: runStats?.skillCount ?? 0,
+      totalTokens: runStats?.totalTokens ?? 0,
+      activeModel: runStats?.activeModel ?? ""
     };
     const existing = runsByAgent.get(agentId) ?? [];
     if (!existing.some((item) => item.runId === run.runId)) existing.push(run);
@@ -486,6 +592,13 @@ export function buildDesktopAgentActivity(settings: RuntimeSettings, facts: Trac
         startedAt: "",
         finishedAt: "",
         subagents: [],
+        currentAction: null,
+        steps: [],
+        toolCallCount: 0,
+        modelCallCount: 0,
+        skillCount: 0,
+        totalTokens: 0,
+        activeModel: "",
         runs
       });
       continue;

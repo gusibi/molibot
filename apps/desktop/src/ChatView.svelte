@@ -598,28 +598,34 @@
     }
   }
 
+  const pendingNotificationReadIds = new Set<string>();
+
   async function markSessionNotificationRead(
     sessionId?: string,
   ): Promise<void> {
     const endpoint = connectedEndpoint;
     if (!endpoint || !connectionReady || !sessionId) return;
+    const generation = connectionGeneration;
     const matchedIds = unreadNotifications
       .filter(
         (item) =>
           item.type === "session-completed" &&
           item.status === "unread" &&
+          !pendingNotificationReadIds.has(item.id) &&
           resolveSessionCompletedTarget(item).sessionId === sessionId,
       )
       .map((item) => item.id);
     if (matchedIds.length === 0) return;
-    unreadNotifications = unreadNotifications.filter(
-      (item) => !matchedIds.includes(item.id),
-    );
+    matchedIds.forEach(id => pendingNotificationReadIds.add(id));
     try {
       await markDesktopNotificationsRead(endpoint, matchedIds);
-      void refreshUnreadNotifications(true);
+      if (endpoint === connectedEndpoint && generation === connectionGeneration) {
+        unreadNotifications = unreadNotifications.filter(item => !matchedIds.includes(item.id));
+      }
     } catch {
-      void refreshUnreadNotifications(true);
+      // Keep unread on failure; the next scheduled refresh retries the write.
+    } finally {
+      matchedIds.forEach(id => pendingNotificationReadIds.delete(id));
     }
   }
 
@@ -859,6 +865,7 @@
 
   function onHandoverVisibilityChange(): void {
     if (document.hidden && isDefaultAgentHome) void acknowledgeHandover();
+    if (!document.hidden) void refreshUnreadNotifications(true);
   }
 
   function onHandoverPageHide(): void {
@@ -2079,6 +2086,16 @@
     }
   }
   $: observeNotificationRefresh(connectionReady, sending, statusDots);
+  $: visibleNotificationSessionId = !settingsVisible && workspacePane === "chat" &&
+    !agentFilesActive && !agentHistoryActive && !agentNotificationsActive && !roomPaneActive
+      ? projectPaneActive ? activeProjectSessionId
+        : viewMode === "external" ? activeExternalSessionId : !draftMode ? activeSessionId : ""
+      : "";
+  $: if (connectionReady && visibleNotificationSessionId && !document.hidden &&
+    unreadNotifications.some(item => item.type === "session-completed" &&
+      resolveSessionCompletedTarget(item).sessionId === visibleNotificationSessionId)) {
+    void markSessionNotificationRead(visibleNotificationSessionId);
+  }
   // Handover watches the same draft state the home renders from. Keep this
   // after the `draftMode`/`selectedAgentId` derivations so one update cycle is
   // enough to load on open and acknowledge on leave.

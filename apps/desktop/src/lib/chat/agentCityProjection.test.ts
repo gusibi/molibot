@@ -231,3 +231,33 @@ test("agentCityFloors lists the headquarters alongside every occupied floor", ()
   assert.equal(keys.length, 5);
   assert.equal(new Set(keys).size, keys.length);
 });
+
+test("projectAgentCity projects currentAction and execution steps onto active floors", () => {
+  const active = activity("agent-1", "working");
+  active.currentAction = {
+    id: "step-2",
+    kind: "tool_call",
+    name: "bash",
+    status: "working",
+    startedAt: "2026-07-14T12:00:02.000Z",
+    finishedAt: "",
+    durationMs: 0
+  };
+  active.steps = [
+    {
+      id: "step-1",
+      kind: "model_call",
+      name: "claude-3-7-sonnet",
+      status: "completed",
+      startedAt: "2026-07-14T12:00:00.000Z",
+      finishedAt: "2026-07-14T12:00:01.000Z",
+      durationMs: 1000
+    },
+    active.currentAction
+  ];
+  const projection = projectAgentCity({ agents: [agent("agent-1")], activities: [active], slots: {} });
+  const floor = projection.buildings[0]?.floors[0];
+  assert.equal(floor?.currentAction?.kind, "tool_call");
+  assert.equal(floor?.currentAction?.name, "bash");
+  assert.equal(floor?.steps?.length, 2);
+});

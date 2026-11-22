@@ -250,6 +250,62 @@ export const POST: RequestHandler = async ({ request }) => {
         if (descriptions.length === 0) throw new Error("At least one completion condition is required.");
         return json({ ok: true, item: plans.setKanbanCompletionConditions({ ownerId: owner, executionId: String(body.planId), expectedVersion: Number(body.expectedVersion), descriptions }) }, { headers: { "Cache-Control": "no-store" } });
       }
+      case "follow_up_create": {
+        const raw = body as Record<string, unknown>;
+        const projectId = raw.projectId ? String(raw.projectId).trim() : "";
+        const project = projectId ? getProjectStore().get(projectId) : null;
+        if (projectId && !project) throw new Error("Unknown project.");
+        const workDir = String(raw.workDir ?? project?.rootPath ?? "").trim() || undefined;
+        const expiresAt = new Date(String(raw.expiresAt ?? ""));
+        if (!Number.isFinite(expiresAt.getTime())) throw new Error("Valid expiresAt is required.");
+        const checkIntervalMs = Number(raw.checkIntervalMs ?? 3_600_000);
+        const nextCheckAt = raw.nextCheckAt ? new Date(String(raw.nextCheckAt)) : new Date(Date.now() + checkIntervalMs);
+        if (!Number.isFinite(nextCheckAt.getTime())) throw new Error("Invalid nextCheckAt.");
+        const result = plans.createFollowUpTask({
+          ownerId: owner,
+          botId: String(raw.botId ?? "default").trim() || "default",
+          agentId: String(raw.agentId ?? "default").trim() || "default",
+          title: String(raw.title ?? "").trim(),
+          goal: String(raw.goal ?? "").trim(),
+          ...(projectId ? { projectId } : {}),
+          ...(workDir ? { workDir } : {}),
+          sources: Array.isArray(raw.sources) ? raw.sources : [],
+          ...(Array.isArray(raw.completionConditions) ? { completionConditions: raw.completionConditions } : {}),
+          ...(Array.isArray(raw.allowedHelp) ? { allowedHelp: raw.allowedHelp.map(String) } : {}),
+          ...(raw.missingEvidencePolicy === "wait" || raw.missingEvidencePolicy === "ask_at_check" || raw.missingEvidencePolicy === "notify_unavailable"
+            ? { missingEvidencePolicy: raw.missingEvidencePolicy }
+            : {}),
+          timezone: String(raw.timezone ?? "UTC").trim() || "UTC",
+          checkIntervalMs,
+          nextCheckAt,
+          ...(Array.isArray(raw.fixedCheckins) ? { fixedCheckins: raw.fixedCheckins.map(String) } : {}),
+          expiresAt,
+          notifyTarget: (raw.notifyTarget && typeof raw.notifyTarget === "object"
+            ? raw.notifyTarget
+            : { kind: "desktop" }) as import("$lib/server/agent/durable/types.js").FollowUpNotifyTarget,
+          ...(raw.requestId ? { requestId: String(raw.requestId).trim() } : {})
+        });
+        return json({ ok: true, created: result.created, bundle: result.bundle }, { headers: { "Cache-Control": "no-store" } });
+      }
+      case "follow_up_snooze": {
+        const until = new Date(String(body.until ?? ""));
+        if (!Number.isFinite(until.getTime())) throw new Error("Valid until timestamp is required.");
+        const bundle = plans.snoozeFollowUpTask({
+          ownerId: owner,
+          executionId: String(body.planId),
+          expectedVersion: Number(body.expectedVersion),
+          until
+        });
+        return json({ ok: true, bundle }, { headers: { "Cache-Control": "no-store" } });
+      }
+      case "follow_up_complete": {
+        const bundle = plans.completeFollowUpTask({
+          ownerId: owner,
+          executionId: String(body.planId),
+          expectedVersion: Number(body.expectedVersion)
+        });
+        return json({ ok: true, bundle }, { headers: { "Cache-Control": "no-store" } });
+      }
       case "propose": {
         const detail = plans.read(owner, String(body.planId));
         if (detail.execution.version !== body.expectedVersion) throw new Error("Plan version conflict. Reload before generating a revision.");

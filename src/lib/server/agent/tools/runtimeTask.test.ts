@@ -57,36 +57,6 @@ test("runtimeTask provides create, list, get, update, and delete for one-shot re
   }
 });
 
-test("runtimeTask stores an unscheduled todo without turning it into an event trigger", async () => {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runtime-todo-"));
-  try {
-    const tool = makeTool(workspaceDir);
-    const created = resultJson(await tool.execute("create-todo", {
-      action: "create",
-      type: "todo",
-      text: "Buy milk"
-    }));
-    const task = created.task as { taskId: string; type: string; text: string; at?: string; schedule?: string };
-    assert.equal(task.type, "todo");
-    assert.equal(task.text, "Buy milk");
-    assert.equal(task.at, undefined);
-    assert.equal(task.schedule, undefined);
-
-    const persisted = readOnlyEvent(workspaceDir);
-    assert.equal(persisted.type, "todo");
-    assert.equal("at" in persisted, false);
-    assert.equal("schedule" in persisted, false);
-
-    await assert.rejects(() => tool.execute("schedule-todo", {
-      action: "update",
-      taskId: task.taskId,
-      patch: { at: "2999-01-02T09:00:00+08:00" }
-    }), /do not accept schedule/);
-  } finally {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
-});
-
 test("runtimeTask excludes immediate execution events and Molibot-managed system tasks", async () => {
   const workspaceDir = mkdtempSync(join(tmpdir(), "molibot-runtime-task-boundary-"));
   const eventsDir = join(workspaceDir, "events");
@@ -226,11 +196,6 @@ test("runtimeTask rejects reminders and non-project invariants inside a project 
       type: "one-shot",
       at: "2999-01-01T09:00:00+08:00",
       text: "Remind me"
-    }), /only support periodic automations/);
-    await assert.rejects(() => tool.execute("todo", {
-      action: "create",
-      type: "todo",
-      text: "Buy milk"
     }), /only support periodic automations/);
     await assert.rejects(() => tool.execute("text-delivery", {
       action: "create",

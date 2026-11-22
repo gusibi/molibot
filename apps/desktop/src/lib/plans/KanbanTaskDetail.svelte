@@ -38,8 +38,10 @@
     onApproval: (approvalId: string, status: "approved" | "rejected") => void;
     onDecide: (decisionId: string, answer: string) => void;
     onConditions: (descriptions: string[]) => void;
+    onFollowUpSnooze?: () => void;
+    onFollowUpComplete?: () => void;
   }
-  let { bundle, loading, error, busy, copy, formatTime, onBack, onOpenSession, onOpenMemberSession, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval, onDecide, onConditions }: Props = $props();
+  let { bundle, loading, error, busy, copy, formatTime, onBack, onOpenSession, onOpenMemberSession, onStart, onPause, onCancel, onComplete, onAnswer, onAddBudget, onApproval, onDecide, onConditions, onFollowUpSnooze, onFollowUpComplete }: Props = $props();
 
   let answerText = $state("");
   let conditionsEditing = $state(false);
@@ -317,6 +319,51 @@
           {/each}
         </ul>
         <p class="plans-task-desc">{copy.kanbanMemberSessionsHint}</p>
+      </section>
+    {/if}
+
+    {#if bundle.task.mode === "follow_up" && bundle.followUp}
+      <section class="plans-card">
+        <div class="plans-progress-heading">
+          <h3 class="plans-section-title">{copy.kanbanFollowUpTitle}</h3>
+          <span class="kanban-card-tag" data-mode="follow_up">{bundle.followUp.lifecycle}</span>
+        </div>
+        <p class="plans-task-desc">
+          {copy.kanbanFollowUpNextCheck}: {bundle.followUp.config.nextCheckAt ? formatTime(bundle.followUp.config.nextCheckAt) : copy.kanbanFollowUpUnscheduled}
+          · {copy.kanbanFollowUpExpiresAt}: {formatTime(bundle.followUp.config.expiresAt)}
+        </p>
+        {#if bundle.followUp.latestObservations.length > 0}
+          <h4 class="plans-section-title">{copy.kanbanFollowUpSources}</h4>
+          <ul class="kanban-checklist">
+            {#each bundle.followUp.latestObservations as obs (obs.id)}
+              <li class="kanban-checklist-item">
+                <span>{obs.kind}: {obs.sourceKey}</span>
+                <span class="plans-count">{obs.status}{obs.errorCode ? ` (${obs.errorCode})` : ""}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if bundle.followUp.deliveries.length > 0}
+          <h4 class="plans-section-title">{copy.kanbanFollowUpDeliveries}</h4>
+          <ul class="kanban-checklist">
+            {#each bundle.followUp.deliveries.slice(-5) as del (del.id)}
+              <li class="kanban-checklist-item">
+                <span>{del.notifyText}</span>
+                <span class="plans-count">{del.status}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if bundle.followUp.lifecycle === "active"}
+          <div class="plans-detail-actions">
+            {#if onFollowUpSnooze}
+              <Button variant="secondary" disabled={busy} onclick={onFollowUpSnooze}>{copy.kanbanFollowUpSnooze1h}</Button>
+            {/if}
+            {#if onFollowUpComplete}
+              <Button variant="primary" disabled={busy} onclick={onFollowUpComplete}>{copy.kanbanFollowUpComplete}</Button>
+            {/if}
+          </div>
+        {/if}
       </section>
     {/if}
 

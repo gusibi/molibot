@@ -86,7 +86,7 @@ let open = $state(false);
   let pollError = $state("");
   let pollGeneration = 0;
 
-  const sourceKey = $derived(`${endpoint}:${profileId}:${sessionId}:${projectId}`);
+  const sourceKey = $derived(`${endpoint}:${profileId}:${sessionId}:${projectId}:${external}`);
   let polledSourceKey = $state("");
   const currentUsage = $derived(polledSourceKey === sourceKey ? polledUsage ?? usage : usage);
   const currentSessionUsage = $derived(polledSourceKey === sourceKey ? polledSessionUsage ?? sessionUsage : sessionUsage);
@@ -224,9 +224,8 @@ let open = $state(false);
     const interval = sending ? 1_000 : 3_000;
     let timer: number | undefined;
     let stopped = false;
-    polledUsage = null;
-    polledSessionUsage = null;
-    polledMessages = [];
+    // Keep the last snapshot while refreshing this source; sourceKey gates
+    // data from other conversations without tearing down the current map.
     pollError = "";
 
     const poll = async () => {

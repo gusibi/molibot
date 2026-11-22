@@ -29,6 +29,7 @@ import { BaseChannelRuntime } from "$lib/server/channels/shared/baseRuntime.js";
 import { imageContentFromSavedAttachment, rebuildImageContentsFromAttachments } from "$lib/server/channels/shared/attachmentImageContents.js";
 import { sendVoiceWithFallback } from "$lib/server/channels/shared/audio.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
+import { SqliteOutbox, type OutboxErrorDisposition, type OutboxReceipt } from "$lib/server/channels/shared/outbox.js";
 import type { ParsedRelativeReminder, StatusSession } from "$lib/server/channels/telegram/types.js";
 import { TELEGRAM_MENU_COMMANDS, TELEGRAM_SHARED_COMMANDS } from "$lib/server/channels/telegram/commands.js";
 import { isChineseLocale } from "$lib/server/agent/commands/i18n.js";
@@ -53,6 +54,22 @@ interface TelegramCommandTarget {
   messageThreadId?: number;
 }
 
+interface TelegramOutboxPayload {
+  chatId: string;
+  text: string;
+  kind?: string;
+  filename?: string;
+}
+
+export function classifyTelegramOutboxError(error: unknown): OutboxErrorDisposition {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/Telegram bot is not running/i.test(message)) return "permanent";
+  if (/\b(400|401|403|404)\b|Unauthorized|Forbidden|bot was blocked|chat not found|Bad Request|user is deactivated/i.test(message)) {
+    return "permanent";
+  }
+  return "retryable";
+}
+
 // Orchestrates Telegram-specific command flow, event handling, and runner lifecycle.
 // Leaf concerns like queueing and text formatting live in sibling files.
 export class TelegramManager extends BaseChannelRuntime {
@@ -63,6 +80,7 @@ export class TelegramManager extends BaseChannelRuntime {
   private readonly commandService: SharedRuntimeCommandService<TelegramCommandTarget>;
   private readonly interactionService: SharedInteractionService<TelegramCommandTarget>;
   private readonly inboundTasks: InboundTaskCoordinator<ChannelInboundMessage, TelegramCommandTarget>;
+  private readonly outbox: SqliteOutbox<TelegramOutboxPayload, { messageId: number }>;
   private readonly memoryReview: MemoryCandidateReview;
   private bot: Bot | undefined;
   private currentToken = "";
@@ -148,6 +166,8 @@ export class TelegramManager extends BaseChannelRuntime {
       workspaceDir?: string;
       instanceId?: string;
       queueDbFile?: string;
+      outboxDbFile?: string;
+      outboxRetryDelayMs?: number;
       memory: MemoryGateway;
       memoryReview: MemoryCandidateReview;
       usageTracker: AiUsageTracker;
@@ -177,6 +197,24 @@ export class TelegramManager extends BaseChannelRuntime {
         await this.processEvent(this.rehydrateQueuedTelegramEvent(payload), this.bot);
       },
       enqueueFrontFromCommand: async (input, text) => this.enqueueSyntheticTelegramTask(input, text, true)
+    });
+    this.outbox = new SqliteOutbox<TelegramOutboxPayload, { messageId: number }>({
+      channel: "telegram",
+      instanceId: this.instanceId,
+      dbFile: options?.outboxDbFile,
+      retryDelayMs: options?.outboxRetryDelayMs,
+      classifyError: (error) => classifyTelegramOutboxError(error),
+      deliver: async (payload) => {
+        if (!this.bot) throw new Error("Telegram bot is not running.");
+        const target = this.parseChatScopeId(payload.chatId);
+        const sent = await sendTelegramText(
+          this.bot,
+          target.chatId,
+          payload.text,
+          this.buildTelegramSendOptions(target.messageThreadId)
+        );
+        return { messageId: sent.message_id };
+      }
     });
     this.commandService = this.createSharedCommandService<TelegramCommandTarget>({
       authScopePrefix: "telegram",
@@ -950,6 +988,7 @@ export class TelegramManager extends BaseChannelRuntime {
     this.currentToken = token;
     this.currentAllowedChatIdsKey = allowedChatIdsKey;
     void this.inboundTasks.resumeAll();
+    void this.outbox.resume();
     void this.writePromptPreview(Array.from(allowed));
   }
 
@@ -1149,25 +1188,27 @@ export class TelegramManager extends BaseChannelRuntime {
     return this.handleSyntheticEvent(task, filename);
   }
 
+  getOutboxReceipt(deliveryKey: string): OutboxReceipt<{ messageId: number }> | null {
+    return this.outbox.getReceipt(deliveryKey);
+  }
+
   async sendInternalNotice(
     chatId: string,
     text: string,
-    metadata: { kind: string; filename: string }
+    metadata: { kind: string; filename: string; deliveryKey?: string; expiresAt?: number }
   ): Promise<void> {
     if (!this.bot) throw new Error("Telegram bot is not running.");
-    const target = this.parseChatScopeId(chatId);
-    const sent = await sendTelegramText(
-      this.bot,
-      target.chatId,
-      text,
-      this.buildTelegramSendOptions(target.messageThreadId)
+    const sent = await this.outbox.enqueue(
+      chatId,
+      { chatId, text, kind: metadata.kind, filename: metadata.filename },
+      { deliveryKey: metadata.deliveryKey, expiresAt: metadata.expiresAt }
     );
     momLog("telegram", "internal_notice_sent", {
       botId: this.instanceId,
       chatId,
       kind: metadata.kind,
       filename: metadata.filename,
-      messageId: sent.message_id,
+      messageId: sent.messageId,
       textLength: text.length
     });
   }

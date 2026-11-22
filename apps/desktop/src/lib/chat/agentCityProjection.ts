@@ -1,4 +1,9 @@
-import type { DesktopAgentActivityItem, DesktopAgentItem, DesktopSubagentActivityItem } from "@molibot/desktop-contract";
+import type {
+  DesktopAgentActionStepItem,
+  DesktopAgentActivityItem,
+  DesktopAgentItem,
+  DesktopSubagentActivityItem
+} from "@molibot/desktop-contract";
 
 export const AGENT_CITY_BUILDING_COUNT = 10;
 export const AGENT_CITY_MAX_AGENTS = 100;
@@ -53,6 +58,8 @@ export interface AgentCityFloor {
   animation: AgentCityAnimation;
   route: AgentCityRoute | null;
   subagents: AgentCitySubagents;
+  currentAction?: DesktopAgentActionStepItem | null;
+  steps?: DesktopAgentActionStepItem[];
 }
 
 export interface AgentCityBuilding {
@@ -78,16 +85,16 @@ export interface AgentCityProjectionInput {
   slots: Record<string, number>;
 }
 
-// The community is staged from back to front: regular studios form the
-// neighbourhood, the primary/default Agent owns the central Momo HQ, and the
-// owner dispatch hub sits closest to the camera.
-const OWNER_POSITION: AgentCityPoint = { x: 0, y: 0, z: 8.2 };
-const GLOBAL_POSITION: AgentCityPoint = { x: 0, y: 0, z: 2.4 };
+// The tactical nexus is arranged as a polar command deck: the primary/default
+// Agent commands the central Momo Core, 10 orbital tactical nodes form the
+// surrounding ring, and the user dispatch core anchors the front command bridge.
+const OWNER_POSITION: AgentCityPoint = { x: 0, y: 0, z: 8.6 };
+const GLOBAL_POSITION: AgentCityPoint = { x: 0, y: 0, z: -0.2 };
 
 const COMMUNITY_BUILDING_POSITIONS: ReadonlyArray<readonly [number, number]> = [
-  [-11, -4.8], [-5.6, -6], [5.6, -6], [11, -4.8],
-  [-13, 0.5], [-7.8, 1.8], [7.8, 1.8], [13, 0.5],
-  [-10.5, 6], [10.5, 6]
+  [-9.8, -6.2], [-3.8, -8.2], [3.8, -8.2], [9.8, -6.2],
+  [-12.4, -0.4], [-7.4, 2.2], [7.4, 2.2], [12.4, -0.4],
+  [-9.2, 6.2], [9.2, 6.2]
 ];
 
 function buildingPosition(index: number): AgentCityPoint {
@@ -116,14 +123,17 @@ function routeFor(
 ): AgentCityRoute | null {
   if (!activity) return null;
   const phase: AgentCityRoutePhase = activity.status === "working" ? "outbound" : activity.status === "completed" ? "returning" : "failed";
+  const midX = (OWNER_POSITION.x + position.x) * 0.5;
+  const midZ = (OWNER_POSITION.z + position.z) * 0.5;
+  const arcHeight = Math.max(1.35, position.y * 0.55 + 1.25);
   return {
     phase,
     target: { buildingIndex, floorIndex },
     points: [
-      OWNER_POSITION,
-      { x: position.x, y: 0.05, z: OWNER_POSITION.z },
-      { x: position.x, y: 0.05, z: position.z },
-      { x: position.x, y: position.y, z: position.z }
+      { x: OWNER_POSITION.x, y: 0.35, z: OWNER_POSITION.z },
+      { x: midX * 0.65, y: arcHeight, z: OWNER_POSITION.z * 0.55 + midZ * 0.45 },
+      { x: position.x * 0.85, y: Math.max(0.85, position.y + 0.65), z: position.z * 0.85 + OWNER_POSITION.z * 0.15 },
+      { x: position.x, y: position.y + 0.25, z: position.z }
     ]
   };
 }
@@ -170,7 +180,9 @@ function makeFloor(
     state,
     animation: animationFor(state),
     route: routeFor(activity, buildingIndex, floorIndex, position),
-    subagents: subagentsFor(activity)
+    subagents: subagentsFor(activity),
+    currentAction: activity?.currentAction ?? null,
+    steps: activity?.steps ?? []
   };
 }
 

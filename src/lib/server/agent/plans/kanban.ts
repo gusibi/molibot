@@ -72,6 +72,8 @@ export interface KanbanBoardItem {
   goal: string;
   projectId?: string;
   form?: KanbanTaskConfig["form"];
+  mode?: KanbanTaskConfig["mode"];
+  nextCheckAt?: string;
   /** Human-readable executor summary: agent, or coordinator + member count. */
   executorLabel?: string;
   currentAgentId?: string;

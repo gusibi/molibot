@@ -43,7 +43,7 @@ import {
 } from "$lib/server/channels/feishu/interaction.js";
 import { FeishuStreamingSession } from "$lib/server/channels/feishu/streamingSession.js";
 import { InboundTaskCoordinator } from "$lib/server/channels/shared/inboundCoordinator.js";
-import { SqliteOutbox } from "$lib/server/channels/shared/outbox.js";
+import { SqliteOutbox, type OutboxEnqueueOptions } from "$lib/server/channels/shared/outbox.js";
 import type { MemoryCandidateReview, MemoryReviewAction, MemoryReviewItem } from "$lib/server/memory/review.js";
 
 export interface FeishuConfig {
@@ -591,10 +591,14 @@ export class FeishuManager extends BaseChannelRuntime {
         };
     }
 
-    private async sendText(chatId: string, text: string): Promise<{ message_id: string } | null> {
+    private async sendText(
+        chatId: string,
+        text: string,
+        options?: OutboxEnqueueOptions
+    ): Promise<{ message_id: string } | null> {
         const normalized = String(text ?? "").trim();
         if (!normalized) return null;
-        const result = await this.outbox.enqueue(chatId, { chatId, text: normalized });
+        const result = await this.outbox.enqueue(chatId, { chatId, text: normalized }, options);
         return result.messageId ? { message_id: result.messageId } : null;
     }
 
@@ -1454,10 +1458,13 @@ export class FeishuManager extends BaseChannelRuntime {
     async sendInternalNotice(
         chatId: string,
         text: string,
-        metadata: { kind: string; filename: string }
+        metadata: { kind: string; filename: string; deliveryKey?: string; expiresAt?: number }
     ): Promise<void> {
         if (!this.client) throw new Error("Feishu bot is not running.");
-        const sent = await this.sendText(chatId, text);
+        const sent = await this.sendText(chatId, text, {
+            deliveryKey: metadata.deliveryKey,
+            expiresAt: metadata.expiresAt
+        });
         momLog("feishu", "internal_notice_sent", {
             botId: this.instanceId,
             chatId,

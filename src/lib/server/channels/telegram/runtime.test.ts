@@ -18,6 +18,8 @@ function createMockDeps() {
     instanceId: "test-bot",
     workspaceDir,
     queueDbFile: join(workspaceDir, "inbound-queue.sqlite"),
+    outboxDbFile: join(workspaceDir, "outbox.sqlite"),
+    outboxRetryDelayMs: 10,
     memory: {} as any,
     memoryReview: { decide: async () => ({ status: "stale" }) } as any,
     usageTracker: {} as any,
@@ -151,4 +153,63 @@ test("telegram sends memory review buttons only to private chats", async () => {
   chatType = "group";
   assert.equal(await manager.sendMemoryReviewItem("chat-2", item), null);
   assert.equal(sends.length, 1);
+});
+
+test("telegram sendInternalNotice routes through shared SqliteOutbox with idempotency, retry, and permanent-error rejection", async () => {
+  const manager = new TestTelegramManager();
+
+  // Offline bot rejects immediately.
+  await assert.rejects(
+    () => manager.sendInternalNotice("chat-1", "Offline notice", { kind: "test", filename: "a.json" }),
+    /Telegram bot is not running/
+  );
+
+  // Transient error retries and succeeds; duplicate deliveryKey does not resend.
+  let attempts = 0;
+  manager.setTestBot({
+    api: {
+      sendMessage: async (_chatId: string, text: string) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("503 Service Unavailable");
+        return { message_id: 100 + attempts, text };
+      }
+    }
+  });
+
+  await manager.sendInternalNotice("chat-1", "Hello notice", {
+    kind: "follow-up",
+    filename: "fu.json",
+    deliveryKey: "tg-notice-1"
+  });
+  assert.equal(attempts, 2);
+  assert.equal(manager.getOutboxReceipt("tg-notice-1")?.status, "sent");
+
+  // Re-sending with the same deliveryKey reuses the receipt without calling Telegram again.
+  await manager.sendInternalNotice("chat-1", "Hello notice", {
+    kind: "follow-up",
+    filename: "fu.json",
+    deliveryKey: "tg-notice-1"
+  });
+  assert.equal(attempts, 2);
+
+  // Permanent 403 error rejects immediately without retrying or hanging.
+  let blockedCalls = 0;
+  manager.setTestBot({
+    api: {
+      sendMessage: async () => {
+        blockedCalls += 1;
+        throw new Error("403 Forbidden: bot was blocked by the user");
+      }
+    }
+  });
+  await assert.rejects(
+    () => manager.sendInternalNotice("chat-1", "Blocked notice", {
+      kind: "follow-up",
+      filename: "fu.json",
+      deliveryKey: "tg-notice-blocked"
+    }),
+    /403 Forbidden/
+  );
+  assert.equal(blockedCalls, 1);
+  assert.equal(manager.getOutboxReceipt("tg-notice-blocked")?.status, "failed");
 });

@@ -336,7 +336,7 @@ test("disabled periodic events never enter the scheduler dispatch loop", async (
   }
 });
 
-test("plain Runtime todos are retained but never enter the event dispatch loop", async () => {
+test("unknown event types such as legacy todo are marked as error and never dispatched", async () => {
   const store = new EventExecutionLeaseStore(":memory:");
   const eventsDir = mkdtempSync(join(tmpdir(), "molibot-events-todo-"));
   const filename = "todo.json";
@@ -354,9 +354,8 @@ test("plain Runtime todos are retained but never enter the event dispatch loop",
     await new Promise((resolve) => setTimeout(resolve, 0));
     const persisted = JSON.parse(readFileSync(join(eventsDir, filename), "utf8")) as MomEvent;
     assert.equal(calls, 0);
-    assert.equal(persisted.type, "todo");
-    assert.ok(persisted.taskId);
-    assert.equal(persisted.delivery, undefined);
+    assert.equal(persisted.status?.state, "error");
+    assert.match(persisted.status?.lastError ?? "", /Unknown event type/);
   } finally {
     watcher.stop();
     rmSync(eventsDir, { recursive: true, force: true });

@@ -86,7 +86,7 @@ test("one global document scale covers every Web renderMarkdown surface", () => 
   const settingsCss = readSource("src/styles/settings-custom.css");
 
   assert.match(appCss, /@import "\.\/styles\/markdown\.css"/);
-  assert.match(docCss, /\.markdown-body \{[^}]*font-size: 15px;[^}]*line-height: 25px;/);
+  assert.match(docCss, /\.markdown-body \{[^}]*font-size: 14px;[^}]*line-height: 23px;/);
   assert.match(docCss, /max-height: 360px/);
   assert.match(docCss, /\.markdown-table-wrap/);
   assert.match(docCss, /\.md-audio-player/);
@@ -118,9 +118,10 @@ test("the Web mirror never drifts from the Desktop --md-* scale", () => {
 
   assert.match(web, new RegExp(`\\.markdown-body \\{[^}]*font-size: ${bodySize};[^}]*line-height: ${bodyLine};`));
   assert.match(web, new RegExp(`\\.markdown-body h1 \\{[^}]*font-size: ${h1Size};[^}]*line-height: ${h1Line};`));
-  // One size/line-height pair, one step above the 14/22 UI text rank.
-  assert.equal(bodySize, "15px");
-  assert.equal(bodyLine, "25px");
+  // One size/line-height pair at the 14px UI text rank, with looser leading
+  // so rendered Markdown still reads as a document rather than UI labels.
+  assert.equal(bodySize, "14px");
+  assert.equal(bodyLine, "23px");
 });
 
 test("every Web audio surface uses the one shared player", () => {
