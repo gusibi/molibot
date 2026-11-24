@@ -5,12 +5,48 @@
 @import "./styles/markdown.css";
 
 @layer base {
+  :root {
+    --duration-instant: 100ms;
+    --duration-fast: 160ms;
+    --duration-normal: 240ms;
+    --duration-panel: 300ms;
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  }
+
   body {
     min-height: 100vh;
   }
 
+  button {
+    transition:
+      background-color var(--duration-instant) var(--ease-standard),
+      border-color var(--duration-instant) var(--ease-standard),
+      color var(--duration-instant) var(--ease-standard),
+      scale var(--duration-instant) var(--ease-standard);
+  }
+
+  button:active:not(:disabled) {
+    scale: 0.98;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--primary) 26%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+
+    button:active:not(:disabled) {
+      scale: 1;
+    }
   }
 }
 

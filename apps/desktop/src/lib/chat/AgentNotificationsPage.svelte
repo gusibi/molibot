@@ -674,8 +674,17 @@
                     executionId={execId}
                     {locale}
                     {stale}
+                    {copy}
                     {onFiles}
                     {onResultFile}
+                    onContinueChat={(sid) => {
+                      void onOpen?.({
+                        sessionId: sid,
+                        channel: payloadText(item, "channel") || undefined,
+                        title: notificationTitle(item, zh),
+                        agentId: item.botId || undefined,
+                      });
+                    }}
                     onClose={() => {
                       expandedId = "";
                     }}

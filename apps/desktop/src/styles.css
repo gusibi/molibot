@@ -580,7 +580,7 @@ body,
 .theme-transition *,
 .theme-transition *::before,
 .theme-transition *::after {
-  transition: background-color 200ms var(--ease-standard), color 200ms var(--ease-standard), border-color 200ms var(--ease-standard) !important;
+  transition: background-color var(--duration-normal) var(--ease-standard), color var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard) !important;
 }
 
 button,
@@ -3337,18 +3337,18 @@ textarea:disabled {
   overflow-x: hidden;
   overflow-y: auto;
   padding: 24px;
-  animation: automation-detail-slide-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: automation-detail-slide-in var(--duration-normal) var(--ease-spring) both;
 }
 
 @keyframes automation-detail-slide-in {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    translate: 12px 0;
   }
 
   to {
     opacity: 1;
-    transform: translateX(0);
+    translate: 0 0;
   }
 }
 
@@ -3697,7 +3697,7 @@ textarea:disabled {
   color: var(--label-tertiary);
   font-size: var(--icon-sm);
   cursor: pointer;
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 
 .chat-action-toast-close:hover {
@@ -7203,11 +7203,12 @@ textarea:disabled {
   height: 2px;
   border-radius: var(--radius-full);
   background: var(--label-secondary);
-  transition: height var(--duration-instant) var(--ease-standard), background var(--duration-instant) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard);
+  transform-origin: center;
+  transition: transform var(--duration-instant) var(--ease-standard), background var(--duration-instant) var(--ease-standard), opacity var(--duration-instant) var(--ease-standard);
 }
 
 .prompt-navigation-marker.active .prompt-navigation-line {
-  height: 3px;
+  transform: scaleY(1.5);
   background: var(--accent);
   opacity: 1;
 }
@@ -8308,7 +8309,7 @@ textarea:disabled {
   width: 100%;
   max-height: 180px;
   object-fit: contain;
-  transition: opacity 140ms ease;
+  transition: opacity var(--duration-fast) var(--ease-standard);
 }
 
 .transcript-image-open:hover img {
@@ -16231,7 +16232,7 @@ pre.run-activity-terminal {
 .decision-model-test-result-trigger>svg {
   flex: none;
   color: var(--label-secondary);
-  transition: transform 160ms ease;
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .decision-model-entry-trigger[aria-expanded="false"]>svg,
@@ -20011,7 +20012,7 @@ select.provider-input {
 }
 
 .connector-config-summary-state>.reicon {
-  transition: transform 140ms ease;
+  transition: transform var(--duration-fast) var(--ease-standard);
 }
 
 .connector-config-panel[open] .connector-config-summary-state>.reicon {
@@ -20858,11 +20859,11 @@ select.provider-input {
   border-radius: var(--rounded-md);
   background: var(--card-bg);
   box-shadow: var(--glass-shadow), var(--glass-inset);
-  animation: modal-in 180ms var(--ease-spring);
+  animation: modal-in var(--duration-normal) var(--ease-spring) both;
 }
 
 .modal-card.closing {
-  animation: modal-out 150ms var(--ease-standard) forwards;
+  animation: modal-out var(--duration-fast) var(--ease-standard) forwards;
 }
 
 /* Both tabs share one fixed viewport: the General form and the Automations
@@ -25131,7 +25132,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   border-radius: var(--rounded-md);
   background: var(--card-bg);
   box-shadow: var(--glass-shadow);
-  animation: modal-in 180ms var(--ease-spring);
+  animation: modal-in var(--duration-normal) var(--ease-spring) both;
 }
 
 .project-dialog h2 {
@@ -25178,11 +25179,11 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   z-index: 140;
   inset: 0;
   background: var(--modal-scrim);
-  animation: backdrop-in 180ms var(--ease-standard);
+  animation: backdrop-in var(--duration-fast) var(--ease-standard) both;
 }
 
 .memory-trace-backdrop.closing {
-  animation: backdrop-out 200ms var(--ease-standard) forwards;
+  animation: backdrop-out var(--duration-fast) var(--ease-standard) forwards;
 }
 
 .memory-trace-drawer {
@@ -25197,7 +25198,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   box-shadow: var(--drawer-shadow);
   outline: none;
   transform: translateX(var(--memory-trace-offset, 0));
-  animation: drawer-in 240ms var(--ease-spring);
+  animation: drawer-in var(--duration-normal) var(--ease-spring) both;
 }
 
 .memory-trace-drawer.dragging,
@@ -25229,7 +25230,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
 }
 
 .memory-trace-backdrop.closing .memory-trace-drawer {
-  animation: drawer-out 200ms var(--ease-standard) forwards;
+  animation: drawer-out var(--duration-fast) var(--ease-standard) forwards;
 }
 
 @keyframes backdrop-in {
@@ -27319,7 +27320,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   border-radius: 5px;
   color: var(--artifact-fg-muted);
   font: 500 11px/16px var(--font-ui);
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--duration-instant) var(--ease-standard), border-color var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
 }
 
 .artifact-panel .code-viewer-toggle:hover,
@@ -28734,6 +28735,41 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   }
 }
 
+@keyframes motion-toast-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+    scale: .98;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+
+.agent-home-feed {
+  animation: motion-content-handoff var(--duration-fast) var(--ease-standard) both;
+}
+
+.agent-home-work-detail,
+.notification-expanded-result {
+  animation: motion-disclosure-in var(--duration-fast) var(--ease-standard) both;
+}
+
+.agent-home-undo-bar {
+  animation: motion-toast-in var(--duration-fast) var(--ease-spring) both;
+}
+
+.agent-home-avatar-action {
+  transition: scale var(--duration-instant) var(--ease-standard);
+}
+
+.agent-home-avatar-action:active:not(:disabled) {
+  scale: .96;
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .ios-switch-track,
@@ -28779,7 +28815,23 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .automation-workspace-layout,
   .status-badge,
   .status-symbol,
-  .motion-success {
+  .motion-success,
+  .modal-card,
+  .modal-card.closing,
+  .project-dialog,
+  .memory-trace-backdrop,
+  .memory-trace-backdrop.closing,
+  .memory-trace-drawer,
+  .session-history-backdrop,
+  .session-history-drawer,
+  .automation-detail-panel,
+  .agent-home-feed,
+  .agent-home-work-detail,
+  .agent-home-undo-bar,
+  .agent-home-live-inline,
+  .agent-home-avatar-action,
+  .notification-expanded-result,
+  .prompt-navigation-line {
     animation: none !important;
     transition: none !important;
     translate: 0 0 !important;
@@ -28818,6 +28870,22 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .settings-card[role="alert"],
   .error-message,
   .miniapps-grid,
+  .modal-card,
+  .modal-card.closing,
+  .project-dialog,
+  .memory-trace-backdrop,
+  .memory-trace-backdrop.closing,
+  .memory-trace-drawer,
+  .session-history-backdrop,
+  .session-history-drawer,
+  .automation-detail-panel,
+  .agent-home-feed,
+  .agent-home-work-detail,
+  .agent-home-undo-bar,
+  .agent-home-live-inline,
+  .agent-home-avatar-action,
+  .notification-expanded-result,
+  .prompt-navigation-line,
   .installed-skills-grid,
   .skills-detail,
   .automation-workspace-layout) {
@@ -28955,7 +29023,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   border: 1px solid var(--hairline);
   border-radius: var(--rounded-md);
   background: var(--card-bg);
-  transition: border-color 140ms ease, background-color 140ms ease;
+  transition: border-color var(--duration-fast) var(--ease-standard), background-color var(--duration-fast) var(--ease-standard);
 }
 
 .room-member-card.room-member-selected {
@@ -29728,6 +29796,54 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   max-width: var(--message-content-width);
   margin: 0 auto;
   padding-top: max(0px, calc(50cqh - 270px));
+}
+
+.agent-home.agent-home--has-feed {
+  padding-top: 28px;
+}
+
+.agent-home-identity--compact {
+  margin-bottom: 20px;
+}
+
+.agent-home-identity--compact .agent-avatar {
+  width: 72px;
+  height: 72px;
+  flex-basis: 72px;
+  border-radius: 50%;
+}
+
+.agent-home-live-inline {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  text-align: left;
+}
+
+button.agent-home-live-inline {
+  cursor: pointer;
+  transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
+}
+
+button.agent-home-live-inline:hover {
+  background: var(--fill-hover);
+  color: var(--text-primary);
+}
+
+button.agent-home-live-inline:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .agent-home-identity {
@@ -33786,15 +33902,20 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 }
 
 .agent-home-recent-links .agent-history-row {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-height: 0;
-  padding: 4px 0;
+  padding: 4px 6px;
   border: 0;
   border-radius: var(--radius-small);
 }
 
 .agent-home-recent-links .agent-history-conversation {
   display: block;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .agent-home-recent-links .agent-history-conversation-copy strong {
@@ -33808,11 +33929,22 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   font-weight: 400;
 }
 
+.agent-home-recent-links .agent-history-row:hover .agent-history-conversation-copy strong {
+  color: var(--text-primary);
+}
+
 .agent-home-recent-links .agent-history-conversation-icon,
 .agent-home-recent-links .agent-history-conversation-copy small,
-.agent-home-recent-links .agent-history-source,
-.agent-home-recent-links time {
+.agent-home-recent-links .agent-history-source {
   display: none;
+}
+
+.agent-home-recent-links time {
+  flex: none;
+  color: var(--label-tertiary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  font-variant-numeric: tabular-nums;
 }
 
 .agent-home-history--inline>.agent-home-section-link {
@@ -33869,9 +34001,93 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   }
 }
 
+.agent-home-feed {
+  width: 100%;
+  min-width: 0;
+  margin-top: 28px;
+}
+
 .agent-home-work {
   width: 100%;
   min-width: 0;
+}
+
+.agent-home-band--action {
+  padding: 16px 18px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-panel);
+  background: var(--surface-secondary);
+}
+
+.agent-home-band--action .agent-home-work-grid {
+  margin-bottom: 0;
+}
+
+.agent-home-band--action .agent-home-work-card:first-child {
+  padding-top: 4px;
+}
+
+.agent-home-band--action .agent-home-work-card:last-child {
+  padding-bottom: 2px;
+}
+
+.agent-home-cmd--visible {
+  margin: 0;
+  max-height: 112px;
+  overflow: auto;
+}
+
+.agent-home-work-summary-line {
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  overflow-wrap: anywhere;
+}
+
+.agent-home-memory-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-home-work-detail-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.agent-home-result-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.agent-home-result-markdown {
+  max-height: 26rem;
+  overflow-y: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.agent-home-undo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-small);
+  background: var(--surface-secondary);
+  color: var(--label-secondary);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
 }
 
 .agent-home-band-head {
@@ -33942,7 +34158,8 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   min-width: 0;
 }
 
-.agent-home-work-title {
+.agent-home-work-title,
+.agent-home-work-title-static {
   color: var(--label-primary);
   text-align: left;
   font-size: var(--fs-body);
@@ -33950,19 +34167,22 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   background: transparent;
   border: 0;
   padding: 0;
+}
+
+button.agent-home-work-title {
   cursor: pointer;
 }
 
-.agent-home-work-title:hover {
+button.agent-home-work-title:hover:not(:disabled) {
   color: var(--accent);
 }
 
-.agent-home-work-title:focus-visible {
+button.agent-home-work-title:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
 
-.agent-home-work-title:disabled {
+button.agent-home-work-title:disabled {
   cursor: default;
   color: var(--label-secondary);
 }
@@ -34577,11 +34797,11 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 }
 
 .session-history-backdrop[data-state="open"] {
-  animation: backdrop-in 180ms var(--ease-standard);
+  animation: backdrop-in var(--duration-fast) var(--ease-standard) both;
 }
 
 .session-history-backdrop[data-state="closed"] {
-  animation: backdrop-out 200ms var(--ease-standard) forwards;
+  animation: backdrop-out var(--duration-fast) var(--ease-standard) forwards;
 }
 
 .session-history-drawer {
@@ -34602,11 +34822,11 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 }
 
 .session-history-drawer[data-state="open"] {
-  animation: drawer-in 240ms var(--ease-spring);
+  animation: drawer-in var(--duration-normal) var(--ease-spring) both;
 }
 
 .session-history-drawer[data-state="closed"] {
-  animation: drawer-out 200ms var(--ease-standard) forwards;
+  animation: drawer-out var(--duration-fast) var(--ease-standard) forwards;
 }
 
 .session-history-list {

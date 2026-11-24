@@ -6641,14 +6641,23 @@ test("Agent home and full history share the conversation row", () => {
 
 test("new conversation centers the real composer above compact suggestions and four recent sessions", () => {
   const home = read("./lib/chat/AgentHome.svelte");
-  assert.match(view, /<AgentHome [\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeDisplaySessions\}/);
+  const inbox = read("./lib/chat/AgentHomeInbox.svelte");
+  const result = read("./lib/chat/HomeTaskResult.svelte");
+  assert.match(view, /<AgentHome\s[\s\S]*?composer=\{conversationComposer\}[\s\S]*?sessions=\{agentHomeDisplaySessions\}/);
   assert.match(view, /sessions=\{agentHomeDisplaySessions\}/);
-  assert.match(view, /agentHomeSessions\.filter\(\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\)[\s\S]*?\.slice\(0, 4\)/);
+  assert.match(view, /agentHomeSessions\s*\.filter\(\s*\(item\) => !handoverSessionIds\.has\(item\.sessionId\)\s*,?\s*\)[\s\S]*?\.slice\(0, 4\)/);
   assert.match(view, /floating=\{!draftMode\}/);
-  const standardHome = home.slice(home.indexOf('{:else}\n  <section class="agent-home"'));
-  assert.ok(standardHome.indexOf("{@render composer()}") < standardHome.indexOf("{@render quickStarts()}"));
-  assert.ok(standardHome.indexOf("{@render quickStarts()}") < standardHome.indexOf("{@render recentConversations(true)}"));
-  assert.doesNotMatch(home, /agent-home-description|agent-home-task-hint/);
+  assert.ok(home.indexOf("{@render composer()}") < home.indexOf("{@render quickStarts()}"));
+  assert.ok(home.indexOf("{@render quickStarts()}") < home.indexOf("{@render recentConversations(!compactHome)}"));
+  assert.ok(home.indexOf("{@render composer()}") < home.indexOf("<AgentHomeInbox"));
+  assert.doesNotMatch(home, /agent-home-description|agent-home-task-hint|agent-home-executions/);
+  assert.doesNotMatch(inbox, /AgentHomeMemory|没有未读|全部已阅/);
+  assert.match(inbox, /agent-home-cmd--visible/);
+  assert.match(inbox, /onOpenMemory/);
+  assert.match(inbox, /undoDismiss/);
+  assert.match(inbox, /接着聊/);
+  assert.match(result, /<ChatMarkdown/);
+  assert.match(result, /onContinueChat/);
   assert.match(view, /class="chat-start-page"[\s\S]*?{:else}\s*<ChatMessagesPane/);
 });
 
