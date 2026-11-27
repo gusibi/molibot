@@ -6,15 +6,6 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await instance.stopService();
   try { await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: 'cross-channel' }); }
   finally { await instance.startService(); }
-  await page.route('**/api/desktop/conversations?*', async route => {
-    const response = await route.fetch();
-    const data = await response.json();
-    if (new URL(route.request().url()).searchParams.get('agentId') === 'default') {
-      const titles = ['Plan the next desktop release', 'Review the reading notes', 'Improve the weekly workflow'];
-      data.items = data.items.map((item: any, i: number) => ({ ...item, title: titles[i % 3], latestMessagePreview: ['Scope, priorities and next steps', 'Sources and key observations', 'A simpler routine for the coming week'][i % 3] }));
-    }
-    await route.fulfill({ response, json: data });
-  });
   await openChat(page);
   const home = page.locator('.agent-home');
   const signal = page.getByTestId('handover-cross-channel');
@@ -36,7 +27,7 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await expect(composer(page)).toBeEnabled();
   await page.getByRole('button', { name: 'Open Momo home', exact: true }).click();
   await expect(signal).toBeVisible();
-  await signal.getByRole('button', { name: 'View history', exact: true }).click();
+  await signal.getByRole('button', { name: 'Open history', exact: true }).click();
   await expect(page.locator('.agent-history-page')).toBeVisible();
   // The read state lives in the notification store: returning and restarting keeps the card read.
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
@@ -66,5 +57,4 @@ test('home cards keep signals, recent navigation and quick starts usable @home-c
   await expect(page.locator('.agent-home')).toBeVisible();
   await expect(signal).toHaveCount(0);
   await expect(composer(page)).toBeEnabled();
-  await page.unrouteAll({ behavior: 'wait' });
 });

@@ -110,7 +110,7 @@ export async function confirmMemoryCandidate(candidate: DesktopMemoryCandidate):
   if (!endpoint || memoryStore.busyAction) return;
   memoryStore.busyAction = candidate.id;
   try {
-    await runDesktopMemoryAction(endpoint, { action: "confirm-candidate", id: candidate.id, content: candidate.value, namespace: candidate.namespace, domain: candidate.domain, type: candidate.type, subject: candidate.subject, confidence: candidate.confidence, reason: candidate.reason });
+    await runDesktopMemoryAction(endpoint, { action: "confirm-candidate", id: candidate.id, expectedUpdatedAt: candidate.updatedAt, content: candidate.value, namespace: candidate.namespace, domain: candidate.domain, type: candidate.type, subject: candidate.subject, confidence: candidate.confidence, reason: candidate.reason });
     memoryStore.candidates = memoryStore.candidates.filter((item) => item.id !== candidate.id);
     memoryStore.candidateEdit = null;
     memoryStore.actionMessage = session.text.memoryCandidateConfirmed;

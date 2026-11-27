@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createModels, createAssistantMessageEventStream, Type, type Api, type AssistantMessage, type Message, type Model, type TranscriptContext } from "@earendil-works/pi-ai";
+import { gunzipSync } from "node:zlib";
+import { createModels, createAssistantMessageEventStream, type Api, type AssistantMessage, type Message, type Model, type TranscriptContext } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { runPiConversation } from "./testSupport/runConversation.js";
 import type { PiToolRegistryOptions } from "./piToolRegistry.js";
 import { DurableExecutionCoordinator } from "./coordinator.js";
@@ -138,7 +140,16 @@ test("service ownership loss aborts in-flight tool work and rejects further disp
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("SIGKILL after deferred admission resumes the same remote handle without resubmission", { timeout: 15000 }, async () => {
+// Pi 1.4.0 on the v2.9.77 source produced these databases using the local mock
+// deferred provider and approval marker below. They contain no external data.
+function copyPi14Fixture(kind: "approval" | "deferred", destination: string) {
+  const fixture = new URL(`./testSupport/fixtures/pi-1.4-${kind}.sqlite.gz`, import.meta.url);
+  writeFileSync(destination, gunzipSync(readFileSync(fixture)));
+}
+
+for (const legacy of [false, true]) test(legacy
+  ? "Pi 1.4 deferred execution resumes on the same remote handle after upgrade"
+  : "SIGKILL after deferred admission resumes the same remote handle without resubmission", { timeout: 15000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-pi-deferred-"));
   const children: ReturnType<typeof fork>[] = [];
   const worker = (mode: string) => {
@@ -151,13 +162,17 @@ test("SIGKILL after deferred admission resumes the same remote handle without re
     return child;
   };
   try {
-    const interrupted = worker("interrupt");
-    const [barrier] = await once(interrupted, "message");
-    assert.equal(barrier.type, "barrier", barrier.error);
-    assert.equal(barrier.handle.id, "remote-job-42");
-    const interruptedExit = once(interrupted, "exit");
-    interrupted.kill("SIGKILL");
-    await interruptedExit;
+    if (legacy) {
+      copyPi14Fixture("deferred", join(directory, "deferred.sqlite"));
+    } else {
+      const interrupted = worker("interrupt");
+      const [barrier] = await once(interrupted, "message");
+      assert.equal(barrier.type, "barrier", barrier.error);
+      assert.equal(barrier.handle.id, "remote-job-42");
+      const interruptedExit = once(interrupted, "exit");
+      interrupted.kill("SIGKILL");
+      await interruptedExit;
+    }
     for (let index = 0; index < 2; index += 1) {
       const resumed = worker("resume");
       const resumedExit = once(resumed, "exit");
@@ -170,8 +185,9 @@ test("SIGKILL after deferred admission resumes the same remote handle without re
       await resumedExit;
     }
     const ledger = readFileSync(join(directory, "provider-ledger.txt"), "utf8").trim().split("\n");
-    assert.equal(ledger.filter(line => line === "submit").length, 1);
-    assert.equal(ledger.filter(line => line === "poll:remote-job-42").length, 2);
+    assert.equal(ledger.filter(line => line === "submit").length, legacy ? 0 : 1);
+    assert.equal(ledger.filter(line => line === "poll:remote-job-42").length, legacy ? 1 : 2);
+    if (legacy) assert.equal(readdirSync(directory).filter(name => name.includes("backup-pi-before-1.6")).length, 1);
   } finally {
     for (const child of children) if (child.exitCode === null && child.signalCode === null) {
       const exited = once(child, "exit");
@@ -292,6 +308,43 @@ test("approval is persisted before execution and the same tool call resumes afte
     assert.equal(completed.status, "completed");
     assert.equal(completed.submissionId, waiting.submissionId);
     assert.equal(sends, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Pi 1.4 pending approval resumes the original submission exactly once after upgrade", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi14-approval-"));
+  try {
+    copyPi14Fixture("approval", join(directory, "execution.sqlite"));
+    const { models, requests } = fixtureModels();
+    let executed = 0;
+    let approved = false;
+    const options = {
+      ...conversationOptions(directory, () => { executed++; }),
+      models,
+      beforeTool: async (call: { id: string }) => {
+        assert.equal(call.id, "send-report");
+        return approved ? { kind: "allow" as const } : { kind: "wait" as const, requestId: "approval-migration" };
+      }
+    };
+    const input = { requestId: "approval-upgrade", text: "Send report" };
+    const waiting = await runPiConversation(options, input);
+    assert.equal(waiting.status, "waiting_for_approval");
+    assert.equal(waiting.approvalRequestId, "approval-migration");
+    assert.ok(waiting.submissionId);
+    assert.equal(requests(), 0);
+    assert.equal(executed, 0);
+    approved = true;
+    for (let reopen = 0; reopen < 2; reopen++) {
+      const completed = await runPiConversation(options, input);
+      assert.equal(completed.status, "completed");
+      assert.equal(completed.submissionId, waiting.submissionId);
+      assert.equal(completed.messages.filter(message => message.role === "toolResult").length, 1);
+    }
+    assert.equal(executed, 1);
+    assert.equal(requests(), 1);
+    assert.equal(readdirSync(directory).filter(name => name.includes("backup-pi-before-1.6")).length, 1);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -687,7 +740,7 @@ test("native live events deliver committed results and reopen from a snapshot wi
   try {
     let executions = 0;
     const options = conversationOptions(directory, () => { executions += 1; });
-    const events: import("@earendil-works/pi-durable").AgentEvent[] = [];
+    const events: import("./piConversationEvents.js").PiConversationEvent[] = [];
     options.onEvent = async event => { events.push(event); };
     const input = { requestId: "request", text: "Send" };
     const first = await runPiConversation(options, input);
@@ -801,7 +854,7 @@ test("resume never creates a new execution when admission is absent", async () =
 
 test("pre-intent output reaches the live observer before preparation settles, with one tool start", { timeout: 10000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "molibot-pi-preparation-progress-"));
-  const events: import("@earendil-works/pi-durable").AgentEvent[] = [];
+  const events: import("./piConversationEvents.js").PiConversationEvent[] = [];
   let release!: () => void;
   const observed = new Promise<void>(resolve => { release = resolve; });
   const options = conversationOptions(directory, () => {});

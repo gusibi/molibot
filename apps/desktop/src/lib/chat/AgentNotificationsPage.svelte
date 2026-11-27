@@ -93,7 +93,7 @@
       item: DesktopHandoverPending,
       mode: "manual" | "accept_edits",
     ) => void;
-    onOpen?: (input: NotificationOpenTarget) => void | Promise<void>;
+    onOpen?: (input: NotificationOpenTarget) => void | boolean | Promise<void | boolean>;
     onHistory?: () => void;
     onPlans: (planId?: string) => void;
     onTasks: () => void;
@@ -583,31 +583,31 @@
                     {#if live.kind === "approval" && live.actionable && live.requestId}
                       <Button
                         variant="primary"
-                        disabled={stale || busyId === live.id}
+                        disabled={stale || Boolean(busyId)}
                         onclick={() => onResolve?.([live], "approve_once")}
                         >{copy.handoverApproveOnce}</Button
                       >
                       <Button
-                        disabled={stale || busyId === live.id}
+                        disabled={stale || Boolean(busyId)}
                         onclick={() => onResolve?.([live], "reject")}
                         >{copy.handoverReject}</Button
                       >
                     {:else if live.kind === "decision"}
                       {#each live.options ?? [] as option (option)}
                         <Button
-                          disabled={stale || busyId === live.id}
+                          disabled={stale || Boolean(busyId)}
                           onclick={() => onAnswer?.(live, option)}
                           >{optionLabel(option)}</Button
                         >
                       {/each}
                     {:else if live.kind === "plan"}
                       <Button
-                        disabled={stale || busyId === live.id}
+                        disabled={stale || Boolean(busyId)}
                         onclick={() => onPlan?.(live, "manual")}
                         >{copy.handoverManualMode}</Button
                       >
                       <Button
-                        disabled={stale || busyId === live.id}
+                        disabled={stale || Boolean(busyId)}
                         onclick={() => onPlan?.(live, "accept_edits")}
                         >{copy.handoverAcceptEditsMode}</Button
                       >

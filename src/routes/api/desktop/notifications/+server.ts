@@ -1,5 +1,7 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "@sveltejs/kit";
+import { getEventExecutionLeaseStore } from "$lib/server/agent/eventsLeaseStore.js";
+import { summarizeFailure } from "$lib/server/app/desktopHandover.js";
 import { getRuntime } from "$lib/server/app/runtime.js";
 import type {
   HomeNotificationListOptions,
@@ -42,6 +44,27 @@ function parseQueryOptions(raw: { status?: unknown; type?: unknown; limit?: unkn
   return { status, ...(type ? { type } : {}), limit };
 }
 
+function listNotifications(runtime: ReturnType<typeof getRuntime>, options: HomeNotificationListOptions) {
+  return runtime.homeNotifications.list(options).map(item => {
+    if (item.type !== "task-result" && item.type !== "task-failed") return item;
+    const payload = { ...item.payload };
+    const executionId = typeof payload.executionId === "string" ? payload.executionId : item.refId;
+    if (executionId && typeof payload.taskId === "string" && !payload.sessionId) {
+      const execution = getEventExecutionLeaseStore().getById(executionId);
+      if (execution?.taskId === payload.taskId && execution.sessionId) {
+        payload.sessionId = execution.sessionId;
+        payload.channel = execution.channel;
+      }
+    }
+    if (item.type === "task-failed" && typeof payload.error === "string") {
+      const summary = summarizeFailure(payload.error);
+      payload.error = summary.detail;
+      payload.detailCode = summary.detailCode;
+    }
+    return { ...item, payload };
+  });
+}
+
 /**
  * The home notification center read/write endpoint. GET returns the requested
  * notification slice (default unread, newest first); POST marks rows read and
@@ -58,7 +81,7 @@ export const GET: RequestHandler = async (event) => {
   });
   const payload: DesktopHomeNotificationsResponse = {
     ok: true,
-    notifications: runtime.homeNotifications.list(options)
+    notifications: listNotifications(runtime, options)
   };
   return json(payload, { headers: { "Cache-Control": "no-store" } });
 };
@@ -78,7 +101,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const options = parseQueryOptions(body);
     const payload: DesktopHomeNotificationsResponse = {
       ok: true,
-      notifications: runtime.homeNotifications.list(options)
+      notifications: listNotifications(runtime, options)
     };
     return json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

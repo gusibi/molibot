@@ -29,7 +29,7 @@ test('header Agent name returns to its home without creating a session @chat @na
   await expect(momoHome).toHaveText('Momo');
   await expect(momoHome).not.toHaveAttribute('data-tauri-drag-region');
   await momoHome.click();
-  await expect(page.locator('.agent-home').getByRole('heading', { name: 'Momo', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Momo', exact: true })).toBeVisible();
   await expect(header.locator('.chat-agent-label')).toHaveCount(0);
 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
@@ -47,7 +47,7 @@ test('header Agent name returns to its home without creating a session @chat @na
   await expect(secondHome).toBeFocused();
   await page.screenshot({ path: testInfo.outputPath('agent-home-link.png') });
   await page.keyboard.press('Enter');
-  await expect(page.locator('.agent-home').getByRole('heading', { name: 'UI Second', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'UI Second', exact: true })).toBeVisible();
   expect(await readdir(directory)).toEqual(recordsBefore);
   await page.getByRole('button', { name: new RegExp(title) }).click();
   await instance.restartService();
@@ -56,6 +56,6 @@ test('header Agent name returns to its home without creating a session @chat @na
   await expect(restoredHome).toBeVisible();
   await restoredHome.focus();
   await page.keyboard.press('Space');
-  await expect(page.locator('.agent-home').getByRole('heading', { name: 'UI Second', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'UI Second', exact: true })).toBeVisible();
   expect(await readdir(directory)).toEqual(recordsBefore);
 });

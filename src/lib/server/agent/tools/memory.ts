@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { MemoryGateway } from "$lib/server/memory/gateway.js";
 import type { MemoryDomain, MemoryScope } from "$lib/server/memory/types.js";

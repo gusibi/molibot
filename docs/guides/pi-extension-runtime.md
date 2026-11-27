@@ -1,8 +1,10 @@
 # Pi 扩展的服务器运行接口
 
-适用版本：仓库锁定的 Pi 1.4.0，设置中选择服务器运行方式。扩展在独立子进程中运行；此接口支持服务器执行。原生 Pi 运行方式使用官方交互式宿主，区别、操作及中断边界见 [Pi 扩展](../features/pi-extensions.md)。
+适用版本：仓库锁定的 Pi 1.6.1，设置中选择服务器运行方式。扩展在独立子进程中运行；此接口支持服务器执行。原生 Pi 运行方式使用官方交互式宿主，区别、操作及中断边界见 [Pi 扩展](../features/pi-extensions.md)。
 
 将扩展放入数据目录的 `extensions/<id>/index.ts`，通过 Pi 的 `registerTool`、`registerCommand` 和事件注册 API 提供入口。工具通过普通 Agent 对话调用；命令通过原会话的 `/命令 参数` 调用。内置命令优先，同一会话忙碌时拒绝新扩展命令。命令会创建原生执行，不需要额外模型请求。
+
+工具参数按 Pi 的 JSON Schema 语义校验。扩展可以继续用 TypeBox 生成 JSON Schema。TypeBox 专有 refinement、自定义格式注册和非 JSON 类型需要改成 JSON Schema 约束，或在工具入口显式校验。
 
 ## 调用归属和失败
 

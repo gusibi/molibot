@@ -61,7 +61,13 @@ test("new and unified motion surfaces are covered by reduced-motion and low-perf
     ".agent-home-feed",
     ".agent-home-work-detail",
     ".agent-home-undo-bar",
-    ".notification-expanded-result",
+    ".momo-stage",
+    ".momo-motion", ".momo-portrait--hop",
+    ".momo-art",
+    ".momo-bubble",
+    ".momo-zzz span",
+    ".agent-home-stamp",
+    ".desk-turn-stamp--arrived",
     ".prompt-navigation-line"
   ];
   const reducedStart = desktopStyles.indexOf("@media (prefers-reduced-motion: reduce) {\n\n  .ios-switch-track,");
@@ -74,4 +80,9 @@ test("new and unified motion surfaces are covered by reduced-motion and low-perf
     assert.ok(lowPerfSlice.includes(selector), `data-performance="low" missing ${selector}`);
   }
   assert.match(webAppCss, /@media \(prefers-reduced-motion: reduce\)/);
+});
+
+test("notification preview enters only through the shared result surface", () => {
+  assert.match(desktopStyles, /\.agent-home-work-detail\s*\{\s*animation: motion-disclosure-in/);
+  assert.doesNotMatch(desktopStyles, /\.notification-expanded-result\s*\{[^}]*animation:/);
 });

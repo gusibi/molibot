@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { JsonValue as ModelJsonValue } from "@earendil-works/pi-ai";
 import type { HostToolResult } from "$lib/server/agent/tools/preparedTool.js";
 

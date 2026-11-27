@@ -17,4 +17,9 @@ export function registerSharedScripts(model: ModelService): void {
       return { type: 'text', text: text.slice(0, 50) || 'UI Session' };
     }
   });
+  model.script({
+    name: 'background:memory-profile',
+    when: request => modelRequestMatchers(request).lastUserText.startsWith('Synthesize the memory records below into a second-person user profile'),
+    reply: { type: 'text', text: 'You prefer clear summaries that preserve the supporting evidence.' },
+  });
 }

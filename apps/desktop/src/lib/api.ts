@@ -1345,8 +1345,8 @@ export async function loadDesktopHandover(endpoint: string): Promise<DesktopHand
  * changes, window hide and unload — never on open, so glancing at the page
  * cannot consume events.
  */
-export async function acknowledgeDesktopHandover(endpoint: string): Promise<void> {
-  await requestJson<DesktopHandoverAckResponse>(endpoint, "/api/desktop/handover/ack", {
+export async function acknowledgeDesktopHandover(endpoint: string): Promise<DesktopHandoverAckResponse> {
+  return requestJson<DesktopHandoverAckResponse>(endpoint, "/api/desktop/handover/ack", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}"

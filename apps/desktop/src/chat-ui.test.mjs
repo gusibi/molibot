@@ -6654,21 +6654,26 @@ test("new conversation centers the real composer above compact suggestions and f
   assert.doesNotMatch(inbox, /AgentHomeMemory|没有未读|全部已阅/);
   assert.match(inbox, /agent-home-cmd--visible/);
   assert.match(inbox, /onOpenMemory/);
-  assert.match(inbox, /undoDismiss/);
+  assert.match(inbox, /inbox\.undo\(item.id\)/);
   assert.match(inbox, /接着聊/);
   assert.match(result, /<ChatMarkdown/);
   assert.match(result, /onContinueChat/);
   assert.match(view, /class="chat-start-page"[\s\S]*?{:else}\s*<ChatMessagesPane/);
 });
 
-test("new conversation identity is centered and Agent settings belong to the window header", () => {
+test("the home is a desk: Momo sits beside a left-aligned greeting, and Agent settings belong to the window header", () => {
   const home = read("./lib/chat/AgentHome.svelte");
-  assert.match(home, /<h1>\{agent.name\}<\/h1>/);
+  assert.match(home, /<h1 class="agent-home-hello">[\s\S]*?\{brief\.hello\}[\s\S]*?<\/h1>/);
   assert.match(home, /agent-home-greeting/);
   assert.doesNotMatch(home, /onSettings|agent-home-settings/);
   assert.match(view, /snippet actions\(\)[\s\S]*?draftMode && selectedAgent[\s\S]*?openAgentSettings\(selectedAgentId\)/);
-  assert.match(styles, /\.agent-home-identity \{[^}]*flex-direction: column;[^}]*align-items: center/);
-  assert.match(styles, /\.agent-home-tasks \{[^}]*justify-content: center/);
+  assert.match(styles, /\.agent-home-identity \{[^}]*flex-direction: column;[^}]*align-items: flex-start/);
+  assert.match(styles, /\.agent-home--has-feed \.agent-home-stage \{[^}]*position: absolute/);
+  assert.match(styles, /\.agent-home-identity--compact \{[^}]*min-height: 72px;[^}]*padding-inline-start: 90px/);
+  assert.match(styles, /\.agent-home \{(?:(?!\bposition:)[^}])*container-name: agent-home;/);
+  assert.match(styles, /\.agent-home \.agent-home-tasks \{[^}]*justify-content: flex-start/);
+  assert.match(styles, /\.agent-home-layout \{[^}]*grid-template-columns: minmax\(180px, 340px\) minmax\(0, 1fr\)/);
+  assert.doesNotMatch(home, /<h1>\{agent.name\}<\/h1>/);
 });
 
 test("Agent avatars share the account logo when missing or unavailable", () => {
@@ -6678,8 +6683,37 @@ test("Agent avatars share the account logo when missing or unavailable", () => {
   assert.match(avatar, /<Avatar.Fallback[^>]*><img src=\{appLogo.src\}/);
   assert.match(avatar, /import \{ appLogo \} from "\.\.\/\.\.\/stores\/appLogo.svelte"/);
   assert.doesNotMatch(avatar, /name.slice/);
-  assert.match(read("./lib/chat/AgentHome.svelte"), /agent.description\?\.trim\(\)/);
-  assert.match(styles, /\.agent-home-identity \.agent-avatar \{[^}]*width: 96px;[^}]*border-radius: 50%/);
+  const home = read("./lib/chat/AgentHome.svelte");
+  assert.match(home, /agent.description\?\.trim\(\)/);
+  // An Agent with its own avatar keeps it, cropped into the stage as before.
+  assert.match(styles, /\.momo-stage--avatar \.agent-avatar \{[^}]*border-radius: 50%/);
+  assert.match(styles, /\.momo-stage--avatar \.agent-avatar-image \{\s*transform: scale\(1\.42\)/);
+  assert.match(home, /expression=\{expressive \? expression : undefined\}/);
+  assert.match(home, /usesMomoExpressions\(agent\.avatar\)/);
+  // A room shares the home but is not Momo.
+  assert.match(read("./lib/chat/RoomWorkspace.svelte"), /<AgentHome expressions=\{false\}/);
+});
+
+test("Momo's face is the Agent's real state, backed by exported artwork and theme tokens", () => {
+  const home = read("./lib/chat/AgentHome.svelte");
+  const stage = read("./lib/chat/MomoStage.svelte");
+  const presence = read("./lib/chat/homePresence.ts");
+  const macos = read("./themes/macos.css");
+  // The expression is derived from run status and what is waiting on the desk; nothing is hardcoded.
+  assert.match(home, /const mood = \$derived\(homeMood\(presence\)\)/);
+  assert.match(home, /momoExpressionFor\(mood\)/);
+  assert.match(home, /live=\{mood === "working"\}/);
+  assert.match(home, /onPresenceChange=\{\(presence\) =>/);
+  assert.match(presence, /export const MOMO_EXPRESSIONS = \[/);
+  assert.match(stage, /momoExpressionSrc\(expression\)/);
+  assert.match(stage, /class="agent-home-avatar-action momo-figure" \{title\} aria-label=\{title\} onclick=\{onclick\}/);
+  // Warmth is a per-family token layer; every family keeps its own surfaces through the base fallbacks.
+  assert.match(baseStyles, /:root \{[^}]*--desk-paper: var\(--card-bg\)/);
+  assert.match(baseStyles, /--desk-lamp: transparent;/);
+  assert.match(macos, /:root\[data-theme-family="macos"\] \{[^}]*--desk-lamp:/);
+  // Atmosphere yields to accessibility settings.
+  assert.match(baseStyles, /html\[data-increased-contrast="true"\] \.agent-home-light,[\s\S]*?background-image: none;/);
+  assert.match(home, /<div class="agent-home-light" aria-hidden="true"><\/div>/);
 });
 
 test("Agent sidebar opens home without loading or rendering conversations", () => {

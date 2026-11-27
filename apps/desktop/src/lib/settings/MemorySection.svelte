@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DesktopMemoryCandidate, DesktopMemoryItem } from "@molibot/desktop-contract";
+  import type { DesktopMemoryCandidate, DesktopMemoryComparison, DesktopMemoryItem } from "@molibot/desktop-contract";
   import ArrowRight from "reicon-svelte/icons/ArrowRight";
   import Bookmark from "reicon-svelte/icons/Bookmark";
   import Box from "reicon-svelte/icons/Box";
@@ -31,7 +31,7 @@
   import Dialog from "../components/ui/Dialog.svelte";
   import type { Translation } from "../i18n";
   import { formatTimestamp } from "../presentation";
-  import { saveDesktopCorePluginSettings } from "../api";
+  import { runDesktopMemoryAction, saveDesktopCorePluginSettings } from "../api";
   import { session, SETTINGS_CHANGED_EVENT, navigateSettings, notifySettingsChanged } from "../stores/session.svelte";
   import {
     memoryStore,
@@ -59,6 +59,45 @@
   let agentCandidatesOpen = $state(false);
   let advancedOpen = $state(false);
   let profileExpanded = $state(false);
+
+  let comparison = $state<DesktopMemoryComparison | null>(null);
+  let comparisonFailed = $state(false);
+  let comparisonRetry = $state(0);
+  const comparisonRequired = $derived(needsComparison(memoryStore.candidateEdit));
+  const comparisonReady = $derived(!comparisonRequired || Boolean(
+    comparison?.originals.length && comparison.originals.every(original => original.available),
+  ));
+
+  function needsComparison(candidate: DesktopMemoryCandidate | null): boolean {
+    return Boolean(candidate?.supersedesMemoryId || candidate?.disputesMemoryId);
+  }
+
+  $effect(() => {
+    const candidate = memoryStore.candidateEdit;
+    const endpoint = session.endpoint;
+    comparisonRetry;
+    comparison = null;
+    comparisonFailed = false;
+    if (!candidate || !endpoint || !needsComparison(candidate)) return;
+    const { id, updatedAt } = candidate;
+    let disposed = false;
+    void runDesktopMemoryAction(endpoint, { action: "compare-candidate", id, expectedUpdatedAt: updatedAt }).then(response => {
+      if (disposed) return;
+      if (response.comparison?.candidateId !== id || response.comparison.candidateUpdatedAt !== updatedAt) {
+        comparisonFailed = true;
+        return;
+      }
+      comparison = response.comparison;
+    }).catch(() => {
+      if (!disposed) comparisonFailed = true;
+    });
+    return () => { disposed = true; };
+  });
+
+  function reviewCandidate(candidate: DesktopMemoryCandidate) {
+    if (needsComparison(candidate)) beginCandidateEdit(candidate);
+    else void confirmMemoryCandidate(candidate);
+  }
 
   const MEMORY_EXTRACTION_MINUTE_PRESETS = [1, 1.5, 2, 3, 5] as const;
 
@@ -255,7 +294,7 @@
                   <span>{session.text.memoryRecordedAt} {formatMemoryDate(candidate.updatedAt, session.locale)}</span>
                 </button>
                 <div>
-                  <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void confirmMemoryCandidate(candidate)}>{candidate.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button>
+                  <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => reviewCandidate(candidate)}>{needsComparison(candidate) ? session.text.memoryReviewQueue : candidate.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button>
                   <button class="secondary-button" type="button" disabled={Boolean(memoryStore.busyAction)} onclick={() => void ignoreMemoryCandidate(candidate)}>{session.text.memoryCandidateInaccurate}</button>
                 </div>
               </article>
@@ -467,9 +506,24 @@
       labelledBy="memory-candidate-edit-title"
       onOpenChange={(next) => { if (!next) memoryStore.candidateEdit = null; }}
     >
-      <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
+      <form class="memory-detail-form" onsubmit={(event) => { event.preventDefault(); if (memoryStore.candidateEdit && comparisonReady) void confirmMemoryCandidate(memoryStore.candidateEdit); }}>
         <header class="entity-editor-head"><div><strong id="memory-candidate-edit-title">{session.text.memoryCandidateEdit}</strong><p>{formatTimestamp(memoryStore.candidateEdit.createdAt, session.locale)}</p></div><button class="modal-close" type="button" aria-label={session.text.dialogClose} onclick={() => (memoryStore.candidateEdit = null)}><X size={16} aria-hidden="true" /></button></header>
         <div class="modal-body settings-form">
+          {#if comparisonRequired}
+            <section class="settings-field settings-field-wide" aria-label={session.text.memoryCandidateComparison}>
+              {#if comparisonFailed}
+                <p role="alert">{session.text.memoryCandidateComparisonFailed}</p>
+                <button type="button" class="secondary-button" onclick={() => comparisonRetry++}>{session.text.retry}</button>
+              {:else if comparison}
+                {#each comparison.originals as original}
+                  <h3>{original.relation === "replaces" ? session.text.memoryCandidateReplaces : session.text.memoryCandidateDisputes}</h3>
+                  <p>{original.available ? original.content : session.text.memoryCandidateOriginalUnavailable}</p>
+                {/each}
+              {:else}
+                <p role="status">{session.text.memoryCandidateComparisonLoading}</p>
+              {/if}
+            </section>
+          {/if}
           <label class="settings-field settings-field-wide"><span>{session.text.memoryContent}</span><textarea rows="6" bind:value={memoryStore.candidateEdit.value}></textarea></label>
           <label class="settings-field"><span>{session.text.memoryCandidateNamespace}</span><input bind:value={memoryStore.candidateEdit.namespace} autocomplete="off" /></label>
           <label class="settings-field"><span>{session.text.memoryCandidateDomain}</span><input bind:value={memoryStore.candidateEdit.domain} autocomplete="off" /></label>
@@ -486,7 +540,7 @@
             </div>
           {/if}
         </div>
-        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (memoryStore.candidateEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !memoryStore.candidateEdit.value.trim()}>{memoryStore.candidateEdit.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button></footer>
+        <footer class="entity-editor-foot"><button class="secondary-button" type="button" onclick={() => (memoryStore.candidateEdit = null)}>{session.text.cancel}</button><button class="primary-button" type="submit" disabled={Boolean(memoryStore.busyAction) || !comparisonReady || !memoryStore.candidateEdit.value.trim()}>{memoryStore.candidateEdit.skillDraftSuggestion ? session.text.memorySkillDraftConfirm : session.text.memoryCandidateConfirm}</button></footer>
       </form>
     </Dialog>
   {/if}

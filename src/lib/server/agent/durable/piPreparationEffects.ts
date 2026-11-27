@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import type { JsonValue, Context } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
+import type { Context } from "@earendil-works/chord/context";
 import type { HookApi } from "@earendil-works/pi-durable";
 import type { ToolExecutionContext } from "$lib/server/agent/tools/toolTypes.js";
 
 /** One effect per named stage. An intent without a receipt is never automatically replayed. */
 export class PiPreparationRecoveryError extends Error {}
 
-export function createPiPreparationEffects(api: HookApi, context: Context, assertAuthority: () => void): NonNullable<ToolExecutionContext["preparationEffects"]> {
+export function createPiPreparationEffects(api: Pick<HookApi, "memo">, context: Context, assertAuthority: () => void): NonNullable<ToolExecutionContext["preparationEffects"]> {
   const running = new Set<string>();
   return {
     async run<T>(stage: string, input: unknown, execute: () => Promise<T>): Promise<T> {

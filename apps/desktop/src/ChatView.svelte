@@ -159,6 +159,7 @@
   import { deleteConversationSelection } from "./lib/chat/deleteConversationSelection";
   import AgentFilesPage from "./lib/chat/AgentFilesPage.svelte";
   import AgentNotificationsPage from "./lib/chat/AgentNotificationsPage.svelte";
+  import { createHomeInbox } from "./lib/chat/homeInbox";
   import { resolveSessionCompletedTarget } from "./lib/chat/homeNotificationView";
   import Bell from "./lib/icons/duotone/components/Bell.svelte";
   import Library from "reicon-svelte/icons/Library";
@@ -523,12 +524,18 @@
   let handoverError = "";
   let sawDefaultAgentHome = false;
   let isDefaultAgentHome = false;
+  let homeEnteredAt = Date.now();
   let handoverRefreshedAt = 0;
   /** The home's evidence changes slowly; the activity poll must not rescan it. */
   const HANDOVER_REFRESH_MIN_MS = 30_000;
   /** Tab hide and unload can both fire for one departure. */
   const HANDOVER_ACK_MIN_MS = 1_000;
   let handoverAcknowledgedAt = 0;
+  let confirmedDeparture: { generation: number; at: string } | null = null;
+  $: lastHandoverDeparture = (confirmedDeparture?.generation === connectionGeneration &&
+    confirmedDeparture.at > (handover?.lastAcknowledgedAt ?? ""))
+      ? confirmedDeparture.at
+      : handover?.lastAcknowledgedAt;
 
   async function refreshHandover(): Promise<void> {
     const endpoint = connectedEndpoint;
@@ -598,6 +605,14 @@
     }
   }
 
+  const homeInbox = createHomeInbox({
+    load: loadDesktopNotifications,
+    markRead: markDesktopNotificationsRead,
+    canWrite: () => connectionReady && !handoverStale,
+    onRead: () => void refreshUnreadNotifications(true),
+  });
+  $: homeInbox.setEndpoint(connectedEndpoint);
+
   const pendingNotificationReadIds = new Set<string>();
 
   async function markSessionNotificationRead(
@@ -641,8 +656,13 @@
     if (!connectionReady || !endpoint || !handover) return;
     if (Date.now() - handoverAcknowledgedAt < HANDOVER_ACK_MIN_MS) return;
     handoverAcknowledgedAt = Date.now();
+    const generation = connectionGeneration;
     try {
-      await acknowledgeDesktopHandover(endpoint);
+      const { lastAcknowledgedAt } = await acknowledgeDesktopHandover(endpoint);
+      if (generation !== connectionGeneration || endpoint !== connectedEndpoint) return;
+      if (confirmedDeparture?.generation !== generation || confirmedDeparture.at < lastAcknowledgedAt) {
+        confirmedDeparture = { generation, at: lastAcknowledgedAt };
+      }
     } catch {
       // Leaving the page must never surface an error; a missed write only means
       // the same window is shown again next time.
@@ -654,7 +674,7 @@
     decision: "approve_once" | "reject",
   ): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint || !items.length) return;
+    if (!endpoint || !connectionReady || handoverStale || handoverBusyId || !items.length) return;
     const actions = items
       .map((item) => ({
         item,
@@ -698,9 +718,9 @@
         }
       }
     } finally {
-      handoverBusyId = "";
       if (failures.length) handoverError = failures[0];
       await refreshHandover();
+      handoverBusyId = "";
     }
   }
 
@@ -709,7 +729,7 @@
     answer: string,
   ): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint || !item.executionId || !item.decisionId) return;
+    if (!endpoint || !connectionReady || handoverStale || handoverBusyId || !item.executionId || !item.decisionId) return;
     handoverBusyId = item.id;
     handoverError = "";
     try {
@@ -724,8 +744,8 @@
     } catch (cause) {
       handoverError = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      handoverBusyId = "";
       await refreshHandover();
+      handoverBusyId = "";
     }
   }
 
@@ -734,7 +754,7 @@
     mode: "manual" | "accept_edits",
   ): Promise<void> {
     const endpoint = connectedEndpoint;
-    if (!endpoint || !item.planId) return;
+    if (!endpoint || !connectionReady || handoverStale || handoverBusyId || !item.planId) return;
     handoverBusyId = item.id;
     handoverError = "";
     try {
@@ -748,8 +768,8 @@
     } catch (cause) {
       handoverError = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      handoverBusyId = "";
       await refreshHandover();
+      handoverBusyId = "";
     }
   }
 
@@ -767,12 +787,13 @@
     agentId?: string;
     planId?: string;
     executionId?: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const endpoint = connectedEndpoint;
+    const generation = connectionGeneration;
     if (input.planId || input.executionId) {
       notificationsReturnState = null;
       openWorkspacePane("plans", input.planId || input.executionId);
-      return;
+      return true;
     }
     if (input.projectId && input.sessionId && endpoint) {
       notificationsReturnState = null;
@@ -789,7 +810,7 @@
       viewMode = "local";
       activeProjectSessionId = input.sessionId;
       void markSessionNotificationRead(input.sessionId);
-      return;
+      return true;
     }
     if (input.sessionId && endpoint) {
       notificationsReturnState = null;
@@ -798,7 +819,7 @@
       );
       if (known) {
         await openSession(known);
-        return;
+        return true;
       }
       try {
         const lookup = await listDesktopConversations(endpoint, {
@@ -811,9 +832,10 @@
         const found = lookup.items.find(
           (item) => item.sessionId === input.sessionId,
         );
+        if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return false;
         if (found) {
           await openSession(found);
-          return;
+          return true;
         }
       } catch {
         // Fall through: an unresolvable session is a stale row, not a dead end.
@@ -826,6 +848,7 @@
           endpoint,
           input.sessionId,
         );
+        if (generation !== connectionGeneration || endpoint !== connectedEndpoint || !connectionReady) return false;
         selectedAgentId = input.agentId || defaultAgentId;
         agentNavigation = {
           ...agentNavigation,
@@ -849,7 +872,7 @@
             ?.name ?? "",
         );
         void markSessionNotificationRead(input.sessionId);
-        return;
+        return true;
       } catch {
         // Not in the external contexts either; report the missing source below.
       }
@@ -857,15 +880,23 @@
       // so say why instead of silently opening an unrelated list.
       handoverError = copy.handoverSourceMissing;
       void refreshHandover();
-      return;
+      return false;
     }
     notificationsReturnState = null;
     openAgentHistory(defaultAgentId);
+    return false;
   }
 
   function onHandoverVisibilityChange(): void {
-    if (document.hidden && isDefaultAgentHome) void acknowledgeHandover();
-    if (!document.hidden) void refreshUnreadNotifications(true);
+    if (document.hidden) {
+      if (isDefaultAgentHome) void acknowledgeHandover();
+      return;
+    }
+    if (isDefaultAgentHome) {
+      homeEnteredAt = Date.now();
+      void refreshHandover();
+    }
+    void refreshUnreadNotifications(true);
   }
 
   function onHandoverPageHide(): void {
@@ -2096,21 +2127,22 @@
       resolveSessionCompletedTarget(item).sessionId === visibleNotificationSessionId)) {
     void markSessionNotificationRead(visibleNotificationSessionId);
   }
-  // Handover watches the same draft state the home renders from. Keep this
-  // after the `draftMode`/`selectedAgentId` derivations so one update cycle is
-  // enough to load on open and acknowledge on leave.
+  // A draft can stay selected behind another workspace or Settings.
   $: isDefaultAgentHome =
-    draftMode && Boolean(selectedAgentId) && selectedAgentId === defaultAgentId;
-  $: if (isDefaultAgentHome) {
-    if (!sawDefaultAgentHome) {
-      sawDefaultAgentHome = true;
+    draftMode && Boolean(selectedAgentId) && selectedAgentId === defaultAgentId &&
+    viewMode === "local" && workspacePane === "chat" && !settingsVisible &&
+    !agentSettingsActive && !projectPaneActive && !roomPaneActive &&
+    !agentFilesActive && !agentHistoryActive && !agentNotificationsActive;
+  $: if (isDefaultAgentHome !== sawDefaultAgentHome) {
+    sawDefaultAgentHome = isDefaultAgentHome;
+    if (isDefaultAgentHome) {
+      homeEnteredAt = Date.now();
       void refreshHandover();
+    } else {
+      handoverStale = false;
+      handoverError = "";
+      void acknowledgeHandover();
     }
-  } else if (sawDefaultAgentHome) {
-    sawDefaultAgentHome = false;
-    handoverStale = false;
-    handoverError = "";
-    void acknowledgeHandover();
   }
 
   $: modelReady = summarizeDesktopReadiness(profiles, {
@@ -5703,6 +5735,7 @@
   }
 
   onDestroy(() => {
+    homeInbox.setEndpoint("");
     closeAgentSettings();
     externalTranscriptLoader.clear();
     nativeCommandUnlisten?.();
@@ -6766,62 +6799,67 @@
             {/if}
             {#if draftMode && selectedAgent}
               <div class="chat-start-page">
-                <AgentHome
-                  activity={agentActivities.find(
-                    (item) => item.agentId === selectedAgentId,
-                  )}
-                  activityReady={agentActivityReady}
-                  onActivity={() => openAgentOverview(selectedAgentId)}
-                  composer={conversationComposer}
-                  agent={selectedAgent}
-                  agentId={selectedAgentId}
-                  sessions={agentHomeDisplaySessions}
-                  {locale}
-                  {copy}
-                  handover={selectedAgentId === defaultAgentId
-                    ? handover
-                    : null}
-                  handoverLoading={selectedAgentId === defaultAgentId &&
-                    handoverLoading}
-                  handoverStale={selectedAgentId === defaultAgentId &&
-                    (handoverStale || !connectionReady)}
-                  handoverError={selectedAgentId === defaultAgentId
-                    ? handoverError
-                    : ""}
-                  {handoverBusyId}
-                  agentLabel={(id) =>
-                    onboardingAgents.find((agent) => agent.id === id)?.name ??
-                    copy.handoverUnknownSource}
-                  onTasks={() => openWorkspacePane("automations")}
-                  onPlans={(planId) => openWorkspacePane("plans", planId)}
-                  onFiles={() => openAgentFiles(selectedAgentId)}
-                  onNotifications={() =>
-                    openAgentNotifications(selectedAgentId)}
-                  onResultFile={async (sessionId, file) => {
-                    await openHandoverSource({ sessionId });
-                    if (
-                      (viewMode === "external"
-                        ? activeExternalSessionId
-                        : chatState.activeSessionId) === sessionId
-                    )
-                      openTurnFiles([file], file.key);
-                  }}
-                  onHandoverOpen={openHandoverSource}
-                  onHandoverResolve={resolveHandoverApproval}
-                  onHandoverAnswer={answerHandoverDecision}
-                  onHandoverPlan={approveHandoverPlan}
-                  endpoint={connectedEndpoint || ""}
-                  onMemoryChanged={refreshHandover}
-                  onOpenMemory={() => openSettings("memory")}
-                  actions={agentCanExecute ? emptyQuickStarts(copy) : []}
-                  onPrompt={fillEmptyPrompt}
-                  onSession={openSession}
-                  onDelete={deleteAgentConversation}
-                  onCopyPath={copySessionPath}
-                  onRevealInFinder={revealSessionInFinder}
-                  onHistory={() => openAgentHistory(selectedAgentId)}
-                  formatTime={formatListTime}
-                />
+                {#key selectedAgentId}
+                  <AgentHome
+                    activity={agentActivities.find(
+                      (item) => item.agentId === selectedAgentId,
+                    )}
+                    activityReady={agentActivityReady}
+                    onActivity={() => openAgentOverview(selectedAgentId)}
+                    composer={conversationComposer}
+                    agent={selectedAgent}
+                    sessions={agentHomeDisplaySessions}
+                    sessionCount={agentHomeSessions.length}
+                    enteredAt={homeEnteredAt}
+                    lastAcknowledgedAt={selectedAgentId === defaultAgentId ? lastHandoverDeparture : undefined}
+                    serviceOffline={!connectionReady}
+                    {locale}
+                    {copy}
+                    handover={selectedAgentId === defaultAgentId
+                      ? handover
+                      : null}
+                    handoverLoading={selectedAgentId === defaultAgentId &&
+                      handoverLoading}
+                    handoverStale={selectedAgentId === defaultAgentId &&
+                      (handoverStale || !connectionReady)}
+                    handoverError={selectedAgentId === defaultAgentId
+                      ? handoverError
+                      : ""}
+                    {handoverBusyId}
+                    agentLabel={(id) =>
+                      onboardingAgents.find((agent) => agent.id === id)?.name ??
+                      copy.handoverUnknownSource}
+                    onTasks={() => openWorkspacePane("automations")}
+                    onPlans={(planId) => openWorkspacePane("plans", planId)}
+                    onFiles={() => openAgentFiles(selectedAgentId)}
+                    onNotifications={() =>
+                      openAgentNotifications(selectedAgentId)}
+                    onResultFile={async (sessionId, file) => {
+                      await openHandoverSource({ sessionId });
+                      if (
+                        (viewMode === "external"
+                          ? activeExternalSessionId
+                          : chatState.activeSessionId) === sessionId
+                      )
+                        openTurnFiles([file], file.key);
+                    }}
+                    inbox={homeInbox}
+                    onHandoverOpen={openHandoverSource}
+                    onHandoverResolve={resolveHandoverApproval}
+                    onHandoverAnswer={answerHandoverDecision}
+                    onHandoverPlan={approveHandoverPlan}
+                    endpoint={connectedEndpoint || ""}
+                    onOpenMemory={() => openSettings("memory")}
+                    actions={agentCanExecute ? emptyQuickStarts(copy) : []}
+                    onPrompt={fillEmptyPrompt}
+                    onSession={openSession}
+                    onDelete={deleteAgentConversation}
+                    onCopyPath={copySessionPath}
+                    onRevealInFinder={revealSessionInFinder}
+                    onHistory={() => openAgentHistory(selectedAgentId)}
+                    formatTime={formatListTime}
+                  />
+                {/key}
               </div>
             {:else}
               <ChatMessagesPane
@@ -6832,6 +6870,8 @@
                 formatTime={formatSessionTime}
                 assistantName={activeBotName}
                 agentName={activeAgentName}
+                deskAgent={selectedAgent}
+                deskWaiting={Boolean(pendingApproval)}
                 stickKey={activeSessionId}
                 {sending}
                 {streamingText}

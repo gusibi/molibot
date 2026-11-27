@@ -1,9 +1,10 @@
+import type { PiConversationEvent } from "./piConversationEvents.js";
 import { withPiInvocation, type NativeInvocation } from "./piInvocation.js";
 import { resolve } from "node:path";
 import { awaitWithContext } from "@earendil-works/chord/context";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Message, Models, ToolCall } from "@earendil-works/pi-ai";
-import { createRegistry, defineExtension, defineTool, GenerationTask, CompactionTask, ToolTask, hook, type AgentEvent, type EntryRecord, type ModelRef, type HookApi, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
+import { createRegistry, defineExtension, defineTool, GenerationTask, CompactionTask, ToolTask, hook, type EntryRecord, type ModelRef, type HookApi, type ToolExecutionApi, type ToolExecutionResult, type ToolRegistration } from "@earendil-works/pi-durable";
 import { encodePiToolDetails } from "./piToolResult.js";
 import { createPiPreparationEffects, PiPreparationRecoveryError } from "./piPreparationEffects.js";
 import { hasToolPreparation, type HostToolResult, type PreparedAgentInvocation } from "$lib/server/agent/tools/preparedTool.js";
@@ -33,7 +34,7 @@ export interface PiToolRegistryOptions {
   /** Reconciled from committed entries on every open, including answered submissions. */
   projectEntry?: (entry: EntryRecord, sourceId: string) => Promise<void>;
   /** Native live events and the committed snapshot used to rebuild the host display. */
-  onEvent?: (event: AgentEvent) => Promise<void>;
+  onEvent?: (event: PiConversationEvent) => Promise<void>;
   /** Request-only controls are not appended to Pi or Molibot conversation history. */
   beforeRequest?: (messages: readonly Message[], signal?: AbortSignal, api?: HookApi) => Promise<readonly Message[]>;
   /** Must verify the host service lease; Pi does not provide cross-process locking. */
@@ -45,7 +46,7 @@ export interface PiToolRegistryOptions {
   afterTool?: (call: ToolCall, result: ToolExecutionResult, api: HookApi) => Promise<ToolExecutionResult | void>;
   afterResponse?: import("@earendil-works/pi-durable").GenerationHooks["afterResponse"];
   beforeCompact?: import("@earendil-works/pi-durable").CompactionHooks["beforeCompact"];
-  beforeExecute?: (api: ToolExecutionApi, context: import("@earendil-works/chord").Context) => Promise<void>;
+  beforeExecute?: (api: ToolExecutionApi, context: import("@earendil-works/chord/context").Context) => Promise<void>;
   onToolApi?: (callId: string, api: ToolExecutionApi | undefined) => void;
   onRecoveryRequired?: (cause: Error, conversationId?: number) => void;
 }
@@ -57,7 +58,7 @@ export function createPiToolRegistry(options: PiToolRegistryOptions, suspend: (r
     const progressSinks = new Map<string, (update: AgentToolResult<unknown>) => void>();
     const startedCalls = new Set<string>();
     let eventDelivery = Promise.resolve();
-    const emitEvent = (event: AgentEvent): Promise<void> => {
+    const emitEvent = (event: PiConversationEvent): Promise<void> => {
       if (event.type === "tool_execution_start") {
         if (startedCalls.has(event.toolCallId)) return eventDelivery;
         startedCalls.add(event.toolCallId);
@@ -128,7 +129,7 @@ export function createPiToolRegistry(options: PiToolRegistryOptions, suspend: (r
         } catch (cause) {
           options.onRecoveryRequired?.(cause instanceof Error ? cause : new Error(String(cause)), api.conversationId);
           await awaitWithContext(new Promise<never>(() => undefined), context);
-          return { decline: true };
+          return { kind: "decline" };
         }
       } }), hook(GenerationTask, {
         beforeRequest: async (request, api, context) => {

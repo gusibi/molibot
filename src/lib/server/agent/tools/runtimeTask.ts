@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createRuntimeTaskId, type MomEvent } from "$lib/server/agent/events.js";
 import { normalizeDeliveryDisplay } from "$lib/server/app/taskDelivery.js";

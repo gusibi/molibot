@@ -13,7 +13,7 @@ import type { IsolatedInstance } from './support/instance';
  * process owns the SQLite writes, and then assert only what the user sees.
  */
 
-async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run' | 'cross-channel' | 'external-source' | 'editorial' | 'typed' | 'memory'): Promise<void> {
+async function seedHandover(instance: IsolatedInstance, scenario: 'active' | 'busy' | 'history' | 'quiet' | 'first-run' | 'cross-channel' | 'external-source' | 'editorial' | 'typed' | 'memory' | 'memory-comparison'): Promise<void> {
   await instance.stopService();
   try {
     await instance.runSeedScript('tests/ui/support/seed-handover.ts', { UI_HANDOVER_SCENARIO: scenario });
@@ -31,8 +31,20 @@ test('Agent home shows identity, composer, quick starts and recent history @agen
   const second = page.getByRole('button', { name: 'UI Second', exact: true });
   await second.click();
   await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
-  const avatar = await page.locator('.agent-home-identity .agent-avatar').first().boundingBox();
-  expect(Math.round(avatar?.width ?? 0)).toBe(96);
+  // The Agent's face on the desk is Momo's expression for its real state, not a fixed avatar.
+  const stage = page.locator('.agent-home-stage .momo-stage');
+  await expect(stage).toBeVisible();
+  expect(await page.locator('.agent-home').evaluate(node => getComputedStyle(node).position)).toBe('static');
+  const stageButton = stage.getByRole('button');
+  const originalStageButton = await stageButton.elementHandle();
+  await composer(page).focus();
+  await expect(stage).toHaveAttribute('data-expression', 'thinking');
+  expect(await stageButton.evaluate((node, original) => node === original, originalStageButton)).toBe(true);
+  expect(Math.round((await stage.boundingBox())?.width ?? 0)).toBeLessThanOrEqual(340);
+  await expect(stage).toHaveAttribute('data-expression', /^[a-z-]+$/);
+  // A later legacy rule with the same class name once turned the desk back into one column.
+  expect(await page.locator('.agent-home-layout').evaluate((node) => getComputedStyle(node).display)).toBe('grid');
+  expect(await page.locator('.agent-home-stage').evaluate((node) => node.compareDocumentPosition(document.querySelector('.agent-home-desk')!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBeTruthy();
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
   await expect(page.getByRole('region', { name: 'Recent conversations' })).toBeVisible();
 });
@@ -69,22 +81,47 @@ test('the last Agent page survives reload and Agent rows are keyboard activatabl
 test('first run shows what the assistant can do instead of empty data @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'first-run');
   await openChat(page);
-  await expect(page.getByTestId('handover-summary')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Updates' })).toHaveCount(0);
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
   await expect(page.locator('.agent-home-history')).toContainText('No conversations yet');
   await expect(composer(page)).toBeEnabled();
 });
 
-test('the Default Agent home reports completed work and expands it into entries, while other Agents keep the start form @agent-home @handover', async ({ page, instance }) => {
+test('the Default Agent home shows completed work while other Agents keep the start form @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   await openChat(page);
-  await expect(page.getByTestId('handover-summary')).toContainText('1 finished');
+  await expect(page.getByRole('heading', { name: 'Ready for you' })).toBeVisible();
   await expect(page.getByTestId('handover-pending-card')).toContainText('Handover approval');
-  await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+  await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
-  await expect(page.locator('.agent-home-handover')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Updates' })).toHaveCount(0);
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
+  await expect(page.locator('.agent-home-say')).not.toContainText('your decision', { timeout: 1500 });
+  await expect(page.locator('.momo-stage')).not.toHaveAttribute('data-expression', 'proactive-alert');
+});
+
+test('incoming updates keep the composer focused while the desk becomes compact @agent-home', async ({ page, instance }) => {
+  await seedHandover(instance, 'active');
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  await page.route(/\/api\/desktop\/handover(?:\?.*)?$/, async route => {
+    await gate;
+    await route.continue();
+  });
+  try {
+    await openChat(page);
+    const input = composer(page);
+    await input.fill('Draft while updates load');
+    await expect(input).toBeFocused();
+    release();
+    await expect(page.getByTestId('handover-pending-card')).toBeVisible();
+    expect(Math.round((await page.locator('.momo-stage--pin').boundingBox())?.width ?? 0)).toBe(72);
+    await expect(input).toBeFocused({ timeout: 1500 });
+    await expect(input).toHaveValue('Draft while updates load');
+  } finally {
+    release();
+  }
 });
 
 test('replies already read on another channel collapse into one card @agent-home @handover', async ({ page, instance }) => {
@@ -94,19 +131,35 @@ test('replies already read on another channel collapse into one card @agent-home
   await expect(card).toContainText('Replied to 3 messages');
   // Channels are expressed by their logos, not by a text label.
   await expect(card.locator('img')).toHaveCount(2);
-  await expect(page.getByTestId('handover-entries')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Updates' }).getByRole('article')).toHaveCount(1);
   await expect(composer(page)).toBeEnabled();
 });
 
 test('leaving the handover immediately still shows the same entries on return @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   await openChat(page);
-  await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+  await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
   await page.getByRole('button', { name: 'Momo', exact: true }).click();
-  await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+  await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
+});
+
+test('opening Agent overview acknowledges leaving the home without switching drafts @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'active');
+  await openChat(page);
+  await expect(page.getByTestId('handover-pending-card')).toBeVisible();
+
+  const acknowledged = page.waitForResponse(response =>
+    response.url().endsWith('/api/desktop/handover/ack') && response.request().method() === 'POST'
+  );
+  await page.locator('.agent-home').getByRole('button', { name: /View activity/ }).click();
+  expect((await acknowledged).ok()).toBe(true);
+  await expect(page.locator('.agent-home')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await expect(composer(page)).toBeEnabled();
+  await expect(page.locator('.agent-home-say')).not.toContainText('You were away');
 });
 
 test('resolving a pending approval in the handover removes it without a local ghost @agent-home @handover', async ({ page, instance }) => {
@@ -120,10 +173,9 @@ test('resolving a pending approval in the handover removes it without a local gh
 test('a quiet day uses the same start form as every other Agent @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'quiet');
   await openChat(page);
-  await expect(page.getByTestId('handover-summary')).toHaveCount(0);
-  await expect(page.locator('.agent-home-handover')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Updates' })).toHaveCount(0);
   await expect(page.locator('.agent-home-tasks').getByRole('button')).toHaveCount(3);
-  await expect(page.locator('.agent-home-history')).toContainText('No conversations yet');
+  await expect(page.getByRole('region', { name: 'Recent conversations' })).toBeVisible();
   await expect(page.getByText(/Next: Quiet briefing/)).toHaveCount(0);
   await expect(composer(page)).toBeEnabled();
 });
@@ -131,12 +183,12 @@ test('a quiet day uses the same start form as every other Agent @agent-home @han
 test('a service interruption keeps the last handover visible and marks it stale @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   await openChat(page);
-  await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+  await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
 
   await instance.stopService();
   try {
-    await expect(page.getByText('Not updated · service unreachable')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+    await expect(page.getByText('Offline · showing last synced updates')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
     await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeDisabled();
   } finally {
     await instance.startService();
@@ -144,7 +196,7 @@ test('a service interruption keeps the last handover visible and marks it stale 
   await page.getByRole('button', { name: 'UI Second', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'UI Second' })).toBeVisible();
   await page.getByRole('button', { name: 'Momo', exact: true }).click();
-  await expect(page.getByText('Not updated · service unreachable')).toHaveCount(0);
+  await expect(page.getByText('Offline · showing last synced updates')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled();
 });
 
@@ -156,41 +208,24 @@ test('the handover stays usable in Chinese, dark theme and a narrow window @agen
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await openChat(page);
-  await expect(page.getByTestId('handover-summary')).toContainText('完成了 1 件');
-  await expect(page.getByTestId('handover-entries')).toContainText('Handover UI task');
+  await expect(page.getByRole('heading', { name: '刚为你准备好' })).toBeVisible();
+  await expect(page.getByRole('region', { name: /Updates|待处理与新成果/ })).toContainText('Handover UI task');
   await expect(page.getByTestId('handover-pending-card')).toContainText('Handover approval');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 });
 
-test('a busy day shows one hero, compact results, a short failure reason and three pending decisions @agent-home @handover', async ({ page, instance }) => {
+test('a busy day lists outcomes, readable failures and pending approvals @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'busy');
   await openChat(page);
-
-  await expect(page.getByTestId('handover-summary')).toContainText('6 finished');
-  const entries = page.getByTestId('handover-entries');
-  // One hero plus three compact rows; the remaining two wait behind the expander.
-  await expect(entries.locator('[data-handover-row]')).toHaveCount(4);
-  await expect(page.getByRole('button', { name: 'Show 2 more', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Show 2 more', exact: true }).click();
-  await expect(entries.locator('[data-handover-row]')).toHaveCount(6);
-  await expect(entries.locator('.agent-home-hero')).toContainText('Busy task 1');
-
-  // The failure reads as a reason, and the diagnostic is cut before it reaches the page.
-  await expect(page.getByText('Model sign-in failed: the API key is invalid or expired')).toBeVisible();
-  const detail = page.locator('.agent-home-failure-detail').first();
-  await expect(detail).not.toContainText('provider=cli-proxy-api');
-  expect((await detail.innerText()).length).toBeLessThanOrEqual(220);
-
-  await page.getByText('View execution records', { exact: true }).click();
-  const executions = page.getByRole('table', { name: 'Recent executions' });
-  await expect(executions.getByRole('row')).toHaveCount(6);
-  await page.getByRole('button', { name: 'Show 2 more executions', exact: true }).click();
-  await expect(executions.getByRole('row')).toHaveCount(8);
-
-  // Every pending decision is a notification card; nothing hides behind an expander.
+  const updates = page.getByRole('region', { name: 'Updates' });
+  for (let number = 1; number <= 6; number++) {
+    await expect(updates.getByRole('button', { name: `Busy task ${number}`, exact: true })).toBeVisible();
+  }
+  await expect(updates.getByText('Model sign-in failed: the API key is invalid or expired', { exact: true })).toBeVisible();
+  await expect(updates).not.toContainText('provider=cli-proxy-api');
   const pending = page.getByTestId('handover-pending-card');
   await expect(pending).toHaveCount(6);
-  await expect(pending.filter({ hasText: 'Busy approval 1' })).toBeVisible();
+  await expect(pending.filter({ hasText: 'Busy approval 1' })).toContainText('agent-browser --open 1');
   await expect(pending.filter({ hasText: 'Busy approval 6' })).toBeVisible();
 });
 
@@ -208,7 +243,7 @@ test('opening the app lands on the handover while a reload keeps the current pla
   const fresh = await context.newPage();
   try {
     await fresh.goto('/');
-    await expect(fresh.getByTestId('handover-summary')).toBeVisible();
+    await expect(fresh.getByRole('heading', { name: 'Ready for you' })).toBeVisible();
     await expect(fresh.getByRole('heading', { level: 1, name: 'Momo' })).toBeVisible();
   } finally {
     await fresh.close();
@@ -219,33 +254,26 @@ test('finished work spans days without repeating the list layout @agent-home @ha
   await seedHandover(instance, 'history');
   await openChat(page);
 
-  const entries = page.getByTestId('handover-entries');
+  const entries = page.getByRole('region', { name: /Updates|待处理与新成果/ });
   await expect(entries).toContainText('Grouped task today');
   await expect(entries).toContainText('Grouped task yesterday');
-  await expect(entries.locator('[data-handover-row]')).toHaveCount(2);
+  await expect(entries.getByRole('button', { name: 'Quick preview', exact: true })).toHaveCount(2);
 });
 
-test('arrow keys walk the cards and focus peeks the clamped failure detail @agent-home @handover', async ({ page, instance }) => {
-  await seedHandover(instance, 'busy');
+test('keyboard users can open and close an exact result preview @agent-home @handover', async ({ page, instance }) => {
+  await seedHandover(instance, 'active');
   await openChat(page);
-
-  const cards = page.locator('[data-handover-row]');
-  await cards.first().locator('button').first().focus();
-  await page.keyboard.press('ArrowDown');
-  // The next row is itself a compact button row.
-  await expect(cards.nth(1)).toBeFocused();
-  await page.keyboard.press('ArrowUp');
-  await expect(cards.first().locator('button').first()).toBeFocused();
-
-  // The diagnostic is clamped at rest and opens while its own card holds focus.
-  const failure = page.locator('.agent-home-failure').first();
-  const detail = failure.locator('.agent-home-failure-detail');
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('2');
-  await failure.locator('button').first().focus();
-  expect(await detail.evaluate((node) => getComputedStyle(node).webkitLineClamp)).toBe('none');
+  const preview = page.getByRole('button', { name: 'Quick preview', exact: true });
+  await preview.focus();
+  await expect(preview).toBeFocused();
+  await page.keyboard.press('Enter');
+  const details = page.getByTestId('home-task-result');
+  await expect(details).toContainText('Handover UI task delivered');
+  const toggle = page.getByRole('button', { name: 'Hide preview', exact: true });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.press('Enter');
+  await expect(details).toHaveCount(0);
 });
-
 
 test('an external source opens by Session id even when the trace channel was web @agent-home @handover', async ({ page, instance }) => {
   await seedHandover(instance, 'external-source');
@@ -265,9 +293,14 @@ test('an external source opens by Session id even when the trace channel was web
   }));
 
   await openChat(page);
-  await page.getByTestId('handover-entries').getByRole('button', { name: 'Open conversation', exact: true }).click();
+  await page.getByRole('region', { name: /Updates|待处理与新成果/ }).getByRole('button', { name: 'External source task', exact: true }).click();
   await expect(page.locator('.chat-header')).toContainText('External source title');
-  await expect(page.getByText('Source conversation no longer exists')).toHaveCount(0);
+  await expect.poll(async () => {
+    const response = await page.request.get(`${instance.endpoint}/api/desktop/notifications?status=read`);
+    const { notifications } = await response.json();
+    return notifications.some((item: { payload: { sessionId?: string } }) => item.payload.sessionId === 'external-source-1');
+  }).toBe(true);
+  await expect(page.getByText('Could not open the source conversation.')).toHaveCount(0);
 });
 
 test('a waiting row opens its own session instead of the history list @agent-home @handover', async ({ page, instance }) => {
@@ -281,21 +314,17 @@ test('a waiting row opens its own session instead of the history list @agent-hom
 });
 
 
-test('work home puts readable results up front and decisions in the notification center @agent-home @home-dashboard', async ({ page, instance }, testInfo) => {
+test('work home keeps visible commands and outcomes below the composer @agent-home @home-dashboard', async ({ page, instance }, testInfo) => {
   await seedHandover(instance, 'active');
   await page.setViewportSize({ width: 1440, height: 1024 });
   await openChat(page);
-  const results = page.getByRole('region', { name: 'Recent results', exact: true });
+  const results = page.getByRole('region', { name: 'Updates', exact: true });
   await expect(results).toContainText('Handover UI task');
   const decisions = page.getByTestId('handover-pending-card');
   await expect(decisions).toContainText('Handover approval');
-  await page.getByText('View execution records', { exact: true }).click();
-  const executions = page.getByRole('table', { name: 'Recent executions' });
-  await expect(executions.getByRole('row')).toHaveCount(2);
-  await expect(executions).toContainText('Handover UI task');
-  await expect(executions).toContainText('Done');
-  await expect(composer(page)).toHaveAttribute('placeholder', 'Give me something new to work on…');
-  await decisions.getByText('View command and scope', { exact: true }).click();
+  const input = await composer(page).boundingBox();
+  const feed = await results.boundingBox();
+  expect(input!.y + input!.height).toBeLessThan(feed!.y);
   await expect(decisions.getByText('agent-browser --open', { exact: true })).toBeVisible();
   await testInfo.attach('work-home-wide', { body: await page.screenshot(), contentType: 'image/png' });
   await page.route('**/api/desktop/host-bash', async route => {
@@ -310,7 +339,7 @@ test('work home puts readable results up front and decisions in the notification
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(composer(page)).toBeEnabled();
-  await expect.poll(async () => (await page.locator('.agent-home--brief').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(350);
+  await expect.poll(async () => (await page.locator('.agent-home').boundingBox())?.width ?? 0).toBeGreaterThan(300);
   await expect(page.getByRole('button', { name: 'Momo', exact: true })).toBeHidden();
   await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Momo', exact: true })).toBeVisible();
@@ -328,11 +357,8 @@ test('work home puts readable results up front and decisions in the notification
       window.dispatchEvent(new StorageEvent('storage', { key, newValue, storageArea: localStorage }));
     }
   });
-  await expect(page.getByRole('region', { name: '最近成果', exact: true })).toContainText('Handover UI task');
-  await expect(page.getByRole('table', { name: '最近执行记录' })).toContainText('已完成');
-  await expect(composer(page)).toHaveAttribute('placeholder', '交给我一件新事…');
+  await expect(page.getByRole('region', { name: '待处理与新成果', exact: true })).toContainText('Handover UI task');
   await expect(page.locator('html')).toHaveAttribute('data-resolved-appearance', 'dark');
-  expect(await page.locator('.agent-home-hero').evaluate(node => getComputedStyle(node).borderRadius)).toBe('0px');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await testInfo.attach('work-home-zh-dark-square', { body: await page.screenshot(), contentType: 'image/png' });
   await decisions.getByRole('button', { name: '拒绝', exact: true }).click();
@@ -341,7 +367,7 @@ test('work home puts readable results up front and decisions in the notification
     const response = await page.request.get(`${instance.endpoint}/api/desktop/handover`);
     return (await response.json()).handover.pending.length;
   }).toBe(0);
-  await expect(page.getByRole('region', { name: '最近成果', exact: true })).toContainText('Handover UI task');
+  await expect(page.getByRole('region', { name: '待处理与新成果', exact: true })).toContainText('Handover UI task');
 });
 
 
@@ -349,22 +375,16 @@ test('the work home reads as one composed workspace across sizes and themes @age
   await seedHandover(instance, 'editorial');
   await page.setViewportSize({ width: 1440, height: 1024 });
   await openChat(page);
-  await expect(page.getByRole('heading', { name: 'Weekly research brief', level: 3 })).toBeVisible();
-  await expect(page.getByTestId('handover-summary')).toContainText('3 finished');
+  await expect(page.getByRole('button', { name: 'Weekly research brief', exact: true })).toBeVisible();
   await expect(page.getByTestId('handover-pending-card').filter({ hasText: 'Read the source documents' })).toBeVisible();
   await expect(page.getByTestId('handover-pending-card')).toHaveCount(2);
-  await expect(page.getByTestId('handover-entries')).toContainText('Clear completion criteria');
-  await expect(page.getByTestId('handover-entries')).toContainText('Took 45s');
-  const headings = await page.getByRole('heading', { level: 2 }).evaluateAll(nodes => nodes.filter(n => n.textContent === 'Recent results').map(n => n.getBoundingClientRect().y));
-  expect(headings).toHaveLength(1);
+  await expect(page.getByRole('heading', { name: 'Ready for you', exact: true })).toHaveCount(1);
   const input = await composer(page).boundingBox();
-  const workspace = await page.locator('.agent-home--brief').boundingBox();
+  const workspace = await page.locator('.agent-home').boundingBox();
   expect(input!.width).toBeGreaterThan(600);
-  expect(input!.width).toBeLessThan(workspace!.width);
+  expect(input!.width).toBeLessThanOrEqual(workspace!.width + 1);
   expect(Math.abs(input!.x + input!.width / 2 - workspace!.x - workspace!.width / 2)).toBeLessThan(2);
-  // Pending decisions live in the notification band now, so the composer sits
-  // below the fold when the day has unread content; it stays one scroll away.
-  await expect(composer(page)).toBeAttached();
+  expect(input!.y).toBeLessThan(512);
   await testInfo.attach('craft-light-wide', { body: await page.screenshot(), contentType: 'image/png' });
 
   await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'molibot-desktop-appearance', newValue: 'dark' })));
@@ -391,62 +411,43 @@ test('the work home reads as one composed workspace across sizes and themes @age
 });
 
 
-test('typed deliveries read as a briefing and a proposal while old periods stay compact @agent-home @home-dashboard', async ({ page, instance }) => {
+test('scheduled deliveries can preview their exact Markdown results @agent-home @home-dashboard', async ({ page, instance }) => {
   await seedHandover(instance, 'typed');
   await openChat(page);
-
-  const entries = page.getByTestId('handover-entries');
-  await expect(entries.locator('[data-display="briefing"]')).toContainText('Three things worth your attention');
-  await expect(entries.locator('[data-display="briefing"]')).toContainText('Clear completion criteria mattered more than model choice.');
-  await expect(entries.locator('[data-display="briefing"]').getByRole('link', { name: 'Research note' })).toHaveAttribute('href', 'https://example.com/research');
-  await expect(entries.locator('[data-display="topic-proposals"]')).toContainText('What to write next');
-  await expect(entries.locator('[data-display="topic-proposals"]')).toContainText('Recommended');
-  await expect(entries.locator('[data-display="topic-proposals"]')).toContainText('Why agent reliability is a product decision');
-  await expect(entries).toContainText('The current edition.');
-  await expect(entries).not.toContainText('The older edition, already replaced.');
-  await expect(entries.getByRole('button', { name: 'Read this edition' }).first()).toBeVisible();
-  await expect(entries).toContainText('In-app');
+  const updates = page.getByRole('region', { name: 'Updates' });
+  const briefing = updates.getByRole('article').filter({ hasText: 'Morning briefing' });
+  await briefing.getByRole('button', { name: 'Quick preview' }).click();
+  await expect(briefing.getByTestId('home-task-result')).toContainText('Three things worth your attention today.');
+  const topics = updates.getByRole('article').filter({ hasText: 'Topic ideas' });
+  await topics.getByRole('button', { name: 'Quick preview' }).click();
+  await expect(topics.getByTestId('home-task-result')).toContainText('One recommended angle and two alternatives.');
+  await expect(briefing.getByTestId('home-task-result')).toHaveCount(0);
 });
 
-
-test('home keeps content above the composer and reviews memories through the original store @agent-home @home-memory', async ({ page, instance }) => {
+test('home links to the original memory queue and keeps the draft @agent-home @home-memory', async ({ page, instance }) => {
   await seedHandover(instance, 'memory');
-  await page.setViewportSize({ width: 1440, height: 1024 });
   await openChat(page);
-  const review = page.getByRole('region', { name: 'Worth remembering?', exact: true });
-  await expect(review).toBeVisible();
-  await expect(page.getByTestId('handover-summary')).toContainText('3 memories to review');
-  const content = await page.locator('.agent-home-dashboard').boundingBox();
+  const updates = page.getByRole('region', { name: 'Updates' });
+  await expect(updates).toContainText('3 new memories to review');
   const input = await composer(page).boundingBox();
-  expect(input!.y).toBeGreaterThan(content!.y + content!.height);
+  const feed = await updates.boundingBox();
+  expect(input!.y + input!.height).toBeLessThan(feed!.y);
   await composer(page).fill('Keep this new-task draft');
-  await review.getByText('View source', { exact: true }).click();
-  await expect(review.getByRole('blockquote')).toContainText('Please put conclusions first');
-  await review.getByRole('button', { name: 'Edit', exact: true }).click();
-  await review.getByRole('textbox', { name: 'Edit candidate' }).fill('Show conclusions first and preserve the source evidence.');
-  await review.getByRole('button', { name: 'Save and confirm', exact: true }).click();
-  await expect(review.getByRole('status')).toContainText('written to memory');
+  await updates.getByRole('button', { name: 'Open Memory Center', exact: true }).click();
+  await page.getByText('Needs your review', { exact: true }).click();
+  const candidate = page.getByRole('article').filter({ hasText: 'Put conclusions first' });
+  await candidate.getByRole('button', { name: /Put conclusions first/ }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit candidate', exact: true });
+  await editor.getByRole('textbox', { name: 'Content', exact: true }).fill('Show conclusions first and preserve the source evidence.');
+  await editor.getByRole('button', { name: 'Save memory', exact: true }).click();
+  await expect(editor).toBeHidden();
+  await expect.poll(async () => {
+    const records = await page.request.post(`${instance.endpoint}/api/desktop/memory`, { data: { action: 'search', allScopes: true, query: 'Show conclusions first and preserve the source evidence.' } });
+    return (await records.json()).items.some((item: { content: string }) => item.content === 'Show conclusions first and preserve the source evidence.');
+  }).toBe(true);
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(composer(page)).toHaveValue('Keep this new-task draft');
-  const records = await page.request.post(`${instance.endpoint}/api/desktop/memory`, { data: { action: 'search', allScopes: true, query: 'Show conclusions first and preserve the source evidence.' } });
-  expect((await records.json()).items.some((item: { content: string }) => item.content === 'Show conclusions first and preserve the source evidence.')).toBe(true);
-  await review.getByRole('button', { name: 'Ignore', exact: true }).click();
-  await expect(review.getByRole('status')).toContainText('ignored');
-  const remaining = await page.request.post(`${instance.endpoint}/api/desktop/memory`, { data: { action: 'list-candidates' } });
-  expect((await remaining.json()).candidates).toHaveLength(1);
-  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
-  await expect.poll(async () => (await (await page.request.get(`${instance.endpoint}/api/desktop/handover`)).json()).handover.lastAcknowledgedAt).toBeTruthy();
-  await page.reload();
-  await page.getByRole('button', { name: 'Momo', exact: true }).click();
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeVisible();
-  await expect(review.locator('.agent-home-meta')).toHaveText('1 / 1');
-  const unavailable = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, json: { ok: false, error: 'Simulated service interruption' } });
-  await page.route('**/api/desktop/agent-activity', unavailable);
-  await page.route('**/api/desktop/handover', unavailable);
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeDisabled({ timeout: 15_000 });
-  await page.unroute('**/api/desktop/agent-activity', unavailable);
-  await page.unroute('**/api/desktop/handover', unavailable);
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeEnabled({ timeout: 10_000 });
-
+  await expect(updates).toContainText('2 new memories to review');
 });
 
 test('home keeps task outcomes and reads the exact execution with retry @agent-home', async ({ page }) => {
@@ -485,13 +486,22 @@ test('home keeps task outcomes and reads the exact execution with retry @agent-h
   await expect(work.getByRole('alert')).toBeVisible();
   await work.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(work.getByText('Exact execution result')).toBeVisible();
+  await work.getByRole('button', { name: 'Continue chat', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Could not open the source conversation.');
+  await expect(work.getByText('Exact execution result')).toBeVisible();
+  expect(read).toBe(false);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await work.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.screenshot({ path: '.test-tmp/home-work-narrow.png', fullPage: true });
   await work.getByTestId('home-task-result').getByRole('button', { name: 'Collapse', exact: true }).click();
-  // Collapse folds the detail; 已阅 dismisses the card.
+  // Closing the preview leaves the notification unread.
   await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toBeVisible();
-  await work.getByRole('button', { name: 'Mark read', exact: true }).click();
+  await page.clock.install();
+  await work.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(work.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+  await page.clock.fastForward(4500);
+  await expect.poll(() => read).toBe(true);
   await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.locator('.agent-home')).toBeVisible();
@@ -507,9 +517,11 @@ test('home keeps task outcomes and reads the exact execution with retry @agent-h
       window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
     }
   });
-  await expect(page.getByRole('button', { name: '已阅', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '收起', exact: true })).toBeVisible();
   await work.screenshot({ path: '.test-tmp/home-work-cards-brutalism.png' });
-  await page.getByRole('button', { name: '已阅', exact: true }).click();
+  await page.getByRole('button', { name: '收起', exact: true }).click();
+  await page.clock.fastForward(4500);
+  await expect.poll(() => read).toBe(true);
   await expect(page.getByRole('button', { name: 'Daily outcome retained', exact: true })).toHaveCount(0);
 
 });
@@ -522,7 +534,7 @@ test('home result cards fit their content without reserved blank rows @agent-hom
   })) } }));
   await page.route('**/api/desktop/plans?**', route => route.fulfill({ json: { ok: true, items: [], total: 0 } }));
   await openChat(page);
-  const cards = page.locator('.agent-home-work-card');
+  const cards = page.getByRole('region', { name: 'Updates' }).getByRole('article').filter({ hasText: /Short task|Long task instructions/ });
   await expect(cards).toHaveCount(2);
   for (const width of [1440, 860, 390]) {
     await page.setViewportSize({ width, height: 1024 });
@@ -588,7 +600,7 @@ test('cross-channel card read state survives return and reload @agent-home', asy
   await openChat(page);
   const card = page.getByTestId('handover-cross-channel');
   await expect(card).toBeVisible();
-  await card.getByRole('button', { name: 'View history', exact: true }).click();
+  await card.getByRole('button', { name: 'Open history', exact: true }).click();
   await expect(page.locator('.agent-history-page')).toBeVisible();
   await page.getByRole('button', { name: 'Momo', exact: true }).click();
   await expect(page.locator('.agent-home')).toBeVisible();
@@ -603,17 +615,20 @@ test('cross-channel card read state survives return and reload @agent-home', asy
   await expect(card).toHaveCount(0);
 });
 
-test('legacy delivery and task card read their exact executions through the same reader @agent-home', async ({ page, instance }) => {
+test('two notification editions load only their own exact execution @agent-home', async ({ page, instance }) => {
   await seedHandover(instance, 'active');
   const payload = await (await page.request.get(`${instance.endpoint}/api/desktop/handover`)).json();
   const old = payload.handover.items.find((item: any) => item.kind === 'task-completed');
   expect(old.executionId).toBeTruthy();
   let denied = false;
   const requested: string[] = [];
-  await page.route('**/api/desktop/notifications', route => route.fulfill({ json: { ok: true, notifications: [{
-    id: 'n-newer', type: 'task-result', dedupeKey: `task:${old.taskId}:newer-edition`, refId: 'newer-edition',
-    payload: { taskId: old.taskId, executionId: 'newer-edition', text: 'Newer edition card' }, status: 'unread', createdAt: old.occurredAt, updatedAt: old.occurredAt
-  }] } }));
+  await page.route('**/api/desktop/notifications', route => route.fulfill({ json: { ok: true, notifications: [
+    { id: 'n-original', text: 'Original edition card', executionId: old.executionId },
+    { id: 'n-newer', text: 'Newer edition card', executionId: 'newer-edition' }
+  ].map(({ id, text, executionId }) => ({
+    id, type: 'task-result', dedupeKey: `task:${old.taskId}:${executionId}`, refId: executionId,
+    payload: { taskId: old.taskId, executionId, text }, status: 'unread', createdAt: old.occurredAt, updatedAt: old.occurredAt
+  })) } }));
   await page.route('**/api/desktop/tasks', async route => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
@@ -623,7 +638,7 @@ test('legacy delivery and task card read their exact executions through the same
     return route.fulfill({ json: { ok: true, summary: { items: [{ id: 'reader-row', taskId: old.taskId, category: 'user', systemKind: '', botId: 'default', projectId: '', type: 'periodic', enabled: true, text: 'Newer edition card', active: false, updatedAt: old.occurredAt, executions: [{ id: 'newer-edition', status: 'completed', sessionId: old.sessionId, runId: 'newer-run', startedAt: old.occurredAt }] }], targets: [], counts: { total: 1, byType: {}, byStatus: {}, byScope: {}, byChannel: {} } } } });
   });
   await openChat(page);
-  await page.getByTestId('handover-entries').getByRole('button', { name: 'Read this edition', exact: true }).click();
+  await page.getByRole('button', { name: 'Original edition card', exact: true }).click();
   const reader = page.getByTestId('home-task-result');
   await expect(reader).toContainText('Original edition exact content');
   await expect(reader).not.toContainText('Newer edition exact content');
@@ -634,7 +649,7 @@ test('legacy delivery and task card read their exact executions through the same
   expect(requested.at(-1)).toBe('newer-edition');
   await reader.getByRole('button', { name: 'Collapse', exact: true }).click();
   denied = true;
-  await page.getByTestId('handover-entries').getByRole('button', { name: 'Read this edition', exact: true }).click();
+  await page.getByRole('button', { name: 'Original edition card', exact: true }).click();
   await expect(reader.getByRole('alert')).toBeVisible();
   await expect(reader).not.toContainText('Original edition exact content');
 });
@@ -661,16 +676,10 @@ test('home plan card opens the exact persisted plan detail @agent-home', async (
   expect((await read.json()).item.execution.id).toBe(planId);
 });
 
-test('home shows memory old and proposed values and keeps confirmation disabled until comparison succeeds @agent-home', async ({ page, instance }) => {
-  await seedHandover(instance, 'memory');
+test('memory center keeps confirmation disabled until the original can be compared @agent-home @home-memory', async ({ page, instance }) => {
+  await seedHandover(instance, 'memory-comparison');
   let comparisons = 0;
   let originalAvailable = true;
-  await page.route('**/api/desktop/handover', async route => {
-    const response = await route.fetch();
-    const payload = await response.json();
-    payload.handover.memoryReview.items[0].supersedesMemoryId = 'comparison-original';
-    await route.fulfill({ json: payload });
-  });
   await page.route('**/api/desktop/memory', async route => {
     const body = route.request().method() === 'POST' ? route.request().postDataJSON() : {};
     if (body.action !== 'compare-candidate') return route.continue();
@@ -678,19 +687,47 @@ test('home shows memory old and proposed values and keeps confirmation disabled 
     return route.fulfill({ json: { ok: true, comparison: { candidateId: body.id, candidateUpdatedAt: body.expectedUpdatedAt, originals: [{ relation: 'replaces', available: originalAvailable, ...(originalAvailable ? { content: 'Previously preferred long introductions.' } : {}) }] } } });
   });
   await openChat(page);
-  const review = page.getByRole('region', { name: 'Worth remembering?', exact: true });
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeDisabled();
-  await expect(review.getByRole('alert')).toBeVisible();
-  await review.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('Previously preferred long introductions.');
-  await expect(review.getByRole('heading', { name: 'Proposed memory', exact: true })).toBeVisible();
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeEnabled();
-  await review.getByRole('button', { name: 'Edit', exact: true }).click();
-  await review.getByRole('textbox', { name: 'Edit candidate' }).fill('Prefer conclusions first, with the original evidence retained.');
-  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('Prefer conclusions first, with the original evidence retained.');
+  await page.getByRole('button', { name: 'Open Memory Center', exact: true }).click();
+  await page.getByText('Needs your review', { exact: true }).click();
+  const candidate = page.getByRole('article').filter({ hasText: 'Put conclusions first' });
+  const openEditor = candidate.getByRole('button', { name: /Put conclusions first/ });
+  await openEditor.click();
+  const editor = page.getByRole('dialog', { name: 'Edit candidate', exact: true });
+  const save = editor.getByRole('button', { name: 'Save memory', exact: true });
+  await expect(save).toBeDisabled();
+  await expect(editor.getByRole('alert')).toBeVisible();
+  await editor.getByRole('button', { name: 'Retry', exact: true }).click();
+  const comparison = editor.getByRole('region', { name: 'Memory comparison' });
+  await expect(comparison).toContainText('Previously preferred long introductions.');
+  await expect(save).toBeEnabled();
+  await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
   originalAvailable = false;
-  await review.getByTitle('Next pending memory', { exact: true }).click();
-  await review.getByTitle('Previous pending memory', { exact: true }).click();
-  await expect(review.getByRole('region', { name: 'Memory comparison', exact: true })).toContainText('deleted or is outside the current scope');
-  await expect(review.getByRole('button', { name: 'Confirm memory', exact: true })).toBeDisabled();
+  await openEditor.click();
+  await expect(comparison).toContainText('deleted or is outside the current scope');
+  await expect(save).toBeDisabled();
+});
+
+test('an immediate page change preserves the full window to undo a dismissal @agent-home', async ({ page }) => {
+  let writes = 0;
+  await page.route('**/api/desktop/notifications', async route => {
+    if (route.request().method() === 'POST') writes++;
+    await route.fulfill({ json: { ok: true, notifications: [{
+      id: 'undo-home', type: 'task-result', refId: 'undo-home-run', dedupeKey: 'undo-home',
+      payload: { text: 'Undo this outcome', executionId: 'undo-home-run' }, status: 'unread',
+      createdAt: '2026-11-01T01:00:00Z', updatedAt: '2026-11-01T01:00:00Z'
+    }] } });
+  });
+  await openChat(page);
+  const home = page.getByRole('region', { name: 'Momo', exact: true });
+  const dismiss = home.getByRole('button', { name: 'Dismiss', exact: true });
+  await expect(dismiss).toBeVisible();
+  await page.clock.install();
+  await dismiss.click();
+  await page.getByRole('button', { name: 'UI Second', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'UI Second', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Momo', exact: true }).click();
+  await home.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(dismiss).toBeVisible();
+  await page.clock.fastForward(4500);
+  expect(writes).toBe(0);
 });

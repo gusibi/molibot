@@ -2,7 +2,7 @@
   import { emptyActionIcon, type EmptyActionIcon } from "./activityIcons";
   import type { Translation } from "../i18n";
   import type { DesktopActivityEntry } from "../api";
-  import type { DesktopConversationStep } from "@molibot/desktop-contract";
+  import type { DesktopAgentItem, DesktopConversationStep } from "@molibot/desktop-contract";
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions, TurnFileItem } from "./transcript";
   import { handleMarkdownBodyClick } from "../markdownInteractions";
   import ConversationTranscript from "./ConversationTranscript.svelte";
@@ -12,6 +12,8 @@
   import StreamingChatMarkdown from "./StreamingChatMarkdown.svelte";
   import { chatImageResolver } from "./markdownImages";
   import TurnProcess from "./TurnProcess.svelte";
+  import AgentAvatar from "../components/ui/AgentAvatar.svelte";
+  import { momoExpressionSrc, usesMomoExpressions, type MomoExpression } from "./homePresence";
   import BotAvatar from "./BotAvatar.svelte";
   import { appLogo } from "../stores/appLogo.svelte";
   import StopCircle from "reicon-svelte/icons/StopCircle";
@@ -22,6 +24,9 @@
   export let formatTime: (value: string) => string;
   export let assistantName: string = copy.appName;
   export let agentName = "";
+  export let deskAgent: Pick<DesktopAgentItem, "id" | "avatar"> | undefined = undefined;
+  export let deskWaiting = false;
+  export let deskArrivalId: string | undefined = undefined;
   export let showEmpty = true;
   export let authorAgentId = "";
   export let onStop: (() => void) | undefined = undefined;
@@ -65,6 +70,10 @@
     : transcriptRenderBlocks({ role: "assistant", content: "", thinking: streamingThinking, activities });
   $: liveSections = transcriptTurnSections(orderedBlocks);
   $: hasResultText = liveSections.response.some(block => block.kind === "result" && block.content.trim());
+  let deskExpression: MomoExpression;
+  $: deskExpression = deskWaiting || liveSections.response.some(block => block.kind === "plan" && block.plan.status === "proposed")
+    ? "proactive-alert"
+    : "thinking";
 </script>
 
 {#if showEmpty && messages.length === 0 && !streamingText && !sending}
@@ -85,12 +94,27 @@
     {/if}
   </div>
 {/if}
-<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {agentName} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />
+<ConversationTranscript {messages} {copy} {formatTime} {assistantName} {agentName} {deskAgent} {deskArrivalId} {searchMatchIds} {activeMatchId} {showReadReceipt} {attachmentActions} {messageActions} {onOpenActivityPath} {onOpenTurnFiles} {endpoint} />
 {#if sending}
   <article class="message-row assistant streaming-message">
     <div class="assistant-layout">
       <div class="message-stack">
-        <div data-same-agent={agentName === assistantName || undefined} class="assistant-identity">{#if authorAgentId}<BotAvatar botId={authorAgentId} name={assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}<strong>{assistantName}</strong>{#if agentName}<span>{agentName}</span>{/if}{#if onStop}<button type="button" class="message-action" title={copy.stop} aria-label={`${copy.stop} · ${assistantName}`} onclick={onStop}><StopCircle size={14} /></button>{/if}</div>
+        <div data-same-agent={agentName === assistantName || undefined} class="assistant-identity">
+          {#if deskAgent && usesMomoExpressions(deskAgent.avatar)}
+            <img class="assistant-avatar desk-turn-avatar" data-desk-expression={deskExpression} src={momoExpressionSrc(deskExpression)} alt="" width="28" height="28" />
+          {:else if deskAgent?.avatar}
+            <div class="desk-agent-avatar" aria-hidden="true"><AgentAvatar name={assistantName} src={deskAgent.avatar} /></div>
+          {:else if authorAgentId}
+            <BotAvatar botId={authorAgentId} name={assistantName} size={22} />
+          {:else}
+            <img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />
+          {/if}
+          <strong>{assistantName}</strong>
+          {#if agentName}<span>{agentName}</span>{/if}
+          {#if onStop}
+            <button type="button" class="message-action" title={copy.stop} aria-label={`${copy.stop} · ${assistantName}`} onclick={onStop}><StopCircle size={14} /></button>
+          {/if}
+        </div>
         <!-- The pre-card phase hint. It only covers the void between sending
              and the first streamed content: the moment thinking or an
              activity arrives, the process card below is the running

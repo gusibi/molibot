@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { createModels, createAssistantMessageEventStream, type SimpleStreamOptions, type AssistantMessage, type ImageContent, type Message, type Model } from "@earendil-works/pi-ai";
 import type { AgentOptions, AgentState, AgentEvent, AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
-import type { AgentEvent as PiEvent, ModelRef } from "@earendil-works/pi-durable";
+import type { PiConversationEvent as PiEvent } from "../durable/piConversationEvents.js";
+import type { ModelRef } from "@earendil-works/pi-durable";
 import { PiConversationRuntime, type PiConversationOptions } from "$lib/server/agent/durable/piConversation.js";
 import { decodePiNestedResult, decodePiToolDetails, encodePiToolDetails } from "$lib/server/agent/durable/piToolResult.js";
 import { getPiModels, SESSION_AFFINITY_HEADER } from "$lib/server/providers/piRuntime.js";
@@ -428,16 +429,7 @@ export class PiRunSession {
       await this.forwardTextChanges([]);
     } else if (event.type === "message_update" && this.partial) {
       const previous = this.partial.content.map(block => ({ ...block }));
-      this.partial.usage = event.usage;
-      for (const change of event.changes) {
-        if (change.type === "message") this.partial = structuredClone(change.message);
-        else if ("block" in change) this.partial.content[change.contentIndex] = structuredClone(change.block);
-        else if (change.type === "text_delta" || change.type === "thinking_delta") {
-          const block = this.partial.content[change.contentIndex];
-          if (change.type === "text_delta" && block?.type === "text") block.text += change.delta;
-          if (change.type === "thinking_delta" && block?.type === "thinking") block.thinking += change.delta;
-        }
-      }
+      this.partial = structuredClone(event.message);
       await this.forwardTextChanges(previous);
     } else if (event.type === "tool_execution_start") { this.toolArgs.set(event.toolCallId, event.args); await this.emit(event); }
     else if (event.type === "tool_execution_update") {

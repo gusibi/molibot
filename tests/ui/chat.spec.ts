@@ -387,6 +387,8 @@ test('Stop while waiting for approval permits another turn @chat @stop', async (
   replyTo(instance.model, `stopapproval ${marker}`, { type: 'toolCalls', calls: [{ name: 'write', args: { label: `probe ${marker}`, path: `ui-probe-${marker}.txt`, content: 'never' } }] });
   await sendText(page, `stopapproval ${marker}`);
   await expect(page.getByTestId('decision-card')).toBeVisible();
+  await expect(page.locator('[data-desk-expression="proactive-alert"]')).toBeVisible();
+  await expect(page.getByTestId('desk-turn-stamp')).toHaveCount(0);
   await stopButton(page).click();
   await expect(stopButton(page)).toHaveCount(0);
 

@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
-import type { JsonValue, JsonRepresentation } from "@earendil-works/chord";
+import type { JsonValue, JsonRepresentation } from "@earendil-works/chord/json";
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import { RunBudget } from "$lib/server/agent/core/runtimeBudget.js";
 import { RunBudgetStore } from "$lib/server/agent/core/runBudgetStore.js";
 import { join } from "node:path";
-import { defineDoc, defineEntry, GenerationTask, Harness, LiveDoc, NestedCallDoc, ToolTask, watchEvents,
-  AssistantEntry, UsageDoc, AgentDoc, ProviderDoc, configure as configureAgent, type AgentChange, type AgentEventStream, type Conversation, type EntryRecord, type ModelRef,
+import { defineDoc, defineEntry, DEFAULT_RESTART_LIMIT, GenerationTask, Harness, LiveDoc, NestedCallDoc, ToolTask,
+  AssistantEntry, UsageDoc, AgentDoc, ProviderDoc, configure as configureAgent, type AgentChange, type Conversation, type EntryRecord, type ModelRef,
   type UserInput, type Cursor, type TaskId, type EntryId, type ConversationId } from "@earendil-works/pi-durable";
 import { openPiStorage } from "$lib/server/agent/durable/piStorage.js";
 import { nativeNestedToolKey, type NativeInvocation, type NativeChildOptions, type NativeChildSession } from "./piInvocation.js";
+import { observePiConversation } from "./piConversationEvents.js";
 import { decodePiNestedResult, decodePiToolDetails, syntheticCommandUsage } from "./piToolResult.js";
 import { isSafeReadOnlySubagentCommand } from "$lib/server/agent/tools/subagent.js";
 import { assistantHasUsableOutput, planLengthRecovery } from "$lib/server/agent/tools/subagentRuntime.js";
@@ -66,7 +67,7 @@ export class PiConversationRuntime {
   private harness?: Harness;
   private conversation?: Conversation;
   private registryTools?: ReturnType<typeof createPiToolRegistry>;
-  private watch?: AgentEventStream;
+  private watch?: Awaited<ReturnType<typeof observePiConversation>>;
   private childRegistries: ReturnType<typeof createPiToolRegistry>[] = [];
   private requestId?: string;
   private originRunId?: string;
@@ -107,7 +108,7 @@ export class PiConversationRuntime {
     try {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       this.registryTools = createPiToolRegistry({ ...this.options, beforeCompact: async (compaction, api, context) => {
-        if (!this.explicitCompaction) return { decline: true };
+        if (!this.explicitCompaction) return { kind: "decline" };
         return this.options.beforeCompact?.(compaction, api, context);
       }, child: (invocation, child) => this.childSession(invocation, child), nested: (invocation, tool, id, args, signal) => this.nestedCall(invocation, tool, id, args, signal), onRecoveryRequired: cause => {
         this.options.onRecoveryRequired?.(cause);
@@ -143,8 +144,9 @@ export class PiConversationRuntime {
         }
         conversationsCursor = page.next;
       } while (conversationsCursor !== undefined);
+        // Pi applies retry policy to interrupted provider polls. Keep one attempt to recover the same handle.
         this.harness = await Harness.open(storage, { models: this.options.models, registry: this.registryTools.registry,
-          settings: { extensions: [], retry: { enabled: false }, compaction: { ...this.options.childCompaction, enabled: this.options.childCompaction?.enabled ?? false, backgroundTokens: 0 } } }, BACKGROUND_CONTEXT);
+          settings: { extensions: [], retry: { enabled: true, maxRetries: 1, baseDelayMs: 100 }, compaction: { ...this.options.childCompaction, enabled: this.options.childCompaction?.enabled ?? false, backgroundTokens: 0 } } }, BACKGROUND_CONTEXT);
       } catch (cause) { await storage.close(BACKGROUND_CONTEXT); throw cause; }
       this.conversation = await this.harness.root(BACKGROUND_CONTEXT, {
         agent: { extensions: [this.registryTools.registry.snapshot().extension("molibot")!], model: this.options.model, instructions: this.options.instructions, tools: this.visible(this.options.visibleTools) },
@@ -184,17 +186,16 @@ export class PiConversationRuntime {
         if (child) await this.projectChildUsage(child);
       }
       await this.project(view.entries);
-      this.watch = await watchEvents(this.harness, this.conversation.id, BACKGROUND_CONTEXT);
-      await this.project(this.watch.snapshot.entries);
-      await this.registryTools!.emitEvent(this.watch.snapshot);
-      this.watch.start(events => this.serializeProjection(async () => {
+      this.watch = await observePiConversation(this.harness, this.conversation, BACKGROUND_CONTEXT, events => this.serializeProjection(async () => {
         for (const event of events) {
           if (event.type === "task_failed") throw new Error(`Pi ${event.kind} failed: ${event.message}`);
           if (event.type === "entry_appended" || event.type === "message_end") await this.project([event.entry]);
-          else if (event.type === "snapshot") await this.project(event.entries);
           await this.registryTools!.emitEvent(event);
         }
       }));
+      await this.project(this.watch.snapshot.entries);
+      await this.registryTools!.emitEvent(this.watch.snapshot);
+      this.watch.start();
       this.timer = setInterval(() => {
         try { this.options.assertStorageOwnership(); }
         catch (cause) { this.ownershipError ??= cause; void this.abort().catch(() => undefined); }
@@ -291,7 +292,7 @@ export class PiConversationRuntime {
     }
   }
 
-  private async checkChildDeadline(api: import("@earendil-works/pi-durable").HookApi): Promise<void> {
+  private async checkChildDeadline(api: Pick<import("@earendil-works/pi-durable").HookApi, "snapshot" | "conversationId">): Promise<void> {
     const policy = await api.snapshot(ChildPolicy, api.conversationId, BACKGROUND_CONTEXT);
     if (policy?.deadlineAt && Date.now() >= policy.deadlineAt) throw new Error("Subagent exceeded its original time budget.");
   }
@@ -400,7 +401,7 @@ export class PiConversationRuntime {
         },
         child: undefined,
         beforeCompact: async (_compaction, api) => {
-          if (!this.options.childCompaction?.enabled) return { decline: true };
+          if (!this.options.childCompaction?.enabled) return { kind: "decline" };
           await this.checkChildDeadline(api);
           this.childBudget(api, "model");
           this.options.beforeChildGeneration?.(`child:${api.conversationId}:compaction:${api.taskId}`);
@@ -479,13 +480,12 @@ export class PiConversationRuntime {
       }
     };
     await refresh();
-    const watch = await watchEvents(this.harness!, child.id, context);
+
     const deferred = async (pollAt: number) => {
       this.deferredChildren.add(child.id);
       await this.options.onChildDeferred?.(pollAt);
     };
-    if (watch.snapshot.generation?.deferred) await deferred(watch.snapshot.generation.deferred.pollAt);
-    watch.start(async events => {
+    const watch = await observePiConversation(this.harness!, child, context, async events => {
       for (const event of events) {
         await refresh();
         if (event.type === "compaction_end") {
@@ -507,6 +507,8 @@ export class PiConversationRuntime {
         }
       }
     });
+    if (watch.snapshot.generation?.deferred) await deferred(watch.snapshot.generation.deferred.pollAt);
+    watch.start();
     return { state, model, sessionId: `pi-child-${child.id}`,
       subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
       prompt: async text => {
@@ -580,16 +582,17 @@ export class PiConversationRuntime {
               await refresh();
             }
           };
-          await Promise.race([execute(), stopped]);
+          await Promise.race([execute(), stopped, watch.failure]);
           if (state.runtimeStop) {
             await child.abort(BACKGROUND_CONTEXT, { background: true });
             await child.waitForIdle(BACKGROUND_CONTEXT);
             await refresh();
           }
+          await watch.flush();
         } finally { this.childStops.delete(child.id); if (timer) clearTimeout(timer); }
       },
       abort: () => child.abort(context, { background: true }),
-      dispose: async () => { const end = await watch.stop(); if (end.reason === "listener_error") throw end.error; }
+      dispose: async () => { await watch.stop(); await watch.flush(); }
     };
   }
 
@@ -692,7 +695,7 @@ export class PiConversationRuntime {
       if (live.run) throw new Error("Pi conversation is busy.");
       const taskId = await tx.createTask(GenerationTask, {}, { ownership: { kind: "conversation" } });
       await tx.appendEntry(Continuation, conversation.id, { data: { requestId, taskId } });
-      live.run = { taskId, inputs: [] };
+      live.run = { taskId, inputs: [], turns: 0 };
       return taskId;
     }, BACKGROUND_CONTEXT);
   }
@@ -710,24 +713,25 @@ export class PiConversationRuntime {
   }
 
   private async wait(work: () => Promise<void>) {
-    const displayFailure = this.watch!.closed.then(end => {
-      if (end.reason === "listener_error") throw end.error;
-      return new Promise<never>(() => undefined);
-    });
-    void displayFailure.catch(() => undefined);
+    const watch = this.watch!;
     const result = await Promise.race([work().then(() => ({ status: "idle" as const })),
-      this.suspended.then(({ requestId }) => ({ status: "waiting_for_approval" as const, requestId })), displayFailure]);
+      this.suspended.then(({ requestId }) => ({ status: "waiting_for_approval" as const, requestId })), watch.failure]);
     this.requireConversation();
     if (this.suspensionFailure) throw this.suspensionFailure;
+    await watch.flush();
     await this.serializeProjection(async () => this.project((await this.context()).entries));
     return result;
   }
 
   private async assertRecovery(): Promise<void> {
     const inspection = await this.harness!.inspect(BACKGROUND_CONTEXT);
+    const live = await this.harness!.snapshot(LiveDoc, this.conversation!.id, BACKGROUND_CONTEXT);
+    if (live?.runFailure?.reason === "restart_limit") {
+      throw new Error(`Pi task ${live.runFailure.taskId} is paused after repeated interruptions without progress. Review the execution before retrying.`);
+    }
     const approved = new Set(this.options.approvedRecoveryCallIds ?? []);
-    for (const { record, state } of inspection.tasks) {
-      if (state.kind === "blocked" && state.reason === "restart_limit") {
+    for (const { record } of inspection.tasks) {
+      if ((record.restarts ?? 0) >= DEFAULT_RESTART_LIMIT) {
         throw new Error(`Pi task ${record.id} is paused after repeated interruptions without progress. Review the execution before retrying.`);
       }
       if (record.kind !== ToolTask.definition.name || !("checkpoint" in record.state)) continue;
@@ -796,6 +800,7 @@ export class PiConversationRuntime {
       const task = await this.requireConversation().compact(instructions, BACKGROUND_CONTEXT);
       const settled = await this.harness!.waitForTask(task, BACKGROUND_CONTEXT);
       if (!("result" in settled.state.outcome)) throw new Error("Native compaction did not complete.");
+      await this.watch!.flush();
       await this.serializeProjection(async () => this.project((await this.context()).entries));
     } finally { this.explicitCompaction = false; }
   }

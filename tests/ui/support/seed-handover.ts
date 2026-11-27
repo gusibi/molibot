@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { storagePaths } from '../../../src/lib/server/infra/db/storage.js';
@@ -7,6 +7,8 @@ import { SqliteTraceStore } from '../../../src/lib/server/agent/hooks/traceStore
 import { getEventExecutionLeaseStore } from '../../../src/lib/server/agent/eventsLeaseStore.js';
 import { HostBashStore } from '../../../src/lib/server/hostBash/store.js';
 import { MemoryCandidateStore } from '../../../src/lib/server/memory/candidateStore.js';
+import { HomeNotificationStore } from '../../../src/lib/server/app/homeNotifications.js';
+import { recordTaskHomeNotification } from '../../../src/lib/server/app/homeNotificationWriters.js';
 import { SessionStore } from '../../../src/lib/server/sessions/store.js';
 import { assertIsolatedDataDir, isInsideDir } from './guard.js';
 
@@ -46,14 +48,29 @@ function seedSession(): string {
 
 
 const leases = getEventExecutionLeaseStore();
+const notifications = new HomeNotificationStore();
+const seedEventsDir = join(dataDir, 'sessions', 'default', 'events');
+const seedTaskPrefix = 'ui-home-';
 
 /** A completed scheduled task: the only kind of item the home counts as a result. */
 function seedCompletedTask(input: { sessionId: string; text: string; finishedAt: Date; runId: string; taskId: string; preview?: string; display?: unknown; triggerSlot?: string }): void {
   const startedAt = new Date(input.finishedAt.getTime() - 45_000);
+  mkdirSync(seedEventsDir, { recursive: true });
+  writeFileSync(join(seedEventsDir, `${seedTaskPrefix}${input.taskId}.json`), JSON.stringify({
+    type: 'periodic',
+    taskId: input.taskId,
+    agentId: 'default',
+    enabled: false,
+    chatId: 'web:personal:web-anonymous',
+    text: input.text,
+    schedule: '0 8 * * *',
+    timezone: 'UTC',
+    status: { state: 'executed', runCount: 1 },
+  }));
   const acquired = leases.acquire({
     now: startedAt,
     leaseScope: "agent:default",
-    eventFile: `${input.taskId}.json`,
+    eventFile: `${seedTaskPrefix}${input.taskId}.json`,
     eventType: "periodic",
     triggerSlot: input.triggerSlot ?? `seed:${input.taskId}`,
     chatId: "web:personal:web-anonymous",
@@ -71,6 +88,7 @@ function seedCompletedTask(input: { sessionId: string; text: string; finishedAt:
     ...(input.display ? { display: input.display } : {}),
     delivery: { status: "not_required", channel: "web", at: input.finishedAt.toISOString() }
   }, input.finishedAt);
+  recordTaskHomeNotification(notifications, { taskId: input.taskId, executionId: acquired.id, text: input.text, status: 'success' });
 }
 
 function resetHandoverState(): void {
@@ -89,6 +107,16 @@ function resetHandoverState(): void {
   } finally {
     db.close();
   }
+  const notificationDb = new DatabaseSync(storagePaths.notificationsDbFile);
+  try {
+    notificationDb.exec('DELETE FROM home_notifications');
+  } finally {
+    notificationDb.close();
+  }
+  mkdirSync(seedEventsDir, { recursive: true });
+  for (const name of readdirSync(seedEventsDir)) {
+    if (name.startsWith(seedTaskPrefix)) rmSync(join(seedEventsDir, name));
+  }
   // The quiet scenario writes a task file; other scenarios must not inherit it.
   rmSync(join(String(dataDir), 'sessions', 'default', 'events', 'task-handover-quiet.json'), { force: true });
   const store = new SettingsStore();
@@ -99,7 +127,7 @@ function resetHandoverState(): void {
 }
 
 resetHandoverState();
-if (scenario !== 'memory') {
+if (scenario !== 'memory' && scenario !== 'memory-comparison') {
   const memorySettings = new SettingsStore();
   const saved = memorySettings.load();
   saved.plugins.memory.enabled = false;
@@ -228,17 +256,14 @@ if (scenario === 'busy') {
     eventPayloadJson: JSON.stringify({ text: "Check the invoices" })
   });
   if (!failed) throw new Error("Could not seed the failed task");
-  leases.markFailed(
-    failed.id,
-    "handover-busy-failure",
-    [
+  const failure = [
       "Run failed after model attempts:",
       'provider=cli-proxy-api, model=deepseek-v4.1-flash, baseUrl=https://proxy.example.invalid/v1, endpoint=https://proxy.example.invalid/v1/chat/completions, type=request_error, error=503: '
         + '{"message":"auth_unavailable: no auth available","type":"server_error","code":"internal_server_error"}',
       "Run budget exceeded: too many model failures (6/6)."
-    ].join(" | "),
-    now
-  );
+    ].join(" | ");
+  leases.markFailed(failed.id, "handover-busy-failure", failure, now);
+  recordTaskHomeNotification(notifications, { taskId: "handover-busy-failure", executionId: failed.id, text: "Check the invoices", status: "error", error: failure });
 
   const hostBash = new HostBashStore();
   for (let index = 1; index <= 6; index += 1) {
@@ -362,7 +387,7 @@ if (scenario === 'typed') {
   });
 }
 
-if (scenario === 'memory') {
+if (scenario === 'memory' || scenario === 'memory-comparison') {
   const settingsStore = new SettingsStore();
   const settings = settingsStore.load();
   settings.plugins.memory.enabled = true;
@@ -383,8 +408,12 @@ if (scenario === 'memory') {
       candidates.create({ namespace: 'owner:owner', domain: 'owner', type: 'user_preference',
         subject: `home_review_${now.getTime()}_${index}`, path: `mory://user_preference/home_review_${now.getTime()}_${index}`, value,
         confidence: 0.9, reason: 'Explicit preference in the source conversation', layer: 'long_term',
-        runKey: 'home-review-ui', sources: [{ channel: 'web', sessionId, conversationMessageId: source.id }] });
+        runKey: 'home-review-ui',
+        ...(scenario === 'memory-comparison' && index === 0 ? { supersedesMemoryId: 'comparison-original' } : {}),
+        sources: [{ channel: 'web', sessionId, conversationMessageId: source.id }] });
     }
   } finally { candidates.close(); }
   seedCompletedTask({ sessionId, text: 'Daily research briefing', finishedAt: now, runId: 'memory-brief-run', taskId: 'memory-brief', preview: 'The report and its supporting notes are ready.' });
 }
+
+notifications.close();

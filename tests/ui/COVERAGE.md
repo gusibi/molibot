@@ -10,6 +10,31 @@
 - 本次改动需要的验证：`pnpm verify:feature`
 - 原生 App 核心测试：`pnpm test:app`（尚未建设，见下）
 
+## Agent 首页「Momo 的办公桌」（2026-11-26）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 表情随真实状态的优先级（停用 > 待拍板 > 运行中 > 出错 / 离线 > 未读成果 > 夜间休息 > 初次见面 > 空闲），每个表情都有导出素材 | 已实现 | 纯函数 | `apps/desktop/src/lib/chat/homePresence.test.ts` |
+| 时段问候、初次见面问候、离开时长阈值、交代句只统计真实卡片数、中英文单复数 | 已实现 | 纯函数 | `apps/desktop/src/lib/chat/homePresence.test.ts` |
+| 表情素材透明底、尺寸受限、与生成器输出逐字节一致 | 已实现 | 生成器 + 临时目录 | `scripts/generate-momo-expressions.test.py` |
+| 首页结构：舞台、问候、纸条输入框、紧凑在场、房间不替换表情、桌面 token 回退、无障碍降级 | 已实现 | 源码结构守卫 | `apps/desktop/src/chat-ui.test.mjs` |
+| 角色动效同时列入减少动态与低性能两份降级清单 | 已实现 | 源码结构守卫 | `apps/desktop/src/motion-system.test.mjs` |
+| 首页身份、舞台与两栏布局、快捷提示、最近对话、中英明暗、390px 窄窗无横向溢出、切换 Agent 与刷新后保持 | 已实现 | 浏览器 UI + 隔离会话 | `agent-home.spec.ts`、`agent-home-cards.spec.ts`、`agent-home-link.spec.ts` |
+| 切换 Agent 后计数和表情归属、首张卡片到达时保留输入焦点与草稿、打开总览时记录离开 | 已实现 | Chromium / WebKit + 隔离业务记录 | `agent-home.spec.ts` 对应回归 |
+| 隔离 Tauri 冷启动、860px 窄窗、头像跳转、切换 Agent、焦点和服务断连恢复 | 已实现 | macOS 隔离原生窗口 + 本地假模型 | 独立应用标识的开发构建走查 |
+| Safari 首次打开、切换 Agent 后清除旧计数、返回 Momo 后恢复动态区 | 已实现 | macOS Safari 私密窗口 + 隔离业务记录 | 手动走查 |
+| 当前运行实例与完整原生自动化 | 待验证 | 原生 App | — |
+
+`chat-ui.test.mjs` 的 82 条失败与改版前日志逐项一致。`chat.spec.ts` 的 6 条失败也在改版前的 Git 版本前端重现，使用同一个隔离后端构建和本地假模型。五条等待失败或超时反馈，一条等待切回后台回复的会话。
+
+## Agent 对话「Momo 的办公桌」二期（2026-11-27）
+
+| 场景 | 状态 | 负责层 | 用例 |
+|---|---|---|---|
+| 纸条、实时思考表情、最终回执盖章、重开历史静态显示、低性能模式及停止状态 | 已实现 | Chromium / WebKit + 隔离模型 | `momo-desk-chat.spec.ts` |
+| macOS 明暗、飞书、Brutalism、Terminal、Windows 98 和主题导入后的 token 回退，窄窗无横向溢出 | 已实现 | Chromium / WebKit + 主题计算样式 | `momo-desk-chat.spec.ts` |
+| 等待审批和自定义头像 | 已实现 | Chromium / WebKit + 隔离审批与 Agent 设置 | `chat.spec.ts`、`momo-desk-chat.spec.ts` |
+
 ## 安装与对话反馈回归（2026-11-16）
 
 | 场景 | 状态 | 负责层 | 用例 |
@@ -26,13 +51,13 @@
 |---|---|---|---|
 | 冷启动后上方保持搜索结果、下方显示 Markdown，连续点击切换文件、目录延迟不阻塞预览、Enter 定位长文件、文件删除报错仍保留列表、Escape 返回文件树并保留预览、切换会话与服务恢复 | 已实现 | 浏览器 UI + 隔离项目与真实文件接口 | `project-file-search.spec.ts` |
 
-## Agent 首页与记忆审核（2026-11-01）
+## Agent 首页与记忆审核
 
 | 场景 | 状态 | 负责层 | 用例 |
 |---|---|---|---|
 | 跨平台摘要信号带、单行最近对话（宽窗两条、窄窗一条）、共享会话行键盘打开与右键菜单、全部历史入口、快捷提示填入草稿、中英明暗、窄窗与隔离服务重启 | 已实现 | 浏览器 UI + 隔离会话，文案采用可控响应 | `agent-home-cards.spec.ts` |
-| 身份、输入区、跨平台汇总及成果/待决定双栏和响应式操作 | 已实现 | 浏览器 UI + 隔离业务记录 | `agent-home.spec.ts` 对应定向用例 |
-| 成果与待确认内容在上、输入区在下，候选来源、编辑确认、忽略、实际保存回读、跨页重载及断连后原地恢复 | 已实现 | 浏览器 UI + 原记忆存储与动作 | `agent-home.spec.ts` 的 `@home-memory` 用例；连续五次验证 |
+| 单列工作台、输入区在动态区之前、审批命令、会话定位、准确执行预览、独立撤销窗口和服务恢复 | 已实现 | 浏览器 UI + 隔离业务记录 | `agent-home.spec.ts` 对应定向用例 |
+| 首页待确认数量、跳转记忆中心、比较原记忆、编辑确认并回读、返回后刷新数量并保留草稿 | 已实现 | 浏览器 UI + 原记忆存储与动作 | `agent-home.spec.ts` 的 `@home-memory` 用例 |
 | 原生 Tauri 窗口及当前运行实例 | 待验证 | 原生 App | — |
 
 ## 记忆概览（2026-10-31）

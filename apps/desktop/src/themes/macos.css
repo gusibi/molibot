@@ -216,3 +216,34 @@
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .automation-task-card-title { color: var(--label-primary); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active :is(.row-outcome, .task-schedule-line, .task-target-pill, .task-next-run-hint) { color: var(--label-secondary); }
 :root[data-theme-family="macos"] [data-theme-region="chat"] .automation-task-row.active .workspace-row-error { color: var(--danger); }
+
+/* The desk. Only the default family warms the paper and lights the lamp; every
+   other family keeps its own surfaces through the base fallbacks in
+   styles.css. Structure (stage, greeting, notes, stamps) is shared. */
+:root[data-theme-family="macos"] {
+  --desk-paper: #fffdf9;
+  --desk-note-bg: #fff1d9;
+  --desk-note-corner: 2px;
+  --desk-note-text: var(--label-primary);
+  --desk-note-border: color-mix(in srgb, var(--label-primary) 16%, var(--desk-note-bg));
+  --desk-note-fold: color-mix(in srgb, var(--label-primary) 13%, var(--desk-note-bg));
+  --desk-cloth: rgb(255 232 196 / 18%);
+  --desk-edge: rgb(255 255 255 / 60%);
+  --desk-shadow: 0 1px 2px rgb(60 42 12 / 6%), 0 10px 30px -18px rgb(60 42 12 / 34%);
+  --desk-lamp: rgb(255 203 126 / 40%);
+  --desk-tape: rgb(236 178 92 / 58%);
+  --desk-stamp: #1b7d44;
+  --desk-ground: rgb(56 36 8 / 30%);
+}
+
+:root[data-theme-family="macos"][data-resolved-appearance="dark"] {
+  --desk-paper: #2a2722;
+  --desk-note-bg: #352c21;
+  --desk-cloth: rgb(255 170 90 / 5%);
+  --desk-edge: rgb(255 255 255 / 4%);
+  --desk-shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 12px 32px -18px rgb(0 0 0 / 70%);
+  --desk-lamp: rgb(255 160 70 / 22%);
+  --desk-tape: rgb(240 186 104 / 30%);
+  --desk-stamp: #6fd99a;
+  --desk-ground: rgb(0 0 0 / 60%);
+}

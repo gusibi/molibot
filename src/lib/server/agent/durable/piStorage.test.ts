@@ -67,3 +67,25 @@ test("a failed migration backup leaves schema v1 untouched", { skip: process.pla
     assert.equal(schemaVersion(file), 1);
   } finally { chmodSync(directory, 0o700); rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("a Pi 1.4 database gets a rollback snapshot before the 1.6 task format is enabled", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "molibot-pi-task-format-"));
+  const file = join(directory, "pi.sqlite");
+  const legacy = await openNodeSqliteDatabase(file, { walAutoCheckpointPages: 0 });
+  try {
+    await applySqliteMigrations(legacy);
+    await legacy.exec("CREATE TABLE upgrade_probe (value TEXT); INSERT INTO upgrade_probe VALUES ('old data')");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const storage = await openPiStorage(file);
+      await storage.close(BACKGROUND_CONTEXT);
+    }
+    const backups = readdirSync(directory).filter(name => name.includes("backup-pi-before-1.6") && name.endsWith(".sqlite"));
+    assert.equal(backups.length, 1);
+    const snapshot = new DatabaseSync(join(directory, backups[0]), { readOnly: true });
+    try {
+      assert.equal(snapshot.prepare("PRAGMA user_version").get()?.user_version, 0);
+      assert.equal(snapshot.prepare("SELECT value FROM upgrade_probe").get()?.value, "old data");
+      assert.equal(snapshot.prepare("PRAGMA integrity_check").get()?.integrity_check, "ok");
+    } finally { snapshot.close(); }
+  } finally { await legacy.close(); rmSync(directory, { recursive: true, force: true }); }
+});

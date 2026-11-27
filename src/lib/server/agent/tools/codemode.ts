@@ -7,8 +7,8 @@ import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { Models } from "@earendil-works/pi-ai";
-import type { ToolExecutionApi, NestedToolExecutionResult } from "@earendil-works/pi-durable";
-import type { JsonValue } from "@earendil-works/chord";
+import type { ToolExecutionApi, NestedToolCall, NestedToolExecutionResult } from "@earendil-works/pi-durable";
+import type { JsonValue } from "@earendil-works/chord/json";
 import type { ModelOperations } from "$lib/server/agent/models/modelOperations.js";
 import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 
@@ -72,6 +72,64 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<any> {
         await mkdir(options.artifactDir, { recursive: true });
         return { ok: true, value: await mkdtemp(join(options.artifactDir, prefix ?? "pi-codemode-")) };
       };
+      type NestedOptions = { key?: string; progress?: boolean; wait?: boolean };
+      function executeTool(name: string, args: Parameters<ToolExecutionApi["executeTool"]>[1], ctx: typeof context,
+        nested: NestedOptions & { wait: false }): Promise<NestedToolCall>;
+      function executeTool(name: string, args: Parameters<ToolExecutionApi["executeTool"]>[1], ctx: typeof context,
+        nested?: { key?: string; progress?: boolean; wait?: true }): Promise<NestedToolExecutionResult>;
+      async function executeTool(name: string, args: Parameters<ToolExecutionApi["executeTool"]>[1], _ctx: typeof context,
+        nested?: NestedOptions): Promise<NestedToolExecutionResult | NestedToolCall> {
+        if (nested?.wait === false) throw new Error("Codemode host calls must await their result.");
+        const id = `${toolCallId}:codemode:${nested?.key?.replace(/^c/, "")}`;
+        invocationIds.push(id);
+        const work = (async (): Promise<NestedToolExecutionResult> => {
+          ownedSignal.throwIfAborted();
+          const tool = tools.find(tool => tool.name === name);
+          const modelTool = modelTools.find(tool => tool.name === name);
+          if (modelTool && options.models) {
+            // Keep official model argument validation and results, but route paid calls
+            // through the host's owned model tools for approval, budget and media usage.
+            const models = new Proxy(bridge.models, { get(target, key) {
+              if (key === "classify") return async (model: { provider: string; id: string }, input: any) => {
+                if (input.images?.length) throw new Error("Classifier reference images are not supported by this host.");
+                const value = await options.models!.classify({ model: `classifier|${model.provider}|${model.id}`, state: input.state, questions: input.questions }, ownedSignal, id);
+                return { ...value, provider: model.provider, model: model.id, stopReason: "stop", timestamp: Date.now() };
+              };
+              if (key === "generateImages") return async (model: { provider: string; id: string }, input: any) => {
+                const value = await options.models!.generateImages({ model: `image|${model.provider}|${model.id}`,
+                  prompt: input.input.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n"),
+                  images: input.input.filter((block: any) => block.type === "image").map((block: any) => `data:${block.mimeType};base64,${block.data}`) }, ownedSignal, id);
+                for (const image of value.images) imageRefs.set(image.data.replace(/\s+/g, ""), image.ref);
+                return { provider: model.provider, model: model.id, output: [...(value.text ? [{ type: "text", text: value.text }] : []), ...value.images], usage: value.usage, stopReason: "stop", timestamp: Date.now() };
+              };
+              const value = Reflect.get(target, key);
+              return typeof value === "function" ? value.bind(target) : value;
+            } });
+            const value = await modelTool.execute!(args, { ...bridge, models }, ownedContext);
+            return { taskId: api.taskId, structuredOutput: value.structuredOutput, isError: Boolean(value.isError), diagnostics: value.diagnostics ?? [] };
+          }
+          if (!tool) throw new Error("Tool is not available to this script.");
+          const outcome = await options.invoke(tool, id, args, ownedSignal);
+          const result = outcome.result as AgentToolResult<unknown> & { terminate?: boolean; error?: string; metadata?: Record<string, unknown> };
+          if (result.terminate) {
+            suspension = result;
+            controller.abort(new Error("Codemode awaits a decision."));
+            throw new Error("Codemode awaits a decision.");
+          }
+          const isError = outcome.isError || Boolean(result.error);
+          const error = result.error || result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+          return { taskId: api.taskId, ...(!isError ? { structuredOutput: JSON.parse(JSON.stringify(result)) as JsonValue } : {}),
+            isError, diagnostics: isError ? [{ severity: "error", message: error || "Tool call failed." }] : [] };
+        })().catch(error => {
+          const suspended = (error as { suspendedResult?: typeof suspension }).suspendedResult;
+          if (suspended) { suspension = suspended; controller.abort(error); }
+          if (ownedSignal.aborted) throw error;
+          return { taskId: api.taskId, isError: true, diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : String(error) }] } satisfies NestedToolExecutionResult;
+        });
+        pending.add(work);
+        void work.finally(() => pending.delete(work)).catch(() => {});
+        return work;
+      }
       const bridge: ToolExecutionApi = {
         ...api, env,
         agent: async ctx => ({ ...await api.agent(ctx), callable: [
@@ -79,57 +137,7 @@ export function createCodemodeTool(options: CodemodeOptions): AgentTool<any> {
           ...modelTools
         ] } as Awaited<ReturnType<ToolExecutionApi["agent"]>>),
         models: options.modelCatalog ?? api.models,
-        executeTool: (name, args, _ctx, nested) => {
-          const id = `${toolCallId}:codemode:${nested?.key?.replace(/^c/, "")}`;
-          invocationIds.push(id);
-          const work = (async (): Promise<NestedToolExecutionResult> => {
-            ownedSignal.throwIfAborted();
-            const tool = tools.find(tool => tool.name === name);
-            const modelTool = modelTools.find(tool => tool.name === name);
-            if (modelTool && options.models) {
-              // Keep official model argument validation and results, but route paid calls
-              // through the host's owned model tools for approval, budget and media usage.
-              const models = new Proxy(bridge.models, { get(target, key) {
-                if (key === "classify") return async (model: { provider: string; id: string }, input: any) => {
-                  if (input.images?.length) throw new Error("Classifier reference images are not supported by this host.");
-                  const value = await options.models!.classify({ model: `classifier|${model.provider}|${model.id}`, state: input.state, questions: input.questions }, ownedSignal, id);
-                  return { ...value, provider: model.provider, model: model.id, stopReason: "stop", timestamp: Date.now() };
-                };
-                if (key === "generateImages") return async (model: { provider: string; id: string }, input: any) => {
-                  const value = await options.models!.generateImages({ model: `image|${model.provider}|${model.id}`,
-                    prompt: input.input.filter((block: any) => block.type === "text").map((block: any) => block.text).join("\n"),
-                    images: input.input.filter((block: any) => block.type === "image").map((block: any) => `data:${block.mimeType};base64,${block.data}`) }, ownedSignal, id);
-                  for (const image of value.images) imageRefs.set(image.data.replace(/\s+/g, ""), image.ref);
-                  return { provider: model.provider, model: model.id, output: [...(value.text ? [{ type: "text", text: value.text }] : []), ...value.images], usage: value.usage, stopReason: "stop", timestamp: Date.now() };
-                };
-                const value = Reflect.get(target, key);
-                return typeof value === "function" ? value.bind(target) : value;
-              } });
-              const value = await modelTool.execute!(args, { ...bridge, models }, ownedContext);
-              return { taskId: api.taskId, structuredOutput: value.structuredOutput, isError: Boolean(value.isError), diagnostics: value.diagnostics ?? [] };
-            }
-            if (!tool) throw new Error("Tool is not available to this script.");
-            const outcome = await options.invoke(tool, id, args, ownedSignal);
-            const result = outcome.result as AgentToolResult<unknown> & { terminate?: boolean; error?: string; metadata?: Record<string, unknown> };
-            if (result.terminate) {
-              suspension = result;
-              controller.abort(new Error("Codemode awaits a decision."));
-              throw new Error("Codemode awaits a decision.");
-            }
-            const isError = outcome.isError || Boolean(result.error);
-            const error = result.error || result.content.filter(block => block.type === "text").map(block => block.text).join("\n");
-            return { taskId: api.taskId, ...(!isError ? { structuredOutput: JSON.parse(JSON.stringify(result)) as JsonValue } : {}),
-              isError, diagnostics: isError ? [{ severity: "error", message: error || "Tool call failed." }] : [] };
-          })().catch(error => {
-            const suspended = (error as { suspendedResult?: typeof suspension }).suspendedResult;
-            if (suspended) { suspension = suspended; controller.abort(error); }
-            if (ownedSignal.aborted) throw error;
-            return { taskId: api.taskId, isError: true, diagnostics: [{ severity: "error", message: error instanceof Error ? error.message : String(error) }] } satisfies NestedToolExecutionResult;
-          });
-          pending.add(work);
-          void work.finally(() => pending.delete(work)).catch(() => {});
-          return work;
-        }
+        executeTool
       };
       try {
         const result = await official.execute!(params, bridge, ownedContext);

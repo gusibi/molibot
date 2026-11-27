@@ -236,6 +236,14 @@
   --lh-heading: 22px;
   --fs-page: 22px;
   --lh-page: 28px;
+  /* The home hello and the one sentence under it. `display` is the largest
+     type in the app and belongs to that greeting alone. */
+  --fs-display: 32px;
+  --lh-display: 40px;
+  --fs-hero: 26px;
+  --lh-hero: 32px;
+  --fs-lead: 16px;
+  --lh-lead: 26px;
   /* Dialog presentation ranks. `section` is the headline a dialog card or
      inspector panel leads with; `body-lg` is the reading/date rank for dialog
      content that must stay legible at arm's length (project settings,
@@ -8201,6 +8209,70 @@ textarea:disabled {
   border-color: var(--bubble-mine-border);
   background: var(--bubble-mine-bg);
   box-shadow: var(--soft-shadow);
+}
+
+.message-row.mine .desk-user-note {
+  position: relative;
+  color: var(--desk-note-text, var(--bubble-mine-text));
+  background: var(--desk-note-bg, var(--bubble-mine-bg));
+  border-color: var(--desk-note-border, var(--bubble-mine-border));
+  border-start-end-radius: var(--desk-note-corner, var(--rounded-md));
+}
+
+.desk-user-note::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: 10px;
+  height: 10px;
+  border-start-end-radius: inherit;
+  background: var(--desk-note-fold, color-mix(in srgb, var(--bubble-mine-text) 17%, transparent));
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  pointer-events: none;
+}
+
+.desk-turn-avatar,
+.desk-agent-avatar .agent-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+}
+
+.desk-turn-avatar {
+  border-radius: 0;
+  object-fit: contain;
+}
+
+.message-row.assistant .desk-turn-meta {
+  flex-wrap: wrap;
+  opacity: 1;
+}
+
+.desk-turn-stamp {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--rounded-sm);
+  color: var(--desk-stamp);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.desk-turn-stamp--arrived {
+  animation: motion-desk-turn-stamp var(--duration-normal) var(--ease-spring);
+}
+
+@keyframes motion-desk-turn-stamp {
+  from {
+    transform: translateY(-3px) scale(1.16);
+    opacity: .2;
+  }
 }
 
 .attachment-strip {
@@ -28753,8 +28825,7 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   animation: motion-content-handoff var(--duration-fast) var(--ease-standard) both;
 }
 
-.agent-home-work-detail,
-.notification-expanded-result {
+.agent-home-work-detail {
   animation: motion-disclosure-in var(--duration-fast) var(--ease-standard) both;
 }
 
@@ -28830,7 +28901,15 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .agent-home-undo-bar,
   .agent-home-live-inline,
   .agent-home-avatar-action,
-  .notification-expanded-result,
+  .momo-stage,
+  .momo-motion,
+  .momo-portrait--hop,
+  .momo-art,
+  .momo-bubble,
+  .momo-bubble i,
+  .momo-zzz span,
+  .agent-home-stamp,
+  .desk-turn-stamp--arrived,
   .prompt-navigation-line {
     animation: none !important;
     transition: none !important;
@@ -28884,7 +28963,15 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   .agent-home-undo-bar,
   .agent-home-live-inline,
   .agent-home-avatar-action,
-  .notification-expanded-result,
+  .momo-stage,
+  .momo-motion,
+  .momo-portrait--hop,
+  .momo-art,
+  .momo-bubble,
+  .momo-bubble i,
+  .momo-zzz span,
+  .agent-home-stamp,
+  .desk-turn-stamp--arrived,
   .prompt-navigation-line,
   .installed-skills-grid,
   .skills-detail,
@@ -29791,26 +29878,170 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   padding: 32px 24px;
 }
 
-.agent-home {
-  width: 100%;
-  max-width: var(--message-content-width);
-  margin: 0 auto;
-  padding-top: max(0px, calc(50cqh - 270px));
+/* ───────────────────────────────────────────────────────────────────────────
+   Agent home: Momo's desk
+   The home is a desk, not a form. Momo sits in a pool of lamp light and speaks
+   first; what is handed over or delivered is paper. The structure is the same
+   in every theme family. The warmth is a set of desk tokens: a family may
+   define them (themes/macos.css does), and otherwise they fall back to that
+   family's own surfaces.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --desk-paper: var(--card-bg);
+  --desk-cloth: transparent;
+  --desk-edge: transparent;
+  --desk-shadow: var(--soft-shadow);
+  --desk-lamp: transparent;
+  --desk-tape: transparent;
+  --desk-stamp: var(--label-primary);
+  --desk-ground: rgb(0 0 0 / 26%);
 }
 
-.agent-home.agent-home--has-feed {
+/* The home spans the workspace so light and cloth reach the edges; the sheet
+   keeps the reading width. It is also the query container that moves Momo
+   above the sentence on a narrow desk. */
+/* Stays `position: static` on purpose: the light below is positioned against
+   the workspace column instead of the home, so it covers the scroll area
+   including its padding, keeps its size when the home grows, and adds no
+   scrollable overflow to the home on a narrow window. */
+.agent-home {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  margin: 0 auto;
+  container-type: inline-size;
+  container-name: agent-home;
+}
+
+/* Auto margins centre a short desk and collapse to nothing when it overflows,
+   so a long desk still starts at the top instead of losing its first rows. */
+.agent-home-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 1040px;
+  margin: auto auto;
+  padding: 24px 0 48px;
+}
+
+.agent-home--has-feed .agent-home-sheet {
+  max-width: 872px;
+  margin-top: 0;
   padding-top: 28px;
 }
 
-.agent-home-identity--compact {
-  margin-bottom: 20px;
+/* A cloth over the desk and one static pool of lamp light. Both are
+   atmosphere, never information, so they leave when the owner asks for more
+   contrast or less transparency. The light is a real element rather than a
+   negative-layer pseudo-element: `.chat-content` paints an opaque background
+   in the same stacking context and would hide it. */
+.chat-start-page:has(> .agent-home) {
+  background-image: linear-gradient(var(--desk-cloth), var(--desk-cloth));
 }
 
-.agent-home-identity--compact .agent-avatar {
-  width: 72px;
-  height: 72px;
-  flex-basis: 72px;
-  border-radius: 50%;
+/* On a full desk the pool is sized in pixels so it does not stretch with the
+   list of cards. */
+.agent-home-light {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(28% 32% at 18% 50%, var(--desk-lamp), transparent 100%);
+}
+
+.agent-home--has-feed .agent-home-light {
+  background: radial-gradient(560px 300px at 50% 0%, var(--desk-lamp), transparent 100%);
+}
+
+html[data-increased-contrast="true"] .chat-start-page:has(> .agent-home),
+html[data-increased-contrast="true"] .agent-home-light,
+html[data-reduced-transparency="true"] .chat-start-page:has(> .agent-home),
+html[data-reduced-transparency="true"] .agent-home-light {
+  background-image: none;
+}
+
+/* Quiet, or busy with one task: Momo is the content and sits beside what it says. */
+.agent-home-layout {
+  display: grid;
+  grid-template-columns: minmax(180px, 340px) minmax(0, 1fr);
+  gap: clamp(24px, 5cqi, 56px);
+  align-items: center;
+}
+
+.agent-home-stage {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.agent-home-stage .momo-stage:not(.momo-stage--pin) {
+  width: min(100%, 340px);
+}
+
+.agent-home-desk {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-home-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 4px;
+  text-align: left;
+}
+
+/* Keep the same composer and stage nodes when rows arrive asynchronously. */
+.agent-home--has-feed .agent-home-layout {
+  position: relative;
+  display: block;
+}
+
+.agent-home--has-feed .agent-home-stage {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+}
+
+.agent-home-identity--compact {
+  min-height: 72px;
+  padding-inline-start: 90px;
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 0;
+}
+
+.agent-home-hello {
+  margin: 0;
+  color: var(--label-primary);
+  font-size: var(--fs-display);
+  line-height: var(--lh-display);
+  font-weight: 600;
+  letter-spacing: normal;
+  text-wrap: balance;
+}
+
+.agent-home-identity--compact .agent-home-hello {
+  font-size: var(--fs-hero);
+  line-height: var(--lh-hero);
+}
+
+.agent-home .agent-home-say {
+  max-width: 34em;
+  margin: 0;
+  color: var(--label-secondary);
+  font-size: var(--fs-lead);
+  line-height: var(--lh-lead);
+  text-wrap: pretty;
+}
+
+.agent-home .agent-home-live-inline.agent-home-say {
+  gap: 9px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .agent-home-live-inline {
@@ -29831,44 +30062,6 @@ html[data-increased-contrast="true"] .settings-sidebar::before {
   text-align: left;
 }
 
-button.agent-home-live-inline {
-  cursor: pointer;
-  transition: background var(--duration-instant) var(--ease-standard), color var(--duration-instant) var(--ease-standard);
-}
-
-button.agent-home-live-inline:hover {
-  background: var(--fill-hover);
-  color: var(--text-primary);
-}
-
-button.agent-home-live-inline:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.agent-home-identity {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 28px;
-  text-align: center;
-}
-
-.agent-home-identity .agent-avatar {
-  width: 96px;
-  height: 96px;
-  flex-basis: 96px;
-  border-radius: 50%;
-}
-
-.agent-home-identity h1 {
-  margin: 0;
-  font-size: var(--fs-page);
-  line-height: var(--lh-page);
-  letter-spacing: var(--tracking-tight);
-}
-
 .agent-home-greeting {
   max-width: 560px;
   margin: 0;
@@ -29878,9 +30071,425 @@ button.agent-home-live-inline:focus-visible {
   line-height: var(--lh-body);
 }
 
+.agent-home .agent-home-compose-area {
+  max-width: none;
+  margin: 24px 0 0;
+}
+
+.agent-home--has-feed .agent-home-compose-area {
+  margin-top: 20px;
+}
+
+/* The composer is a slip of paper taped to the desk. It keeps the shared
+   composer's geometry, glass layer and focus ring; only its surface changes. */
 .agent-home .composer-wrap {
+  position: relative;
   max-width: none;
   padding: 0;
+}
+
+.agent-home .composer {
+  border-color: var(--hairline);
+  border-radius: 18px;
+}
+
+.agent-home .composer::before {
+  background: var(--desk-paper);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: var(--desk-shadow), inset 0 1px 0 var(--desk-edge);
+}
+
+.agent-home .composer-wrap::before {
+  content: "";
+  position: absolute;
+  top: -9px;
+  left: 36px;
+  z-index: 1;
+  width: 64px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--desk-tape);
+  transform: rotate(-3.5deg);
+  pointer-events: none;
+}
+
+.agent-home--has-feed .composer-wrap::before {
+  content: none;
+}
+
+/* ── Momo on the desk ─────────────────────────────────────────────────────── */
+.momo-stage {
+  position: relative;
+  z-index: 0;
+  display: grid;
+  place-items: end center;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.momo-stage--pin {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  aspect-ratio: auto;
+}
+
+.momo-motion {
+  position: relative;
+  display: grid;
+  place-items: end center;
+  width: 88%;
+  animation: motion-momo-arrive var(--duration-panel) var(--ease-spring) both;
+}
+
+.momo-stage--badge .momo-motion {
+  width: 72%;
+}
+
+.momo-stage--bust .momo-motion {
+  width: 94%;
+}
+
+.momo-stage--avatar .momo-motion {
+  width: 58%;
+}
+
+.momo-stage--pin .momo-motion {
+  width: 100%;
+}
+
+.momo-stage--pin.momo-stage--badge .momo-motion {
+  width: 84%;
+}
+
+.momo-stage--pin.momo-stage--avatar .momo-motion {
+  width: 100%;
+}
+
+.momo-portrait--hop {
+  animation: motion-momo-hop var(--duration-panel) var(--ease-spring) both;
+}
+
+.momo-figure {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+/* The artwork is not a square, so the shared hover ring would float around
+   empty space; Momo leans in instead. */
+button.momo-figure.agent-home-avatar-action:hover {
+  box-shadow: none;
+  scale: 1.025;
+}
+
+.momo-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  transform-origin: 50% 92%;
+  animation:
+    motion-momo-settle var(--duration-normal) var(--ease-spring) both,
+    motion-momo-breath-pulse 5.2s ease-in-out var(--duration-normal) infinite;
+}
+
+.momo-stage--bust .momo-art {
+  transform-origin: 50% 100%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 74%, transparent 98%);
+  mask-image: linear-gradient(to bottom, #000 74%, transparent 98%);
+}
+
+.momo-stage--badge .momo-art {
+  transform-origin: 50% 50%;
+  animation-name: motion-momo-settle, motion-momo-badge-pulse;
+}
+
+.momo-ground {
+  position: absolute;
+  left: 16%;
+  right: 16%;
+  bottom: 0;
+  height: 8%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--desk-ground), transparent 74%);
+  filter: blur(9px);
+  pointer-events: none;
+}
+
+.momo-stage--bust .momo-ground,
+.momo-stage--pin .momo-ground {
+  display: none;
+}
+
+.momo-stage--avatar .agent-avatar {
+  width: 100%;
+  height: 100%;
+  flex-basis: auto;
+  border-radius: 50%;
+}
+
+.momo-stage--avatar .agent-avatar-image {
+  transform: scale(1.42);
+}
+
+.momo-bubble {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: -4%;
+  display: flex;
+  gap: 5px;
+  padding: 13px 17px;
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  background: var(--desk-paper);
+  box-shadow: var(--desk-shadow);
+  animation: motion-momo-float-wave 3.4s ease-in-out infinite;
+}
+
+.momo-bubble::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  bottom: -14px;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--desk-paper);
+}
+
+.momo-bubble::before {
+  content: "";
+  position: absolute;
+  left: 5%;
+  bottom: -24px;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--desk-paper);
+}
+
+.momo-bubble i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--label-secondary);
+  animation: motion-momo-dots-blink 1.2s ease-in-out infinite;
+}
+
+.momo-bubble i:nth-child(2) {
+  animation-delay: 160ms;
+}
+
+.momo-bubble i:nth-child(3) {
+  animation-delay: 320ms;
+}
+
+.momo-zzz {
+  position: absolute;
+  z-index: 2;
+  top: 4%;
+  right: 0;
+  width: 36%;
+  height: 36%;
+  color: var(--label-secondary);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.momo-zzz span {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  opacity: 0;
+  animation: motion-momo-zzz-wave 3.6s ease-in-out infinite;
+}
+
+.momo-zzz span:nth-child(2) {
+  font-size: var(--fs-heading);
+  animation-delay: 1.2s;
+}
+
+.momo-zzz span:nth-child(3) {
+  font-size: var(--fs-page);
+  animation-delay: 2.4s;
+}
+
+.momo-stage--pin .momo-zzz {
+  display: none;
+}
+
+@keyframes motion-momo-arrive {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-momo-settle {
+  from {
+    opacity: 0.4;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes motion-momo-hop {
+  0% {
+    transform: translateY(0);
+  }
+
+  35% {
+    transform: translateY(-16px) scale(1.03, 0.97);
+  }
+
+  70% {
+    transform: translateY(0) scale(0.98, 1.02);
+  }
+
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes motion-momo-breath-pulse {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+
+  50% {
+    transform: scale(1.014, 0.988);
+  }
+}
+
+@keyframes motion-momo-badge-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes motion-momo-float-wave {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes motion-momo-dots-blink {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes motion-momo-zzz-wave {
+  0% {
+    opacity: 0;
+    transform: translate(0, 6px) scale(0.8);
+  }
+
+  30% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(150%, -170%) scale(1.15);
+  }
+}
+
+@keyframes motion-desk-stamp {
+  from {
+    opacity: 0;
+    transform: rotate(-8deg) scale(1.7);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(-8deg) scale(1);
+  }
+}
+
+/* ── Narrow desk: Momo moves above the sentence, and the light follows. ───── */
+@container agent-home (max-width: 760px) {
+  .agent-home-light {
+    background: radial-gradient(460px 260px at 50% 90px, var(--desk-lamp), transparent 100%);
+  }
+
+  .agent-home-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    justify-items: center;
+  }
+
+  .agent-home-stage .momo-stage:not(.momo-stage--pin) {
+    width: min(56%, 220px);
+  }
+
+  .agent-home-desk {
+    width: min(100%, 640px);
+    align-items: center;
+  }
+
+  .agent-home-identity {
+    align-items: center;
+    text-align: center;
+  }
+
+  .agent-home--has-feed .agent-home-desk,
+  .agent-home-identity--compact {
+    width: 100%;
+  }
+
+  .agent-home .agent-home-say {
+    text-wrap: balance;
+  }
+
+  .agent-home-compose-area,
+  .agent-home-feed,
+  .agent-home-history--inline {
+    width: 100%;
+  }
+
+  .agent-home .agent-home-tasks {
+    justify-content: center;
+  }
 }
 
 /* Positioned above `.composer` so the chips paint over its float-tier ambient
@@ -30130,17 +30739,28 @@ button.agent-home-live-inline:focus-visible {
 
 .agent-home-band-label {
   margin: 0;
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--label-secondary);
 }
 
 .agent-home-band-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-full);
+  background: var(--fill);
+  color: var(--label-primary);
   font-size: var(--fs-meta);
-  line-height: var(--lh-meta);
-  color: var(--text-secondary);
+  line-height: 18px;
+  font-weight: 600;
+  text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+.agent-home-band--action .agent-home-band-count {
+  background: color-mix(in srgb, var(--warning) 24%, transparent);
 }
 
 .agent-home-cards {
@@ -31734,16 +32354,16 @@ button.agent-home-live-inline:focus-visible {
   border: 2px solid var(--content-bg);
 }
 
-.agent-home-avatar-action[data-status="working"] .agent-home-status-mark {
+.momo-stage[data-status="working"] .agent-home-status-mark {
   color: var(--accent);
   background: var(--accent-soft);
 }
 
-.agent-home-avatar-action[data-status="completed"] .agent-home-status-mark {
+.momo-stage[data-status="completed"] .agent-home-status-mark {
   color: var(--online);
 }
 
-.agent-home-avatar-action[data-status="error"] .agent-home-status-mark {
+.momo-stage[data-status="error"] .agent-home-status-mark {
   color: var(--danger);
 }
 
@@ -33648,10 +34268,10 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 
 .agent-home .agent-home-tasks {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 8px 20px;
-  margin: 12px 0 20px;
+  margin: 14px 0 4px;
 }
 
 .agent-home .agent-home-task {
@@ -34012,23 +34632,20 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   min-width: 0;
 }
 
-.agent-home-band--action {
-  padding: 16px 18px;
-  border: 1px solid var(--separator);
-  border-radius: var(--radius-panel);
-  background: var(--surface-secondary);
-}
-
+/* A decision is a note with a bookmark, so each one can be taken on its own. */
 .agent-home-band--action .agent-home-work-grid {
   margin-bottom: 0;
 }
 
-.agent-home-band--action .agent-home-work-card:first-child {
-  padding-top: 4px;
-}
-
-.agent-home-band--action .agent-home-work-card:last-child {
-  padding-bottom: 2px;
+.agent-home-work-card--action::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--warning);
 }
 
 .agent-home-cmd--visible {
@@ -34075,12 +34692,20 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   background: transparent;
 }
 
+.agent-home-undo-stack {
+  position: sticky;
+  bottom: 12px;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
 .agent-home-undo-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 14px;
   padding: 8px 12px;
   border: 1px solid var(--separator);
   border-radius: var(--radius-small);
@@ -34093,8 +34718,10 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 .agent-home-band-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+  min-height: 20px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
 }
 
 .agent-home-band-actions {
@@ -34102,28 +34729,33 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   align-items: center;
   gap: 4px;
   min-width: 0;
+  margin-left: auto;
 }
 
 .agent-home-work-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  margin: 4px 0 12px;
+  gap: 8px;
+  margin: 12px 0 12px;
 }
 
+/* Every delivery is its own sheet of paper on the desk. */
 .agent-home-work-card {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 8px;
   min-width: 0;
-  padding: 12px 0;
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  background: transparent;
+  padding: 12px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--desk-paper);
+  box-shadow: var(--desk-shadow);
   overflow-wrap: anywhere;
 }
 
-.agent-home-work-grid>.agent-home-work-card:last-child {
-  border-bottom: 0;
+.agent-home-work-card[data-type="task-failed"] {
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--hairline));
 }
 
 .agent-home-work-head {
@@ -34158,6 +34790,25 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
   min-width: 0;
 }
 
+/* Stamped once, on arrival: the work is done. Ink colour is a token so each
+   family keeps its own contrast. */
+.agent-home-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border: 1.5px solid var(--desk-stamp);
+  border-radius: 6px;
+  color: var(--desk-stamp);
+  font-size: var(--fs-meta);
+  line-height: var(--lh-meta);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  animation: motion-desk-stamp var(--duration-panel) var(--ease-spring) both;
+}
+
 .agent-home-work-title,
 .agent-home-work-title-static {
   color: var(--label-primary);
@@ -34171,6 +34822,15 @@ html[data-increased-contrast="true"] .sidebar-channels .sidebar-section-head {
 
 button.agent-home-work-title {
   cursor: pointer;
+}
+
+.agent-home-work-title:not(.agent-home-memory-link),
+.agent-home-work-title-static {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 button.agent-home-work-title:hover:not(:disabled) {

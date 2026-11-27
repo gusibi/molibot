@@ -9,9 +9,18 @@
   import { type Snippet } from "svelte";
   import AgentConversationRow from "./AgentConversationRow.svelte";
   import AgentHomeInbox from "./AgentHomeInbox.svelte";
-  import AgentAvatar from "../components/ui/AgentAvatar.svelte";
+  import MomoStage from "./MomoStage.svelte";
   import Button from "../components/ui/Button.svelte";
   import { emptyActionIcon, type EmptyActionIcon } from "./activityIcons";
+  import {
+    type HomeDeskCounts,
+    type HomePresenceInput,
+    homeAwayMs,
+    homeBrief,
+    homeMood,
+    momoExpressionFor,
+    usesMomoExpressions
+  } from "./homePresence";
   import type {
     DesktopAgentActivityItem,
     DesktopConversationItem,
@@ -19,6 +28,7 @@
     DesktopHandoverPending
   } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
+  import type { HomeInbox } from "./homeInbox";
   import { agentActivityLabel } from "./agentActivity";
 
   let {
@@ -27,6 +37,8 @@
     onActivity,
     agent,
     sessions,
+    sessionCount = sessions.length,
+    enteredAt = Date.now(),
     locale,
     copy,
     actions,
@@ -40,8 +52,11 @@
     onCopyPath,
     onRevealInFinder,
     handover = null,
+    lastAcknowledgedAt = handover?.lastAcknowledgedAt,
+    inbox,
     handoverLoading: _handoverLoading = false,
     handoverStale = false,
+    serviceOffline = false,
     handoverError = "",
     handoverBusyId = "",
     agentLabel: _agentLabel = (id: string) => id,
@@ -49,9 +64,8 @@
     onHandoverResolve,
     onHandoverAnswer,
     onHandoverPlan,
-    agentId: _agentId = "",
     endpoint = "",
-    onMemoryChanged = async () => {},
+    expressions = true,
     onOpenMemory = () => {},
     onTasks = () => {},
     onPlans = () => {},
@@ -69,6 +83,8 @@
     historyExpanded?: boolean;
     agent: { enabled?: boolean; name: string; description?: string; avatar?: string | null };
     sessions: DesktopConversationItem[];
+    sessionCount?: number;
+    enteredAt?: number;
     locale: string;
     copy: Translation;
     actions: ReadonlyArray<{ icon: EmptyActionIcon; label: string; prompt: string }>;
@@ -77,18 +93,21 @@
     onHistory: () => void;
     formatTime: (value: string) => string;
     handover?: DesktopHandover | null;
+    lastAcknowledgedAt?: string;
+    inbox?: HomeInbox;
     handoverLoading?: boolean;
     handoverStale?: boolean;
+    serviceOffline?: boolean;
     handoverError?: string;
     handoverBusyId?: string;
     agentLabel?: (agentId: string) => string;
-    onHandoverOpen?: (input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }) => void | Promise<void>;
+    onHandoverOpen?: (input: { sessionId?: string; channel?: string; title?: string; agentId?: string; planId?: string; executionId?: string }) => boolean | Promise<boolean>;
     onHandoverResolve?: (items: DesktopHandoverPending[], decision: "approve_once" | "reject") => void;
     onHandoverAnswer?: (item: DesktopHandoverPending, answer: string) => void;
     onHandoverPlan?: (item: DesktopHandoverPending, mode: "manual" | "accept_edits") => void;
-    agentId?: string;
     endpoint?: string;
-    onMemoryChanged?: () => Promise<void>;
+    /** A room shares this home but is not Momo, so it opts out of the expressions. */
+    expressions?: boolean;
     onOpenMemory?: () => void;
     onTasks?: () => void;
     onPlans?: (planId?: string) => void;
@@ -97,32 +116,79 @@
     onResultFile?: (sessionId: string, file: import("./turnFiles").TurnFileItem) => void;
   } = $props();
 
-  let hasInboxContent = $state(false);
+  let deskCounts = $state<HomeDeskCounts>({ decisionCount: 0, doneCount: 0, failedCount: 0 });
+  let attentive = $state(false);
+  let hop = $state(0);
+  let clock = $state(Date.now());
   const memoryReview = $derived(handover?.memoryReview);
   const activityStatus = $derived(agent.enabled === false ? "disabled" : !activityReady ? "unknown" : activity?.status ?? "idle");
   const activityLabel = $derived(agentActivityLabel(agent.enabled !== false, activity, activityReady, copy));
   const StatusIcon = $derived(activityStatus === "working" ? Run : activityStatus === "completed" ? Check : activityStatus === "error" ? X : activityStatus === "disabled" ? Minus : activityStatus === "unknown" ? CircleInfo : MoonSleep);
-  const activityTitle = $derived([agent.name, activityLabel, activityReady && activity?.status === "working" && activity.taskPreview ? activity.taskPreview : "", copy.agentViewActivity].filter(Boolean).join(" · "));
+  const activityTitle = $derived([agent.name, activityLabel, activityReady && activity?.status === "working" && activity.taskPreview ? activity.taskPreview : "", onActivity ? copy.agentViewActivity : ""].filter(Boolean).join(" · "));
 
-  const liveRun = $derived(activity?.status === "working" ? activity : null);
+  const liveRun = $derived(activityStatus === "working" ? activity : null);
   const liveElapsed = $derived.by(() => {
     if (!liveRun) return "";
     const started = Date.parse(String(liveRun.startedAt ?? ""));
-    return Number.isFinite(started) ? elapsedLabel(Date.now() - started) : "";
+    return Number.isFinite(started) ? elapsedLabel(clock - started) : "";
   });
   const liveSummary = $derived.by(() => {
     if (!liveRun) return "";
     const head = liveRun.taskPreview?.trim() || copy.handoverLive;
     const extras = [liveElapsed];
-    if (liveRun.subagents?.length) extras.push(copy.handoverSubagents.replace("{count}", String(liveRun.subagents.length)));
+    const subagents = liveRun.subagents?.length ?? 0;
+    if (subagents > 0) {
+      const label = subagents === 1 ? copy.handoverSubagent : copy.handoverSubagents;
+      extras.push(label.replace("{count}", String(subagents)));
+    }
     if (liveRun.channel) extras.push(channelLabel(liveRun.channel));
     return [head, ...extras.filter(Boolean)].join(" · ");
   });
 
-  // Only show generic starter prompts when the home is quiet; once real items
-  // appear below the composer, keep the screen focused on them.
-  const showQuickStarts = $derived(actions.length > 0 && !hasInboxContent);
-  const compactHome = $derived(hasInboxContent);
+  // The greeting and the sentence count what is really on the desk.
+  const presence = $derived({
+    enabled: agent.enabled !== false,
+    activityStatus: (activityStatus === "disabled" ? "idle" : activityStatus) as HomePresenceInput["activityStatus"],
+    stale: handoverStale || serviceOffline,
+    ...deskCounts,
+    sessionCount,
+    hour: new Date(clock).getHours()
+  });
+  const mood = $derived(homeMood(presence));
+  const canWake = $derived(mood === "idle" || mood === "welcome" || mood === "sleeping");
+  const expression = $derived(attentive && canWake ? "thinking" : momoExpressionFor(mood));
+  // Momo's expressions only stand in for the default avatar; a custom avatar is the Agent's own face.
+  const expressive = $derived(Boolean(expressions && usesMomoExpressions(agent.avatar)));
+  const brief = $derived(
+    homeBrief(
+      {
+        ...presence,
+        name: agent.name,
+        description: agent.description?.trim() ?? "",
+        awayMs: homeAwayMs(lastAcknowledgedAt, enteredAt),
+        liveSummary
+      },
+      copy
+    )
+  );
+
+  let compactHome = $state(false);
+  const showQuickStarts = $derived(actions.length > 0 && !compactHome);
+
+  $effect(() => {
+    clock = Date.now();
+    const timer = setInterval(() => (clock = Date.now()), liveRun ? 1_000 : 60_000);
+    return () => clearInterval(timer);
+  });
+
+  function onComposeFocusIn(): void {
+    if (!attentive && expressive && canWake) hop++;
+    attentive = true;
+  }
+
+  function onComposeFocusOut(event: FocusEvent): void {
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) attentive = false;
+  }
 
   function elapsedLabel(ms: number): string {
     if (!Number.isFinite(ms) || ms < 60_000) {
@@ -143,6 +209,10 @@
     return channel;
   }
 </script>
+
+{#snippet statusMark()}
+  <StatusIcon size={13} />
+{/snippet}
 
 {#snippet recentConversations(showEmpty: boolean)}
   {#if sessions.length || showEmpty}
@@ -174,70 +244,89 @@
 {/snippet}
 
 <section class="agent-home" class:agent-home--has-feed={compactHome} aria-label={agent.name}>
-  <header class="agent-home-identity" class:agent-home-identity--compact={compactHome}>
-    {#if onActivity}
-      <button type="button" class="agent-home-avatar-action" data-status={activityStatus} title={activityTitle} aria-label={activityTitle} onclick={onActivity}>
-        <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
-        <span class="agent-home-status-mark" aria-hidden="true"><StatusIcon size={13} /></span>
-      </button>
-    {:else}
-      <AgentAvatar name={agent.name} src={agent.avatar ?? ""} />
-    {/if}
-    <h1>{agent.name}</h1>
-    {#if liveRun}
-      {#if onActivity}
-        <button type="button" class="agent-home-live-inline" onclick={onActivity}>
-          <span class="agent-home-live-dot" aria-hidden="true"></span>
-          <span>{liveSummary}</span>
-        </button>
-      {:else}
-        <p class="agent-home-live-inline">
-          <span class="agent-home-live-dot" aria-hidden="true"></span>
-          <span>{liveSummary}</span>
-        </p>
-      {/if}
-    {:else}
-      <p class="agent-home-greeting">{agent.description?.trim() || copy.homeGreeting}</p>
-    {/if}
-  </header>
+  <div class="agent-home-light" aria-hidden="true"></div>
+  <div class="agent-home-sheet">
+    <div class="agent-home-layout">
+      <div class="agent-home-stage">
+        <MomoStage
+          expression={expressive ? expression : undefined}
+          avatar={agent.avatar ?? ""}
+          name={agent.name}
+          size={compactHome ? "pin" : "stage"}
+          status={activityStatus}
+          title={activityTitle}
+          onclick={onActivity}
+          live={mood === "working"}
+          {hop}
+          statusIcon={statusMark}
+        />
+      </div>
+      <div class="agent-home-desk">
+        <header class="agent-home-identity" class:agent-home-identity--compact={compactHome}>
+          <h1 class="agent-home-hello">
+            {#if sessionCount !== 0}<span class="sr-only">{agent.name} · </span>{/if}{brief.hello}
+          </h1>
+          {#if liveRun}
+            <p class="agent-home-live-inline agent-home-say">
+              <span class="agent-home-live-dot" aria-hidden="true"></span>
+              <span>{brief.say}</span>
+            </p>
+          {:else}
+            <p class="agent-home-greeting agent-home-say">{brief.say}</p>
+          {/if}
+        </header>
 
-  {#if handoverStale}
-    <p class="agent-home-handover-stale" role="status">{copy.handoverStale}</p>
-  {/if}
-  {#if handoverError}
-    <p class="agent-home-handover-stale" data-tone="danger" role="alert">{copy.handoverActionFailed.replace("{message}", handoverError)}</p>
-  {/if}
+        {#if handoverStale || serviceOffline}
+          <p class="agent-home-handover-stale" role="status">{handoverStale ? copy.handoverStale : copy.homeOffline}</p>
+        {/if}
+        {#if handoverError}
+          <p class="agent-home-handover-stale" data-tone="danger" role="alert">{copy.handoverActionFailed.replace("{message}", handoverError)}</p>
+        {/if}
 
-  <div class="agent-home-compose-area">
-    {@render composer()}
-    {@render quickStarts()}
-    {@render recentConversations(!compactHome)}
+        <div class="agent-home-compose-area">
+          <div onfocusin={onComposeFocusIn} onfocusout={onComposeFocusOut}>
+            {@render composer()}
+          </div>
+          {@render quickStarts()}
+          {@render recentConversations(!compactHome)}
+        </div>
+
+        {#if handover && endpoint && inbox}
+          <AgentHomeInbox
+            {inbox}
+            {endpoint}
+            {locale}
+            stale={handoverStale}
+            revision={handover.generatedAt}
+            {formatTime}
+            {copy}
+            memoryReview={memoryReview}
+            pending={handover.pending}
+            busyId={handoverBusyId}
+            onResolve={onHandoverResolve}
+            onAnswer={onHandoverAnswer}
+            onPlan={onHandoverPlan}
+            onOpen={onHandoverOpen}
+            onHistory={onHistory}
+            {onPlans}
+            {onTasks}
+            {onFiles}
+            {onNotifications}
+            {onResultFile}
+            {onOpenMemory}
+            onPresenceChange={(presence) => {
+              if (presence.hasContent) compactHome = true;
+              if (
+                deskCounts.decisionCount !== presence.decisionCount ||
+                deskCounts.doneCount !== presence.doneCount ||
+                deskCounts.failedCount !== presence.failedCount
+              ) {
+                deskCounts = { decisionCount: presence.decisionCount, doneCount: presence.doneCount, failedCount: presence.failedCount };
+              }
+            }}
+          />
+        {/if}
+      </div>
+    </div>
   </div>
-
-  {#if handover && endpoint}
-    <AgentHomeInbox
-      {endpoint}
-      {locale}
-      stale={handoverStale}
-      revision={handover.generatedAt}
-      {formatTime}
-      {copy}
-      memoryReview={memoryReview}
-      pending={handover.pending}
-      busyId={handoverBusyId}
-      onResolve={onHandoverResolve}
-      onAnswer={onHandoverAnswer}
-      onPlan={onHandoverPlan}
-      onOpen={onHandoverOpen}
-      onHistory={onHistory}
-      {onPlans}
-      {onTasks}
-      {onFiles}
-      {onNotifications}
-      {onResultFile}
-      {onMemoryChanged}
-      {onOpenMemory}
-      onPresenceChange={(present) => (hasInboxContent = present)}
-    />
-  {/if}
 </section>

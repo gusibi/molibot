@@ -1,4 +1,5 @@
-import { createModels, Type } from "@earendil-works/pi-ai";
+import { createModels } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";

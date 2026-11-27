@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { ExternalSubagentRuntime } from "#external-subagent";
 import { assertExternalSubagentProviderEnabled, resolveExternalSubagentConfig } from "./config.js";
 import { translatePolicyForClaudeCode, translatePolicyForCodex } from "./policyTranslation.js";

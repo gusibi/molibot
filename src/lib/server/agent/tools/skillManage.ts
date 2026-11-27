@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { SkillScope } from "$lib/server/agent/skills/skills.js";
 import { formatYamlList, formatYamlScalar } from "$lib/server/agent/skills/skillFrontmatter.js";

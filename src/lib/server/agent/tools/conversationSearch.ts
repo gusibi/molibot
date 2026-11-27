@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { decodeExternalSessionId, listExternalSessionsFromContexts, readExternalTranscriptFromContexts } from "$lib/server/app/externalSessionsFromContexts.js";
 import { listAuthorizedConversationSources, isAuthorizedConversationSource, type ConversationAuthorizationScope } from "$lib/server/sessions/conversationAuthorization.js";

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@earendil-works/chord";
+import type { JsonValue } from "@earendil-works/chord/json";
 import { defineEntry, ROOT_CONVERSATION_ID, type Cursor } from "@earendil-works/pi-durable";
 import { currentPiInvocation } from "$lib/server/agent/durable/piInvocation.js";
 import { PiPreparationRecoveryError } from "$lib/server/agent/durable/piPreparationEffects.js";

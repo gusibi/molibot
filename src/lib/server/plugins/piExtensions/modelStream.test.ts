@@ -158,12 +158,23 @@ test("a host stream failure surfaces as a stream error", async () => {
 test("aborting from the extension cancels the stream and notifies the host", async () => {
   await withFixture(async (client, dataDir) => {
     const seen: string[] = [];
+    let cancel!: () => void;
+    const cancelled = new Promise<void>(resolve => { cancel = resolve; });
+    let settled = false;
     client.registerHostSession("tok-5", async (method, _input, emit) => {
       seen.push(method);
-      if (method === "modelRegistry.stream") { emit({ type: "message_start" }); return { message: { role: "assistant", model: "gpt" } }; }
-      return null; // modelRegistry.streamAbort
+      if (method === "modelRegistry.stream") {
+        emit({ type: "message_start" });
+        await cancelled;
+        await new Promise(resolve => setTimeout(resolve, 25));
+        settled = true;
+        return { message: { role: "assistant", model: "gpt" } };
+      }
+      cancel();
+      return null;
     });
     const payload = await invoke(client, dataDir, "cancel_call", {}, "tok-5");
+    assert.equal(settled, true);
     client.releaseHostSession("tok-5");
     assert.match(payload.streamError, /stopped by extension/);
     assert.ok(seen.includes("modelRegistry.streamAbort"), `expected a streamAbort, saw ${seen.join(",")}`);

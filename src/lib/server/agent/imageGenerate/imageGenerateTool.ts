@@ -1,5 +1,5 @@
 import { selectImageEngine } from "$lib/shared/imageGenerate.js";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { promises as fs } from "node:fs";
 import { dirname, basename, parse, join } from "node:path";

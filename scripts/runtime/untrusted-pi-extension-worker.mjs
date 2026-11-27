@@ -225,10 +225,12 @@ function modelRegistry(id, input, runtime) {
     const streamId = `${input.toolCallId ?? "extension"}:stream:${nextHostId}`;
     const localSignal = options && options.signal;
     let onAbort;
+    let cancelReason;
     if (localSignal) {
       onAbort = () => {
         void hostRequest(input.hostToken, "modelRegistry.streamAbort", { streamId }).catch(() => undefined);
-        events.fail(localSignal.reason instanceof Error ? localSignal.reason : new Error("Model stream aborted."));
+        // The host settles the provider call and its usage before the extension can finish.
+        cancelReason = localSignal.reason instanceof Error ? localSignal.reason : new Error("Model stream aborted.");
       };
       if (localSignal.aborted) { events.fail(localSignal.reason ?? new Error("Model stream aborted.")); return events; }
       else localSignal.addEventListener("abort", onAbort, { once: true });
@@ -239,9 +241,12 @@ function modelRegistry(id, input, runtime) {
       simple: Boolean(simple),
       context: safeClone(context),
       options: safeClone(options)
-    }, (event) => events.push(event))
-      .then((value) => events.end(value && value.message))
-      .catch((error) => events.fail(error))
+    }, (event) => { if (!cancelReason) events.push(event); })
+      .then((value) => {
+        if (cancelReason) events.fail(cancelReason);
+        else events.end(value && value.message);
+      })
+      .catch((error) => events.fail(cancelReason ?? error))
       .finally(() => { if (onAbort) localSignal.removeEventListener("abort", onAbort); });
     return events;
   };

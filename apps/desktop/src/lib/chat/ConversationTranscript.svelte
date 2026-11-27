@@ -1,6 +1,9 @@
 <script lang="ts">
   import ConversationStatus from "./ConversationStatus.svelte";
   import { isStatusOnlyMessage, transcriptTurnStatuses } from "./transcriptStatus";
+  import type { DesktopAgentItem } from "@molibot/desktop-contract";
+  import AgentAvatar from "../components/ui/AgentAvatar.svelte";
+  import { momoExpressionSrc, usesMomoExpressions } from "./homePresence";
   import BotAvatar from "./BotAvatar.svelte";
   import TraceReportDrawer from "./TraceReportDrawer.svelte";
   import { loadTraceViewerEnabled } from "../api";
@@ -43,6 +46,8 @@
   export let assistantName: string = copy.appName;
   /** Name of the Agent bound to this conversation's channel; empty hides the label. */
   export let agentName = "";
+  export let deskAgent: Pick<DesktopAgentItem, "id" | "avatar"> | undefined = undefined;
+  export let deskArrivalId: string | undefined = undefined;
   export let searchMatchIds: string[] = [];
   export let activeMatchId = "";
   export let showReadReceipt = false;
@@ -161,11 +166,22 @@
         : message.stopReason === "stop"
           ? "complete"
           : ""}
+  {@const deskAuthor = deskAgent && (!message.authorAgentId || message.authorAgentId === deskAgent.id) ? deskAgent : undefined}
+  {@const deskMomo = deskAuthor && usesMomoExpressions(deskAuthor.avatar)}
+  {@const awaitsDecision = message.stopReason === "waiting_for_approval" ||
+    turnSections.response.some(block => block.kind === "plan" && block.plan.status === "proposed")}
+  {@const hasDeskStamp = Boolean(deskAuthor && turnStatuses.get(index)?.state === "complete" &&
+    message.resultKind === "final" && message.content.trim() && !awaitsDecision)}
+  {@const deskExpression = hasDeskStamp ? "task-finisher"
+    : awaitsDecision ? "proactive-alert"
+    : assistantStatus === "error" || assistantStatus === "aborted" ? "serious"
+    : message.stopReason === "running" ? "thinking" : undefined}
   {@const turnFiles = message.role === "assistant" ? collectTurnFiles(message, attachmentActions?.filesByLocal) : []}
   {@const responseMarkdown = message.role === "assistant" ? turnSections.response.map((block) => block.kind === "result" ? block.content : "").join("\n") : ""}
   {@const inlineMediaAttachments = message.role === "assistant" ? unreferencedMediaAttachments(message, responseMarkdown) : []}
   {@const nonMediaTurnFiles = inlineMediaAttachments.length ? turnFiles.filter((file) => !inlineMediaAttachments.some((att) => att.local === file.path || att.original === file.name)) : turnFiles}
-  {#if !isStatusOnlyMessage(message)}
+  {@const statusOnly = isStatusOnlyMessage(message)}
+  {#if !statusOnly}
   <article
     class:mine={message.role === "user"}
     class:assistant={message.role !== "user"}
@@ -203,7 +219,7 @@
         {:else}
           <div class="user-message-shell">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-            <ChatMarkdown {resolveImage} source={displayContent} {copy} {endpoint} className={`message-bubble markdown-body user-message-content${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
+            <ChatMarkdown {resolveImage} source={displayContent} {copy} {endpoint} className={`message-bubble markdown-body user-message-content${deskAgent ? " desk-user-note" : ""}${isLongUserMessage && !isExpanded ? " collapsed" : ""}`} onContextMenu={(event) => openSelectionMenu(event, message)} />
             {#if isLongUserMessage}
               <button class="message-expand" type="button" aria-expanded={isExpanded} onclick={() => toggleMessage(key)}>{isExpanded ? copy.collapseMessage : copy.expandMessage}</button>
             {/if}
@@ -274,7 +290,11 @@
       <div class="assistant-layout">
         <div class="message-stack">
         <div data-same-agent={agentName === (message.authorName ?? assistantName) || undefined} class="assistant-identity">
-          {#if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}
+          {#if deskMomo && deskExpression}
+            <img class="assistant-avatar desk-turn-avatar" data-desk-expression={deskExpression} src={momoExpressionSrc(deskExpression)} alt="" width="28" height="28" />
+          {:else if deskAuthor?.avatar}
+            <div class="desk-agent-avatar" aria-hidden="true"><AgentAvatar name={message.authorName ?? assistantName} src={deskAuthor.avatar} /></div>
+          {:else if message.authorAgentId}<BotAvatar botId={message.authorAgentId} name={message.authorName ?? assistantName} size={22} />{:else}<img class="assistant-avatar" src={appLogo.src} alt="" width="22" height="22" />{/if}
           <strong>{message.authorName ?? assistantName}</strong>
           {#if agentName}<span>{agentName}</span>{/if}
         </div>
@@ -308,8 +328,15 @@
         {#if nonMediaTurnFiles.length && onOpenTurnFiles}
           <TurnFilesCard files={nonMediaTurnFiles} {copy} onOpen={onOpenTurnFiles} />
         {/if}
-        {#if (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
-          <div class="message-meta assistant-meta">
+        {#if hasDeskStamp || (canShowActions && messageActions) || message.createdAt || hasTechnicalDetails || (traceEnabled && message.traceRunIds?.length)}
+          <div class="message-meta assistant-meta" class:desk-turn-meta={hasDeskStamp}>
+            {#if hasDeskStamp}
+              <span
+                class="desk-turn-stamp"
+                class:desk-turn-stamp--arrived={Boolean(message.id && message.id === deskArrivalId)}
+                data-testid="desk-turn-stamp"
+              ><Check size={12} aria-hidden="true" />{copy.homeStampDone}</span>
+            {/if}
             {#if message.createdAt}<time class="message-time">{formatTime(message.createdAt)}</time>{/if}
             {#if hasTechnicalDetails}
               <div class="message-meta-inline">
@@ -410,8 +437,9 @@
     {/if}
   </article>
   {/if}
-  <!-- A completed turn speaks for itself; only failed/stopped/waiting/unknown get a status row. -->
-  {#if turnStatuses.has(index) && turnStatuses.get(index)!.state !== "complete"}<ConversationStatus status={turnStatuses.get(index)!} {copy} />{/if}
+  {#if turnStatuses.has(index) && turnStatuses.get(index)!.state !== "complete"}
+    <ConversationStatus status={turnStatuses.get(index)!} {copy} deskExpression={statusOnly && deskMomo ? deskExpression : undefined} />
+  {/if}
 {/each}
 
 {#if selectionMenu && messageActions?.contributions}

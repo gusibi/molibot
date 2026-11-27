@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import { basename, extname } from "node:path";
 import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import yauzl from "yauzl";
 import type { RuntimeSettings } from "$lib/server/settings/index.js";
 import {

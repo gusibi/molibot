@@ -3,7 +3,7 @@
   import type { EmptyActionIcon } from "./activityIcons";
   import { afterUpdate } from "svelte";
   import type { DesktopActivityEntry } from "../api";
-  import type { DesktopConversationStep } from "@molibot/desktop-contract";
+  import type { DesktopAgentItem, DesktopConversationStep } from "@molibot/desktop-contract";
   import type { Translation } from "../i18n";
   import type { TranscriptAttachmentActions, TranscriptMessage, TranscriptMessageActions, TurnFileItem } from "./transcript";
   import ConversationLiveView from "./ConversationLiveView.svelte";
@@ -20,6 +20,8 @@
   export let assistantName: string = copy.appName;
   /** Agent bound to this conversation's channel; empty hides the label (e.g. Projects). */
   export let agentName = "";
+  export let deskAgent: Pick<DesktopAgentItem, "id" | "avatar"> | undefined = undefined;
+  export let deskWaiting = false;
   export let stickKey = "";
   export let loading = false;
   export let loadingLabel = "";
@@ -71,9 +73,22 @@
   // inserted at send time must keep their entrance fade.
   let turnEndCount = 0;
   let prevSending = sending;
-  $: if (sending !== prevSending) {
-    prevSending = sending;
-    if (!sending) turnEndCount += 1;
+  let previousStickKey = stickKey;
+  let previousTailId = messages.at(-1)?.id;
+  let deskArrivalId: string | undefined;
+  $: {
+    const tail = messages.at(-1);
+    const sameSession = stickKey === previousStickKey;
+    if (!sameSession) deskArrivalId = undefined;
+    if (sending !== prevSending) {
+      prevSending = sending;
+      if (!sending) {
+        turnEndCount += 1;
+        if (sameSession && tail?.role === "assistant" && tail.id !== previousTailId) deskArrivalId = tail.id;
+      }
+    }
+    if (!sending || !sameSession) previousTailId = tail?.id;
+    previousStickKey = stickKey;
   }
 
   $: userTurnCount = messages.filter((message) => message.role === "user" && Boolean(message.id?.trim())).length;
@@ -118,6 +133,9 @@
         {formatTime}
         {assistantName}
         {agentName}
+        {deskAgent}
+        {deskWaiting}
+        {deskArrivalId}
         sending={sending && !liveResponses.length}
         {streamingText}
         {streamingThinking}

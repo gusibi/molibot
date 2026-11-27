@@ -1,6 +1,7 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createModels, createProvider, Type, type Model } from "@earendil-works/pi-ai";
+import { createModels, createProvider, type Model } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { stream, streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { runPiConversation } from "../../src/lib/server/agent/durable/testSupport/runConversation.js";
 

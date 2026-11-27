@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { PlanService } from "$lib/server/agent/plans/service.js";
 import type { FollowUpSourceRef } from "$lib/server/agent/durable/types.js";

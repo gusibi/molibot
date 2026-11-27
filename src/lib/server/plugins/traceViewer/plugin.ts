@@ -1,5 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { BuiltInFeaturePlugin } from "../types.js";
 import type { RuntimeSettings } from "$lib/server/settings/schema.js";
 import { SqliteTraceStore } from "$lib/server/agent/hooks/traceStore.js";

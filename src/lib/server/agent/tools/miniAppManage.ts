@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createPathGuard, resolveToolPath } from "$lib/server/agent/tools/path.js";
 import { storagePaths } from "$lib/server/infra/db/storage.js";

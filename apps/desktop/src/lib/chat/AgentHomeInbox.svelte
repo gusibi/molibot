@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import {
-    loadDesktopNotifications,
-    markDesktopNotificationsRead,
-    loadDesktopPlans,
-  } from "../api";
+  import { untrack } from "svelte";
+  import { loadDesktopPlans } from "../api";
+  import type { HomeInbox } from "./homeInbox";
+  import Check from "reicon-svelte/icons/Check";
   import { CHANNEL_LOGOS } from "./activityIcons";
+  import type { HomeDeskPresence } from "./homePresence";
   import type { TurnFileItem } from "./turnFiles";
   import HomeTaskResult from "./HomeTaskResult.svelte";
   import Button from "../components/ui/Button.svelte";
@@ -31,6 +30,7 @@
 
   let {
     endpoint,
+    inbox,
     locale,
     stale,
     revision,
@@ -49,11 +49,11 @@
     onTasks,
     onFiles,
     onResultFile,
-    onMemoryChanged: _onMemoryChanged,
     onOpenMemory,
-    onPresenceChange,
+    onPresenceChange = () => {},
   }: {
     endpoint: string;
+    inbox: HomeInbox;
     locale: string;
     stale: boolean;
     revision: string;
@@ -79,39 +79,26 @@
       agentId?: string;
       planId?: string;
       executionId?: string;
-    }) => void | Promise<void>;
+    }) => boolean | Promise<boolean>;
     onHistory?: () => void;
     onNotifications?: () => void;
     onPlans: (planId?: string) => void;
     onTasks: () => void;
     onFiles: () => void;
     onResultFile: (sessionId: string, file: TurnFileItem) => void;
-    onMemoryChanged: () => Promise<void>;
     onOpenMemory: () => void;
-    onPresenceChange?: (hasContent: boolean) => void;
+    /** Reports what is on the desk so the greeting can count exactly that. */
+    onPresenceChange?: (presence: HomeDeskPresence) => void;
   } = $props();
 
-  let notifications = $state<DesktopHomeNotification[]>([]);
   let plans = $state<DesktopPlanListItem[]>([]);
-  let loading = $state(true);
-  let error = $state(false);
+  let plansError = $state(false);
   let expandedId = $state("");
-  let dismissedIds = $state<string[]>([]);
-  let undoItem = $state<DesktopHomeNotification | null>(null);
-  let undoTimer: ReturnType<typeof setTimeout> | null = null;
-  let generation = 0;
 
-  const UNDO_WINDOW_MS = 4500;
   const zh = $derived(locale === "zh-CN");
   const livePending = $derived(new Map(pending.map((item) => [item.id, item])));
-  const dismissedSet = $derived(new Set(dismissedIds));
-
-  // Filter out dismissed items (pending undo commit) and memory-review rows
-  // (memory review is consolidated into one calm entry pointing to Memory Center).
   const activeNotifications = $derived(
-    notifications.filter(
-      (item) => item.type !== "memory-review" && !dismissedSet.has(item.id),
-    ),
+    $inbox.notifications.filter((item) => item.type !== "memory-review"),
   );
 
   // Group 1: Things genuinely waiting for user action.
@@ -128,7 +115,14 @@
     activeNotifications.filter((item) => item.type !== "action-required"),
   );
 
-  const memoryPendingCount = $derived(memoryReview?.items.length ?? 0);
+  // Only finished work and produced material count as "done"; replies from
+  // other channels and follow-ups are updates, not deliveries.
+  const doneCount = $derived(
+    readyItems.filter((item) => item.type === "task-result" || item.type === "plan-completed" || item.type === "materials").length,
+  );
+  const failedCount = $derived(readyItems.filter((item) => item.type === "task-failed").length);
+
+  const memoryPendingCount = $derived(memoryReview?.pendingReviewCount ?? memoryReview?.items.length ?? 0);
   const skillDraftCount = $derived(memoryReview?.skillDraftCount ?? 0);
   const showMemoryEntry = $derived(
     memoryPendingCount > 0 || skillDraftCount > 0,
@@ -149,11 +143,13 @@
     readyItems.length > 0 || showMemoryEntry || visiblePlans.length > 0,
   );
   const hasAnyContent = $derived(
-    actionItems.length > 0 || hasReadySection || Boolean(undoItem) || error,
+    actionItems.length > 0 || hasReadySection || $inbox.undoItems.length > 0 || $inbox.loadError || $inbox.writeError || plansError,
   );
 
+  // Untracked: the callback belongs to the parent, and reporting must not depend on its identity.
   $effect(() => {
-    onPresenceChange?.(hasAnyContent);
+    const presence = { hasContent: hasAnyContent, decisionCount: actionItems.length, doneCount, failedCount };
+    untrack(() => onPresenceChange(presence));
   });
 
   function friendlyPlanStatus(status: string): string {
@@ -199,111 +195,47 @@
     return live?.sessionId || payloadText(item, "sessionId");
   }
 
-  function clearUndoTimer(): void {
-    if (undoTimer) {
-      clearTimeout(undoTimer);
-      undoTimer = null;
-    }
-  }
-
-  async function commitRead(item: DesktopHomeNotification): Promise<void> {
-    if (stale || !endpoint) {
-      dismissedIds = dismissedIds.filter((id) => id !== item.id);
-      return;
-    }
-    const target = endpoint;
+  async function refreshPlans(target: string, signal: AbortSignal) {
     try {
-      notifications = (
-        await markDesktopNotificationsRead(target, [item.id])
-      ).filter((row) => row.type !== "session-completed");
-      dismissedIds = dismissedIds.filter((id) => id !== item.id);
-      if (expandedId === item.id) expandedId = "";
+      const result = await loadDesktopPlans(target, { limit: 20 });
+      if (signal.aborted) return;
+      plans = result.items.filter(
+        (plan) => !plan.projectId && !plan.archived && plan.status !== "cancelled",
+      );
+      plansError = false;
     } catch {
-      dismissedIds = dismissedIds.filter((id) => id !== item.id);
-      error = true;
+      if (!signal.aborted) plansError = true;
     }
   }
 
-  function dismissWithUndo(item: DesktopHomeNotification): void {
-    if (stale) return;
-    if (undoItem && undoItem.id !== item.id) {
-      const previous = undoItem;
-      clearUndoTimer();
-      undoItem = null;
-      void commitRead(previous);
-    }
-    clearUndoTimer();
-    if (!dismissedIds.includes(item.id)) {
-      dismissedIds = [...dismissedIds, item.id];
-    }
-    if (expandedId === item.id) expandedId = "";
-    undoItem = item;
-    undoTimer = setTimeout(() => {
-      const pendingCommit = undoItem;
-      undoTimer = null;
-      undoItem = null;
-      if (pendingCommit) void commitRead(pendingCommit);
-    }, UNDO_WINDOW_MS);
-  }
-
-  function undoDismiss(): void {
-    if (!undoItem) return;
-    const restored = undoItem;
-    clearUndoTimer();
-    undoItem = null;
-    dismissedIds = dismissedIds.filter((id) => id !== restored.id);
-  }
-
-  onDestroy(() => {
-    const pendingCommit = undoItem;
-    clearUndoTimer();
-    if (pendingCommit) void commitRead(pendingCommit);
-  });
-
-  async function refresh(target = endpoint) {
-    const request = ++generation;
-    error = false;
-    try {
-      const result = await Promise.allSettled([
-        loadDesktopNotifications(target),
-        loadDesktopPlans(target, { limit: 20 }),
-      ]);
-      if (request !== generation || endpoint !== target) return;
-      error = result.some((item) => item.status === "rejected");
-      if (result[0].status === "fulfilled")
-        notifications = result[0].value.filter(
-          (item) => item.type !== "session-completed",
-        );
-      if (result[1].status === "fulfilled")
-        plans = result[1].value.items.filter(
-          (p) => !p.projectId && !p.archived && p.status !== "cancelled",
-        );
-    } catch {
-      if (request === generation) error = true;
-    } finally {
-      if (request === generation) loading = false;
-    }
-  }
-
+  let retry = $state(0);
   $effect(() => {
-    const target = endpoint;
-    notifications = [];
+    endpoint;
     plans = [];
+    plansError = false;
     expandedId = "";
-    dismissedIds = [];
-    undoItem = null;
-    clearUndoTimer();
-    loading = true;
-    if (!target) loading = false;
-    return () => {
-      generation++;
-    };
   });
 
   $effect(() => {
     revision;
-    if (endpoint && !stale) void refresh(endpoint);
+    retry;
+    const target = endpoint;
+    if (!target || stale) return;
+    const request = new AbortController();
+    void inbox.refresh(target);
+    void refreshPlans(target, request.signal);
+    return () => request.abort();
   });
+
+  function failureLabel(item: DesktopHomeNotification): string {
+    switch (item.payload.detailCode) {
+      case "model_auth": return copy.handoverDetailModelAuth;
+      case "model_missing": return copy.handoverDetailModelMissing;
+      case "account_balance": return copy.handoverDetailAccountBalance;
+      case "run_budget": return copy.handoverDetailRunBudget;
+      default: return failureText(item);
+    }
+  }
 
   function togglePreview(item: DesktopHomeNotification): void {
     expandedId = expandedId === item.id ? "" : item.id;
@@ -316,16 +248,16 @@
     );
   }
 
-  function openConversation(item: DesktopHomeNotification): void {
-    const sessionId = itemSessionId(item);
-    if (!sessionId) return;
-    void commitRead(item);
-    void onOpen?.({
+  async function openConversation(item: DesktopHomeNotification, sessionId = itemSessionId(item)) {
+    if (!sessionId || stale) return;
+    const target = endpoint;
+    const opened = await onOpen?.({
       sessionId,
       channel: payloadText(item, "channel") || undefined,
       title: notificationTitle(item, zh),
       agentId: item.botId || undefined,
     });
+    if (opened) await inbox.commitRead(target, item);
   }
 
   function openAction(
@@ -336,26 +268,26 @@
   }
 
   function openPlanAndRead(item: DesktopHomeNotification): void {
-    void commitRead(item);
+    void inbox.commitRead(endpoint, item);
     onPlans(payloadText(item, "planId") || item.refId || undefined);
   }
 
   function openFilesAndRead(item: DesktopHomeNotification): void {
-    void commitRead(item);
+    void inbox.commitRead(endpoint, item);
     onFiles();
   }
 
   async function openCrossChannel(
     item: DesktopHomeNotification,
   ): Promise<void> {
-    if (!stale) await commitRead(item);
+    if (!stale) await inbox.commitRead(endpoint, item);
     onHistory?.();
   }
 
   function memoryEntryLabel(): string {
     const parts: string[] = [];
     if (memoryPendingCount > 0) {
-      const suffix = memoryReview?.hasMore ? "+" : "";
+      const suffix = memoryReview?.hasMore && memoryReview.pendingReviewCount === undefined ? "+" : "";
       parts.push(
         zh
           ? `${memoryPendingCount}${suffix} 条新记忆等你确认`
@@ -374,17 +306,23 @@
   }
 </script>
 
-{#if !loading && hasAnyContent}
+{#if !$inbox.loading && hasAnyContent}
   <section
     class="agent-home-feed"
     aria-label={zh ? "待处理与新成果" : "Updates"}
   >
-    {#if error}
+    {#if $inbox.loadError || plansError}
       <p class="agent-home-handover-stale" role="alert">
         {zh ? "动态读取失败" : "Could not load updates."}
-        <Button variant="text" disabled={stale} onclick={() => void refresh()}
+        <Button variant="text" disabled={stale} onclick={() => retry++}
           >{zh ? "重试" : "Retry"}</Button
         >
+      </p>
+    {/if}
+
+    {#if $inbox.writeError}
+      <p class="agent-home-handover-stale" role="alert">
+        {zh ? "未能标为已读，请重试。" : "Could not mark the update as read. Try again."}
       </p>
     {/if}
 
@@ -439,7 +377,7 @@
                 {#if live?.kind === "approval" && live.actionable && live.requestId}
                   <Button
                     variant="primary"
-                    disabled={stale || isBusy}
+                    disabled={stale || Boolean(busyId)}
                     onclick={() => onResolve?.([live], "approve_once")}
                     >{isBusy
                       ? zh
@@ -448,14 +386,14 @@
                       : copy.handoverApproveOnce}</Button
                   >
                   <Button
-                    disabled={stale || isBusy}
+                    disabled={stale || Boolean(busyId)}
                     onclick={() => onResolve?.([live], "reject")}
                     >{copy.handoverReject}</Button
                   >
                 {:else if live?.kind === "decision"}
                   {#each live.options ?? [] as option (option)}
                     <Button
-                      disabled={stale || isBusy}
+                      disabled={stale || Boolean(busyId)}
                       onclick={() => onAnswer?.(live, option)}
                       >{isBusy
                         ? zh
@@ -467,7 +405,7 @@
                 {:else if live?.kind === "plan"}
                   <Button
                     variant="primary"
-                    disabled={stale || isBusy}
+                    disabled={stale || Boolean(busyId)}
                     onclick={() => onPlan?.(live, "accept_edits")}
                     >{isBusy
                       ? zh
@@ -476,7 +414,7 @@
                       : copy.handoverAcceptEditsMode}</Button
                   >
                   <Button
-                    disabled={stale || isBusy}
+                    disabled={stale || Boolean(busyId)}
                     onclick={() => onPlan?.(live, "manual")}
                     >{copy.handoverManualMode}</Button
                   >
@@ -563,6 +501,7 @@
                   <button
                     class="agent-home-work-title"
                     type="button"
+                    disabled={stale}
                     onclick={() => openPlanAndRead(item)}
                     >{notificationTitle(item, zh)}</button
                   >
@@ -570,6 +509,7 @@
                   <button
                     class="agent-home-work-title"
                     type="button"
+                    disabled={stale}
                     onclick={() => openFilesAndRead(item)}
                     >{notificationTitle(item, zh)}</button
                   >
@@ -615,11 +555,14 @@
                 </div>
               {/if}
 
-              {#if item.type === "task-failed" && failureText(item)}
-                <p class="agent-home-handover-stale">{failureText(item)}</p>
+              {#if item.type === "task-failed" && failureLabel(item)}
+                <p class="agent-home-handover-stale">{failureLabel(item)}</p>
               {/if}
 
               <div class="agent-home-work-actions">
+                {#if item.type === "task-result" || item.type === "plan-completed"}
+                  <span class="agent-home-stamp" data-testid="home-stamp"><Check size={12} aria-hidden="true" />{copy.homeStampDone}</span>
+                {/if}
                 {#if item.type === "plan-completed"}
                   <Button
                     variant="text"
@@ -658,6 +601,7 @@
                     <Button
                       variant="text"
                       disabled={stale}
+                      aria-expanded={expandedId === item.id}
                       onclick={() => togglePreview(item)}
                       >{expandedId === item.id
                         ? zh
@@ -680,7 +624,10 @@
                 <Button
                   variant="text"
                   disabled={stale}
-                  onclick={() => dismissWithUndo(item)}
+                  onclick={() => {
+                    if (expandedId === item.id) expandedId = "";
+                    inbox.dismiss(endpoint, item);
+                  }}
                   >{zh ? "收起" : "Dismiss"}</Button
                 >
               </div>
@@ -698,15 +645,7 @@
                     {copy}
                     {onFiles}
                     {onResultFile}
-                    onContinueChat={(sid) => {
-                      void commitRead(item);
-                      void onOpen?.({
-                        sessionId: sid,
-                        channel: payloadText(item, "channel") || undefined,
-                        title: notificationTitle(item, zh),
-                        agentId: item.botId || undefined,
-                      });
-                    }}
+                    onContinueChat={(sid) => void openConversation(item, sid)}
                     onClose={() => {
                       expandedId = "";
                     }}
@@ -746,12 +685,16 @@
       </div>
     {/if}
 
-    {#if undoItem}
-      <div class="agent-home-undo-bar" role="status" aria-live="polite">
-        <span>{zh ? "已收起一条动态" : "Dismissed one item"}</span>
-        <Button variant="text" onclick={undoDismiss}
-          >{zh ? "撤销" : "Undo"}</Button
-        >
+    {#if $inbox.undoItems.length}
+      <div class="agent-home-undo-stack">
+        {#each $inbox.undoItems as item (item.id)}
+          <div class="agent-home-undo-bar">
+            <span role="status">{zh ? "已收起" : "Dismissed"} · {notificationTitle(item, zh)}</span>
+            <Button variant="text" onclick={() => inbox.undo(item.id)}
+              >{zh ? "撤销" : "Undo"}</Button
+            >
+          </div>
+        {/each}
       </div>
     {/if}
   </section>

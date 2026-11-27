@@ -28,30 +28,26 @@ test('memory reflection shows the review snapshot and hides empty successful res
   await page.route('**/api/desktop/handover', async route => {
     const response = await route.fetch();
     const payload = await response.json();
-    if (pending > 0) payload.handover.memoryReview = { items: [candidate], hasMore: false, unavailable: false };
+    payload.handover.memoryReview = { items: pending > 0 ? [candidate] : [], pendingReviewCount: pending, hasMore: false, unavailable: false };
     await route.fulfill({ json: payload });
   });
   await openChat(page);
-  const card = page.locator('.agent-home-work-card').filter({ hasText: 'Daily memory reflection' });
-  // The review surface is inline: pending candidates are confirmable right here.
-  const review = page.getByRole('region', { name: 'Worth remembering?', exact: true });
-  await expect(review).toBeVisible();
-  await expect(review).toContainText('Prefer concise conclusions first.');
-  await card.getByRole('button', { name: 'Mark read', exact: true }).click();
-  await expect(card).toHaveCount(0);
+  const entry = page.getByRole('button', { name: 'Open Memory Center', exact: true });
+  await expect(entry).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Updates' })).toContainText('2 new memories to review');
+  await expect(page.getByText('Daily memory reflection', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(candidate.value, { exact: true })).toHaveCount(0);
+  async function reloadHandover() {
+    const refreshed = page.waitForResponse(response => response.url().endsWith('/api/desktop/handover') && response.ok());
+    await page.reload();
+    await refreshed;
+    await expect(page.getByRole('region', { name: 'Momo', exact: true })).toBeVisible();
+  }
   pending = 0;
-  await page.reload();
-  await expect(page.locator('.agent-home')).toBeVisible();
-  await expect(card).toHaveCount(0);
+  await reloadHandover();
+  await expect(entry).toHaveCount(0);
+  await expect(page.getByText('Daily memory reflection', { exact: true })).toHaveCount(0);
   pending = 2;
-  await page.reload();
-  await expect(review).toBeVisible();
-  const unavailable = async (route: import('@playwright/test').Route) => route.fulfill({ status: 503, json: { ok: false, error: 'Simulated service interruption' } });
-  await page.route('**/api/desktop/agent-activity', unavailable);
-  await page.route('**/api/desktop/handover', unavailable);
-  await expect(card.getByRole('button', { name: 'Mark read', exact: true })).toBeDisabled({ timeout: 15_000 });
-  await page.unroute('**/api/desktop/agent-activity', unavailable);
-  await page.unroute('**/api/desktop/handover', unavailable);
-  await expect(card.getByRole('button', { name: 'Mark read', exact: true })).toBeEnabled({ timeout: 10_000 });
-
+  await reloadHandover();
+  await expect(entry).toBeVisible();
 });

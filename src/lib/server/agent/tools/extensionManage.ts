@@ -1,4 +1,4 @@
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getPiExtensionHost } from "$lib/server/plugins/piExtensions/host.js";
 import { installPiExtension, uninstallPiExtension } from "$lib/server/plugins/piExtensions/install.js";
